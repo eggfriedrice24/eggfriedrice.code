@@ -21,6 +21,7 @@ import { View } from "react-native";
 
 import { runningTurn } from "@/lib/stream/reducer";
 import type { Row } from "../model/rows";
+import type { OutboxPrompt } from "../model/screen-outbox";
 import { compareRows, rowsSelectorOf } from "../model/selectors";
 import { JumpToLatest } from "./jump-to-latest";
 import { LoadingLine } from "./loading-line";
@@ -31,12 +32,11 @@ import {
 } from "./transcript-list";
 import { type TranscriptItem, TranscriptRow } from "./transcript-row";
 import { type TranscriptScope, TranscriptScopeContext } from "./use-transcript-scope";
-import type { PendingPrompt } from "./your-message";
 
 export interface TranscriptProps {
   readonly scope: TranscriptScope;
   /** The prompts of the outbox for this conversation that efrd has not echoed yet. */
-  readonly pending?: readonly PendingPrompt[];
+  readonly pending?: readonly OutboxPrompt[];
   readonly insets: TranscriptInsets;
   /** The reader got near the oldest row: fetch older history. */
   readonly onReachTop?: () => void;
@@ -44,7 +44,7 @@ export interface TranscriptProps {
   readonly ref?: Ref<TranscriptListHandle>;
 }
 
-const NO_PENDING: readonly PendingPrompt[] = [];
+const NO_PENDING: readonly OutboxPrompt[] = [];
 
 /** The transcript of one conversation. */
 export function Transcript({ ref, ...props }: TranscriptProps) {
@@ -112,7 +112,7 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
 /** The rows of the stream, then the prompts of the outbox, oldest first. */
 export function transcriptItems(
   rows: readonly Row[],
-  pending: readonly PendingPrompt[],
+  pending: readonly OutboxPrompt[],
 ): TranscriptItem[] {
   const items: TranscriptItem[] = [...rows];
   for (const prompt of pending) {

@@ -3,10 +3,18 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
+import type { Attachment } from "@/lib/protocol/generated";
 import { eventItem, promptQueued, run, turnStarted } from "@/lib/stream/testing";
 
+import { UPLOAD_LOST } from "../model/attachments-format";
+import { testAttach } from "../model/attachments-testing";
+import { CONVERSATION_A, DESKTOP, outboxFile, outboxPrompt } from "../model/outbox-testing";
+import { outboxPrompts } from "../model/screen-outbox";
 import { InScope, testScope } from "./transcript-testing";
 import { PendingPromptRow, PromptRow, YourMessageView } from "./your-message";
+
+const FILE_A = "0f0f0f0f-0000-4000-8000-00000000000a";
+const FILE_B = "0f0f0f0f-0000-4000-8000-00000000000b";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
@@ -145,10 +153,103 @@ describe("the pending prompt row", () => {
     const { scope, calls } = testScope(run([]));
     await render(
       <InScope scope={scope}>
-        <PendingPromptRow prompt={{ key: "cmd-1", text: "Hi", failed: true }} />
+        <PendingPromptRow prompt={outboxPrompt({ key: "cmd-1", text: "Hi", failed: true })} />
       </InScope>,
     );
     await fireEvent.press(screen.getByRole("button", { name: "Send it again" }));
     expect(calls).toEqual([{ action: "resend", key: "cmd-1" }]);
+  });
+
+  it("shows the upload of each file and takes the prompt back with withdraw", async () => {
+    const test = testAttach();
+    const entry = test.outbox.enqueue({
+      machine: DESKTOP,
+      target: { kind: "conversation", conversationId: CONVERSATION_A },
+      text: "Compare it with the spec.",
+      attachments: [
+        { ...outboxFile(FILE_A, 2_400_000, "IMG_2044.jpg"), received: 960_000 },
+        { ...outboxFile(FILE_B, 640_000, "spec.pdf"), kind: "pdf" },
+      ],
+    });
+    const [prompt] = outboxPrompts(test.outbox.store.get(), DESKTOP, CONVERSATION_A);
+    const { scope } = testScope(run([]));
+    await render(
+      <InScope scope={{ ...scope, attach: test }}>
+        {prompt === undefined ? null : <PendingPromptRow prompt={prompt} />}
+      </InScope>,
+    );
+    expect(
+      screen.getByLabelText("Photo, IMG_2044.jpg, 2.4 MB, uploading 40 percent"),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText("PDF, spec.pdf, 640 KB, uploading 0 percent")).toBeOnTheScreen();
+    expect(screen.getByText("sending ·")).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByLabelText("Photo, IMG_2044.jpg, 2.4 MB, uploading 40 percent"),
+    );
+    expect(test.files.looks).toEqual(["file:///caches/IMG_2044.jpg-preview IMG_2044.jpg"]);
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Withdraw the message and its files" }),
+    );
+    expect(test.outbox.store.get().entries).toEqual([]);
+    expect(test.discards).toEqual(["1:a", "1:b"]);
+    expect(entry.attachments).toHaveLength(2);
+  });
+
+  it("says why the upload failed and offers retry and withdraw", async () => {
+    const { scope } = testScope(run([]));
+    const test = testAttach();
+    await render(
+      <InScope scope={{ ...scope, attach: test }}>
+        <PendingPromptRow
+          prompt={outboxPrompt({
+            key: "cmd-1",
+            failed: true,
+            reason: UPLOAD_LOST,
+            withdrawable: true,
+          })}
+        />
+      </InScope>,
+    );
+    expect(screen.getByText(`not sent · ${UPLOAD_LOST} ·`)).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Send it again" })).toBeOnTheScreen();
+    expect(
+      screen.getByRole("button", { name: "Withdraw the message and its files" }),
+    ).toBeOnTheScreen();
+  });
+});
+
+describe("the files of a sent prompt", () => {
+  const shot: Attachment = {
+    id: "a1",
+    name: "shot.png",
+    media_type: "image/png",
+    bytes: 2_100_000,
+    sha256: "00",
+    kind: { kind: "image", width: 3840, height: 2160 },
+    origin: { kind: "path", path: "/home/me/shot.png" },
+    sent: { media_type: "image/jpeg", bytes: 400_000, width: 2000, height: 1125 },
+  };
+
+  it("shows a photo of the terminal as a glyph tile, and a withheld one as a path", async () => {
+    const { scope } = testScope(
+      run([
+        eventItem(1, { ...promptQueued(TURN, "compare @shot.png"), attachments: [shot] }),
+        eventItem(2, {
+          kind: "attachments_withheld",
+          turn_id: TURN,
+          attachments: ["a1"],
+          reason: "refused",
+        }),
+      ]),
+    );
+    await render(
+      <InScope scope={scope}>
+        <PromptRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(
+      screen.getByLabelText("Image, shot.png, 2.1 MB, as a path. The preview is on the machine."),
+    ).toBeOnTheScreen();
+    expect(screen.getByText("As a path", HIDDEN)).toBeOnTheScreen();
   });
 });

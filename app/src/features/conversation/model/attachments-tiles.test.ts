@@ -11,6 +11,7 @@ import {
   promptTiles,
   sameTiles,
   tilesReady,
+  trailingWithFiles,
   type TileView,
 } from "./attachments-tiles";
 import type { OutboxEntry } from "./outbox";
@@ -84,6 +85,26 @@ function line(change: Partial<OutboxEntry>): string[] {
 function none(): undefined {
   return undefined;
 }
+
+describe("the trailing action of a draft with files", () => {
+  const ready = draftTiles([draftFile({ bytes: 48_000 })], LIMITS);
+  const preparing = draftTiles([draftFile({ kind: "photo", bytes: undefined })], LIMITS);
+
+  it("holds Send while a file is not ready, and changes nothing without files", () => {
+    const send = { kind: "send", enabled: true } as const;
+    expect(trailingWithFiles(send, [])).toBe(send);
+    expect(trailingWithFiles(send, ready)).toBe(send);
+    expect(trailingWithFiles(send, preparing)).toEqual({ kind: "send", enabled: false });
+  });
+
+  it("offers only Queue while a turn runs, because a steer takes no file", () => {
+    const steer = { kind: "stop", capsule: "steer" } as const;
+    expect(trailingWithFiles(steer, ready)).toEqual({ kind: "stop", capsule: "queue" });
+    expect(trailingWithFiles(steer, preparing)).toEqual({ kind: "stop", capsule: null });
+    const empty = { kind: "stop", capsule: null } as const;
+    expect(trailingWithFiles(empty, ready)).toBe(empty);
+  });
+});
 
 describe("the tiles of a prompt on its way", () => {
   it("puts the state of the upload in the size line", () => {

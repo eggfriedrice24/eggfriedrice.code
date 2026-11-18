@@ -129,9 +129,15 @@ export const UPLOAD_LOST = "The upload did not arrive.";
 
 /**
  * The VoiceOver label of a tile: the kind, the name, the size and the state, such as
- * "Photo, IMG_2044.jpg, 2.4 MB, uploading 40 percent".
+ * "Photo, IMG_2044.jpg, 2.4 MB, uploading 40 percent". An image from another place says
+ * that its picture is on the machine.
  */
 export function tileLabel(tile: TileText): string {
+  const label = stateLabel(tile);
+  return tile.kind === "image" ? `${label}. The preview is on the machine.` : label;
+}
+
+function stateLabel(tile: TileText): string {
   const parts = [KIND_WORDS[tile.kind], tile.name];
   const size = tile.bytes === undefined ? undefined : byteSize(tile.bytes);
   const state = tile.state;

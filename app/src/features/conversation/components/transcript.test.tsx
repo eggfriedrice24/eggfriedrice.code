@@ -24,6 +24,7 @@ import {
   turnStarted,
 } from "@/lib/stream/testing";
 
+import { outboxPrompt } from "../model/outbox-testing";
 import { Transcript, transcriptItems } from "./transcript";
 import type { TranscriptListHandle } from "./transcript-list";
 import { testScope } from "./transcript-testing";
@@ -260,7 +261,7 @@ describe("the transcript", () => {
       <Transcript
         scope={scope}
         insets={INSETS}
-        pending={[{ key: "cmd-9", text: "Push it.", failed: false }]}
+        pending={[outboxPrompt({ key: "cmd-9", text: "Push it." })]}
       />,
     );
     expect(screen.getByText("sending")).toBeOnTheScreen();
@@ -492,8 +493,7 @@ describe("the handle of the transcript", () => {
 
 describe("transcriptItems", () => {
   it("keys the prompts of the outbox apart from the rows", () => {
-    expect(transcriptItems([], [{ key: "a", text: "x", failed: true }])).toEqual([
-      { kind: "pending", key: "o:a", prompt: { key: "a", text: "x", failed: true } },
-    ]);
+    const prompt = outboxPrompt({ key: "a", text: "x", failed: true });
+    expect(transcriptItems([], [prompt])).toEqual([{ kind: "pending", key: "o:a", prompt }]);
   });
 });

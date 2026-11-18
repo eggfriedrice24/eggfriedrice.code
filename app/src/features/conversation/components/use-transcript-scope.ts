@@ -8,6 +8,7 @@ import { createContext, use } from "react";
 import type { HostInstance } from "react-native";
 
 import type { StreamState, UserQuestionView } from "@/lib/stream/reducer";
+import type { AppAttach } from "@/features/navigation/model/app-services";
 import type { DraftKey } from "../model/drafts";
 import type { ModelChoicesState } from "../model/model-choices";
 import type { RowUiStore } from "../model/row-ui-state";
@@ -59,6 +60,11 @@ export interface TranscriptScope {
   readonly choice?: ScopeChoice;
   /** The answers to the questions of the model; none: the rows take no tap (S-Ask 4). */
   readonly questions?: ScopeQuestions;
+  /**
+   * The files of the prompts: the previews and Quick Look of their photos, and the
+   * withdraw of a prompt on its way. None in a build without them.
+   */
+  readonly attach?: AppAttach | null;
 }
 
 /** What the row of a question of the model needs from the screen. */

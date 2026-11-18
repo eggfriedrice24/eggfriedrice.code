@@ -45,6 +45,7 @@ import {
 import {
   useDrafts,
   useAppLock,
+  useAttach,
   useModelChoices,
   useOutbox,
   usePreferences,
@@ -128,6 +129,7 @@ function ConversationView(props: ConversationViewProps) {
   const preferences = usePreferences();
   const modelChoices = useModelChoices();
   const appLock = useAppLock();
+  const attach = useAttach();
   const route = useRouteConversation(machine, props.routeId, props.focus);
   const ref: ConversationRef = { machine, id: route.id };
   const list = useRef<TranscriptListHandle>(null);
@@ -186,6 +188,7 @@ function ConversationView(props: ConversationViewProps) {
     modelChoices,
     newCommandId,
     lock: appLock,
+    attach,
   };
   const openModels = (select?: { readonly model: string; readonly provider?: string }): void => {
     const sheet: { -readonly [K in keyof ModelSheetTarget]: ModelSheetTarget[K] } = {
@@ -218,6 +221,7 @@ function ConversationView(props: ConversationViewProps) {
     rowUi: held.rowUi,
     machineName,
     actions,
+    attach,
     choice: { store: modelChoices.store, key: composerDraftKey(target) },
     questions: {
       open: answers.open,

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { CONVERSATION_A, DESKTOP, LAPTOP, testOutbox } from "./outbox-testing";
+import { UPLOAD_LOST } from "./attachments-format";
+import {
+  CONVERSATION_A,
+  DESKTOP,
+  LAPTOP,
+  outboxFile,
+  outboxPrompt,
+  testOutbox,
+} from "./outbox-testing";
 import { followAlias, outboxPrompts, routeConversation, sameOutboxPrompts } from "./screen-outbox";
 
 const TURN = "019a9b1c-3d00-7a10-8b20-0000000000c1";
@@ -51,10 +59,37 @@ describe("outboxPrompts", () => {
   });
 
   it("compares two lists by what they show", () => {
-    const a = [{ key: "k", text: "t", failed: false }];
-    expect(sameOutboxPrompts(a, [{ key: "k", text: "t", failed: false }])).toBe(true);
-    expect(sameOutboxPrompts(a, [{ key: "k", text: "t", failed: true }])).toBe(false);
+    const a = [outboxPrompt({})];
+    expect(sameOutboxPrompts(a, [outboxPrompt({})])).toBe(true);
+    expect(sameOutboxPrompts(a, [outboxPrompt({ failed: true })])).toBe(false);
+    expect(sameOutboxPrompts(a, [outboxPrompt({ withdrawable: true })])).toBe(false);
     expect(sameOutboxPrompts(a, [])).toBe(false);
+  });
+
+  it("shows the upload of each file, and the withdraw until the send goes", () => {
+    const { outbox } = testOutbox();
+    const file = outboxFile("0f0f0f0f-0000-4000-8000-00000000000a", 10);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: { kind: "conversation", conversationId: CONVERSATION_A },
+      text: "look",
+      attachments: [file],
+    });
+    const shown = () => outboxPrompts(outbox.store.get(), DESKTOP, CONVERSATION_A)[0];
+    expect(shown()).toMatchObject({
+      withdrawable: true,
+      tiles: [{ state: { kind: "uploading" } }],
+    });
+    outbox.begin(entry.commandId);
+    outbox.progress(entry.commandId, file.uploadId, 10, true);
+    expect(shown()).toMatchObject({ withdrawable: false, tiles: [{ state: { kind: "size" } }] });
+    outbox.fail(entry.commandId, { code: "upload", message: UPLOAD_LOST });
+    expect(shown()).toMatchObject({
+      failed: true,
+      reason: UPLOAD_LOST,
+      withdrawable: true,
+      tiles: [{ state: { kind: "not_sent" } }],
+    });
   });
 });
 

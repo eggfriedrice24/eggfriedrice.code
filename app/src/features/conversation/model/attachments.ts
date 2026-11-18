@@ -16,9 +16,10 @@
 
 import { createStore, type Readable } from "@tanstack/store";
 
-import type { DaemonId, UploadId } from "@/lib/protocol/generated";
+import type { AttachmentLimits, DaemonId, UploadId } from "@/lib/protocol/generated";
 import type { KeyValueStorage } from "@/lib/store/key-value";
-import type { PreparedImage } from "../../../../modules/efr-files";
+import type { MachineConnection } from "@/features/machines/model/machine-connection";
+import type { EfrFilesNative } from "../../../../modules/efr-files";
 import { savedPreviewsSchema } from "./attachments-schemas";
 import { fitName } from "./attachments-format";
 import type { DraftKey } from "./drafts";
@@ -74,6 +75,12 @@ export interface SentPreviews {
 
 const NO_FILES: readonly DraftAttachment[] = [];
 
+/** The attachments of a build without the pickers: no draft files and no previews. */
+export const NO_ATTACHMENTS: Readable<AttachmentsState> = createStore<AttachmentsState>({
+  drafts: new Map(),
+  previews: new Map(),
+});
+
 /** The files of the draft of `key`, for `useSelector`. */
 export function selectDraftFiles(
   key: DraftKey,
@@ -87,6 +94,34 @@ export function selectPreview(
   index: number,
 ): (state: AttachmentsState) => string | undefined {
   return (state) => state.previews.get(commandId)?.uris[index] ?? undefined;
+}
+
+/**
+ * The limits of the attachments of efrd on a ready connection (the capability
+ * `attachments`), or undefined: not ready, or an efrd that takes no attachments.
+ */
+export function attachmentLimits(connection: MachineConnection): AttachmentLimits | undefined {
+  const client = connection.client;
+  return client.state === "ready"
+    ? (client.hello.capabilities?.attachments ?? undefined)
+    : undefined;
+}
+
+/**
+ * A selector of the limits from the connection atom of a supervisor, for `useSelector`.
+ * It keeps the limits of the last ready connection while the link opens again, so the
+ * plus does not go and come back at each reconnect. Each composer makes its own.
+ */
+export function createLimitsSelector(): (
+  connection: MachineConnection,
+) => AttachmentLimits | undefined {
+  let last: AttachmentLimits | undefined;
+  return (connection) => {
+    if (connection.client.state === "ready") {
+      last = attachmentLimits(connection);
+    }
+    return last;
+  };
 }
 
 /** The name of a photo after efr-files made it a JPEG: `IMG_2041.HEIC` is `IMG_2041.jpg`. */
@@ -125,10 +160,16 @@ export function outboxFiles(files: readonly DraftAttachment[]): OutboxAttachment
 }
 
 /** What the attachments need of efr-files. */
-export interface AttachFiles {
-  prepareImage(uri: string, maxEdge: number, quality: number): Promise<PreparedImage>;
-  fileInfo(uri: string): Promise<{ readonly bytes: number }>;
-  remove(uri: string): Promise<void>;
+export type AttachFiles = Pick<EfrFilesNative, "prepareImage" | "fileInfo" | "remove">;
+
+/** Where the plus of the composer gets a file. */
+export type AttachSource = "photos" | "camera" | "files";
+
+/** The pickers of iOS and efr-files (native/attach.ts). */
+export interface AttachNative {
+  readonly files: EfrFilesNative;
+  /** The files that the user picked in `source`, at most `limit`; none on a cancel. */
+  pick(source: AttachSource, limit: number): Promise<PickedFile[]>;
 }
 
 /** What the attachments need from the app. */

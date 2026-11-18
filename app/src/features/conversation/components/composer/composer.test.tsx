@@ -11,14 +11,16 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
-import type { ModelsListResult } from "@/lib/protocol/generated";
+import { remoteHello } from "@/lib/net/testing";
+import type { AttachmentLimits, ModelsListResult } from "@/lib/protocol/generated";
 import { FakeCaller } from "@/lib/query/testing";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { StreamState } from "@/lib/stream/reducer";
 import { eventItem, promptQueued, run, turnCompleted, turnStarted } from "@/lib/stream/testing";
-import { RADII, SPACING } from "@/theme/metrics";
+import { RADII, SPACING, TILE } from "@/theme/metrics";
 import { roles } from "@/theme/roles";
 
+import { testAttach, type TestAttach } from "../../model/attachments-testing";
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";
 import { createModelChoices, type ModelChoice, type ModelChoices } from "../../model/model-choices";
@@ -133,7 +135,17 @@ interface Setup {
   readonly rest?: boolean;
   /** The question of the model that Send answers (S-Ask 3). */
   readonly answering?: ComposerAnswer;
+  /** The pickers and the files; with them efrd sends the capability `attachments`. */
+  readonly attach?: (outbox: Outbox) => TestAttach;
 }
+
+/** The limits of the capability `attachments` of the test efrd. */
+const LIMITS: AttachmentLimits = {
+  chunk_bytes: 524_288,
+  max_edge_px: 2000,
+  max_file_bytes: 20 * 1024 * 1024,
+  max_per_message: 10,
+};
 
 /** A Face ID unlock that is open, or off. */
 function lockState(on: boolean): LockState {
@@ -154,8 +166,16 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
     modelChoices.set(composerDraftKey(target), setup.choice);
   }
   const opened = { count: 0 };
+  const attach = setup.attach?.(outbox);
   const connection = createAtom<MachineConnection>({
-    client: { state: "off" },
+    client:
+      attach === undefined
+        ? { state: "off" }
+        : {
+            state: "ready",
+            hello: remoteHello({ capabilities: { attachments: LIMITS } }),
+            scopes: ["read", "operate"],
+          },
     view: setup.view ?? ONLINE,
     seenAt: undefined,
   });
@@ -173,6 +193,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       store: createStore(lockState(setup.lockOn === true)),
       facts: () => Promise.resolve(DEFAULT_FACTS),
     },
+    attach: attach ?? null,
   };
   const sent: OutboxEntry[] = [];
   // No garbage collection timer, so jest ends when the tests do.
@@ -318,14 +339,16 @@ describe("the states of the composer", () => {
   });
 
   it.each([true, false])(
-    "has the attach button at the left and the voice button before Send, both off (rest: %s)",
+    "has the plus at the left and the voice button before Send (rest: %s)",
     async (rest) => {
-      await renderComposer({ rest });
-      const attach = screen.getByRole("button", { name: "Attach a file or image" });
+      await renderComposer({ rest, attach: testAttach });
+      const attach = screen.getByRole("button", { name: "Attach" });
       const voice = screen.getByRole("button", { name: "Record a voice message" });
+      expect(attach).toBeEnabled();
+      expect(attach.props.accessibilityHint).toBe("Photo Library, Take Photo or Choose File.");
+      expect(voice).toBeDisabled();
+      expect(voice.props.accessibilityHint).toBe("Not available yet.");
       for (const button of [attach, voice]) {
-        expect(button).toBeDisabled();
-        expect(button.props.accessibilityHint).toBe("Not available yet.");
         expect(button.props.className).toContain("w-action h-action");
         expect(button.props.hitSlop).toBe((SPACING.hit - SPACING.action) / 2);
       }
@@ -333,6 +356,12 @@ describe("the states of the composer", () => {
       expect(sendButton()).toBeOnTheScreen();
     },
   );
+
+  it("has no plus and nothing in its place without the pickers or the capability", async () => {
+    await renderComposer();
+    expect(screen.queryByTestId("composer-attach")).toBeNull();
+    expect(screen.getByRole("button", { name: "Record a voice message" })).toBeOnTheScreen();
+  });
 
   it("enables Send while typing, and the field grows to six lines", async () => {
     await renderComposer();
@@ -349,7 +378,12 @@ describe("the states of the composer", () => {
   });
 
   it("rests as a one-line pill without focus, and grows to the full composer on focus", async () => {
-    await renderComposer({ stream: endedStream(), rest: true, text: "Line one\nLine two" });
+    await renderComposer({
+      stream: endedStream(),
+      rest: true,
+      text: "Line one\nLine two",
+      attach: testAttach,
+    });
     // At rest: no status line, a one-line field that does not scroll, the action stays.
     expect(screen.queryByTestId("composer-status-line")).toBeNull();
     expect(input().props.className).toContain("min-h-field max-h-field");
@@ -890,5 +924,175 @@ describe("the answer state of the composer (S-Ask 3)", () => {
     await renderComposer({ answering: answering([], left, { text: "maybe" }) });
     await fireEvent.press(screen.getByRole("button", { name: "Leave the answer" }));
     expect(left.count).toBe(1);
+  });
+});
+
+/** The attachments of a test composer, kept so the test can prepare and pick. */
+function withAttach(): {
+  readonly make: (outbox: Outbox) => TestAttach;
+  readonly get: () => TestAttach;
+} {
+  let made: TestAttach | undefined;
+  return {
+    make: (outbox) => {
+      made = testAttach(outbox);
+      return made;
+    },
+    get: () => {
+      if (made === undefined) {
+        throw new Error("the composer made no attachments");
+      }
+      return made;
+    },
+  };
+}
+
+/** Picks `files` in the picker of `source` through the plus menu. */
+async function pick(test: TestAttach, source: string, files: TestAttach["picks"]): Promise<void> {
+  test.picks.push(...files);
+  await fireEvent(screen.getByTestId("composer-attach-menu"), "pressAction", {
+    nativeEvent: { event: source },
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+describe("the files of the draft (S-Attach)", () => {
+  it("opens the native menu of the plus with the three ways in, in the order of the board", async () => {
+    await renderComposer({ attach: testAttach });
+    const menu = screen.getByTestId("composer-attach-menu");
+    expect(menu.props.shouldOpenOnLongPress).toBe(false);
+    expect(
+      menu.props.actions.map((action: { id: string; title: string; image: string }) => [
+        action.id,
+        action.title,
+        action.image,
+      ]),
+    ).toEqual([
+      ["photos", "Photo Library", "photo.on.rectangle"],
+      ["camera", "Take Photo", "camera"],
+      ["files", "Choose File", "folder"],
+    ]);
+  });
+
+  it("puts the picked files in one row, keeps Send off while a photo prepares and with no text", async () => {
+    const attach = withAttach();
+    await renderComposer({ attach: attach.make });
+    const test = attach.get();
+    await pick(test, "photos", [
+      { kind: "photo", uri: "file:///caches/IMG_1.HEIC", name: "IMG_1.HEIC" },
+    ]);
+    expect(test.picked).toEqual(["photos 10"]);
+    expect(screen.getByLabelText("Photo, IMG_1.jpg, preparing")).toBeOnTheScreen();
+    await fireEvent.changeText(input(), "Why is the header cut off?");
+    expect(sendButton()).toBeDisabled();
+    await act(async () => {
+      test.files.finish("file:///caches/IMG_1.HEIC");
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Photo, IMG_1.jpg, 1.2 MB")).toBeOnTheScreen();
+    expect(sendButton()).toBeEnabled();
+    await fireEvent.changeText(input(), "");
+    expect(sendButton()).toBeDisabled();
+  });
+
+  it("sends the files with the prompt through the outbox, and the draft is empty after it", async () => {
+    const attach = withAttach();
+    const harness = await renderComposer({ attach: attach.make });
+    const test = attach.get();
+    await pick(test, "files", [
+      { kind: "pdf", uri: "file:///caches/report.pdf", name: "report.pdf", bytes: 3_400_000 },
+    ]);
+    await fireEvent.changeText(input(), "Do the numbers match?");
+    await fireEvent.press(sendButton());
+    const entry = harness.outbox.store.get().entries[0];
+    expect(entry?.attachments).toEqual([
+      expect.objectContaining({ kind: "pdf", name: "report.pdf", bytes: 3_400_000, received: 0 }),
+    ]);
+    expect(screen.queryByTestId("composer-attachments")).toBeNull();
+  });
+
+  it("removes a tile with its xmark, and names the file in its label", async () => {
+    const attach = withAttach();
+    await renderComposer({ attach: attach.make });
+    const test = attach.get();
+    await pick(test, "files", [
+      { kind: "file", uri: "file:///caches/data.csv", name: "data.csv", bytes: 48_000 },
+    ]);
+    const remove = screen.getByRole("button", { name: "Remove data.csv" });
+    expect(remove.props.hitSlop).toBe((SPACING.hit - TILE.mark) / 2);
+    await fireEvent.press(remove);
+    expect(screen.queryByTestId("composer-attachments")).toBeNull();
+    expect(test.files.removed).toEqual(["file:///caches/data.csv"]);
+  });
+
+  it("offers Quick Look and Remove on a long press of a photo, and only Remove for a file", async () => {
+    const attach = withAttach();
+    await renderComposer({ attach: attach.make });
+    const test = attach.get();
+    await pick(test, "photos", [{ kind: "photo", uri: "file:///caches/P.HEIC", name: "P.HEIC" }]);
+    await act(async () => {
+      test.files.finish("file:///caches/P.HEIC");
+      await Promise.resolve();
+    });
+    await pick(test, "files", [
+      { kind: "file", uri: "file:///caches/a.txt", name: "a.txt", bytes: 3 },
+    ]);
+    const [photoMenu, fileMenu] = screen.getAllByTestId(/^attachment-menu-/);
+    const ids = (menu: typeof photoMenu) =>
+      menu?.props.actions.map((action: { id: string }) => action.id);
+    expect(ids(photoMenu)).toEqual(["look", "remove"]);
+    expect(ids(fileMenu)).toEqual(["remove"]);
+    expect(photoMenu?.props.shouldOpenOnLongPress).toBe(true);
+    if (photoMenu !== undefined) {
+      await fireEvent(photoMenu, "pressAction", { nativeEvent: { event: "look" } });
+    }
+    expect(test.files.looks).toEqual(["file:///caches/P.HEIC.jpg P.jpg"]);
+  });
+
+  it("names a file over the limit under the row and keeps Send off", async () => {
+    const attach = withAttach();
+    await renderComposer({ attach: attach.make, text: "Why does it crash?" });
+    await pick(attach.get(), "files", [
+      { kind: "file", uri: "file:///caches/logs.zip", name: "logs.zip", bytes: 34_000_000 },
+    ]);
+    expect(screen.getByText("logs.zip is 34 MB. The limit is 20 MB.")).toBeOnTheScreen();
+    expect(screen.getByLabelText("File, logs.zip, 34 MB. The limit is 20 MB.")).toBeOnTheScreen();
+    expect(sendButton()).toBeDisabled();
+  });
+
+  it("turns the plus off at the limit of efrd", async () => {
+    const attach = withAttach();
+    await renderComposer({ attach: attach.make });
+    const files = Array.from({ length: LIMITS.max_per_message }, (_, i) => ({
+      kind: "file" as const,
+      uri: `file:///caches/${i}.txt`,
+      name: `${i}.txt`,
+      bytes: 1,
+    }));
+    await pick(attach.get(), "files", files);
+    const plus = screen.getByRole("button", { name: "Attach" });
+    expect(plus).toBeDisabled();
+    expect(plus.props.accessibilityHint).toBe("10 attachments is the limit.");
+    expect(screen.queryByTestId("composer-attach-menu")).toBeNull();
+  });
+
+  it("offers only Queue, with no menu, while a turn runs and the draft holds a file", async () => {
+    const attach = withAttach();
+    const harness = await renderComposer({
+      attach: attach.make,
+      runningTurnId: "t1",
+      text: "And the footer",
+    });
+    await pick(attach.get(), "files", [
+      { kind: "file", uri: "file:///caches/a.txt", name: "a.txt", bytes: 3 },
+    ]);
+    const capsule = screen.getByRole("button", { name: "Queue" });
+    expect(capsule.props.accessibilityHint).toBe("A steer takes no attachment.");
+    expect(screen.queryByTestId("composer-send-mode")).toBeNull();
+    await fireEvent.press(capsule);
+    expect(harness.caller.callsOf("turn.steer")).toHaveLength(0);
+    expect(harness.outbox.store.get().entries[0]?.attachments).toHaveLength(1);
   });
 });

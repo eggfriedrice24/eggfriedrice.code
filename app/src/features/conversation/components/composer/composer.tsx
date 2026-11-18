@@ -8,8 +8,9 @@
 //       <ComposerModeButton ... />             the mode control, then
 //       <ComposerModelButton ... />            the model button at its end
 //     </Composer.StatusLine>
-//     <Composer.Body>                          at rest one row, focused a column:
-//       attach (slot B, off for now)
+//     <Composer.Body>                          the tiles of the draft over the field, then
+//                                              at rest one row, focused a column:
+//       attach (slot B, the plus menu)
 //       <Composer.Input />                     slot C: reads its own draft
 //       voice (off for now)
 //       <Composer.Trailing />                  slot D: Send | Stop | Stop + Steer/Queue | sending
@@ -28,6 +29,7 @@ import type { Readable } from "@tanstack/store";
 import type { StreamState } from "@/lib/stream/reducer";
 
 import { ComposerAnswerHint, ComposerAnswerRow } from "./composer-answer-row";
+import { ComposerAttachments } from "./composer-attachments";
 import { ComposerSizeContext } from "./composer-context";
 import { ComposerInput } from "./composer-input";
 import { ComposerAttachButton, ComposerVoiceButton } from "./composer-media-buttons";
@@ -54,6 +56,7 @@ export function ComposerBody() {
   const { expanded } = use(ComposerSizeContext);
   return (
     <>
+      <ComposerAttachments />
       <View className={expanded ? "pb-4" : "flex-row items-end gap-8 px-8 py-4"}>
         {expanded ? null : <ComposerAttachButton />}
         <ComposerInput />

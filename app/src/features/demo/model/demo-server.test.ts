@@ -317,6 +317,46 @@ describe("the demo server", () => {
     services.dispose();
   });
 
+  it("takes the files of a prompt as efrd does, and echoes them with the prompt", async () => {
+    const { clock, server, services } = await sandbox(["desktop"]);
+    server.stage(STAGES.machines);
+    const desktop = demoMachine("desktop").daemonId;
+    const upload = server.newId();
+    const params = {
+      command_id: server.newId(),
+      text: "look",
+      new_conversation: true,
+      attachments: [upload],
+    };
+    const early = services.runtime
+      .call(desktop, "prompt.send", params)
+      .catch((error: unknown) => error);
+    await clock.advance(1);
+    expect(await early).toMatchObject({
+      body: { code: "not_found", data: { missing_uploads: [upload] } },
+    });
+    const put = services.runtime.call(desktop, "attachment.put", {
+      upload_id: upload,
+      name: "IMG_1.jpg",
+      total_bytes: 3,
+      offset: 0,
+      data: "AAAA",
+    });
+    await clock.advance(1);
+    expect((await put).upload?.kind).toEqual({ kind: "image", width: 2000, height: 1500 });
+    const sending = services.runtime.call(desktop, "prompt.send", params);
+    await clock.advance(1);
+    const sent = await sending;
+    const hold = services.runtime.hold({ machine: desktop, id: sent.conversation_id }, "follow");
+    await clock.advance(1000);
+    const prompt = hold?.stream.latest().turns.get(sent.turn_id)?.prompt;
+    expect(prompt?.attachments).toEqual([
+      expect.objectContaining({ id: "a1", name: "IMG_1.jpg", origin: { kind: "phone" } }),
+    ]);
+    hold?.release();
+    services.dispose();
+  });
+
   it("steers, stops and takes back prompts of a running turn", async () => {
     const { clock, server, services } = await sandbox(["desktop"]);
     const ref = server.stage(STAGES.streaming).get("streaming");

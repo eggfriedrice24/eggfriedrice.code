@@ -129,6 +129,26 @@ describe("toolStatus", () => {
     expect(toolStatus(read, false, 0)).toEqual({ kind: "done", detail: "3 lines" });
   });
 
+  it("gives the size of an image that a read gave the model (S-Attach 7)", () => {
+    const read = call({
+      tool: "read_file",
+      done: true,
+      output: "the image docs/shot.png",
+      attachments: [
+        {
+          id: "a1",
+          name: "shot.png",
+          media_type: "image/png",
+          bytes: 2_180_000,
+          sha256: "00",
+          kind: { kind: "image", width: 1920, height: 1080 },
+          origin: { kind: "tool", path: "/home/me/docs/shot.png" },
+        },
+      ],
+    });
+    expect(toolStatus(read, false, 0)).toEqual({ kind: "done", detail: "image 1920x1080" });
+  });
+
   it("always has a number or a word next to the glyph", () => {
     expect(toolStatus(call({ done: true, startedAt: undefined }), false, 0)).toEqual({
       kind: "done",

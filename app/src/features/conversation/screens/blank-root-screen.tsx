@@ -31,6 +31,7 @@ import { modelSheetHref } from "@/features/navigation/model/routes";
 import {
   useDrafts,
   useAppLock,
+  useAttach,
   useModelChoices,
   useOutbox,
   usePreferences,
@@ -80,6 +81,7 @@ function BlankRoot(props: BlankRootProps) {
   const preferences = usePreferences();
   const modelChoices = useModelChoices();
   const appLock = useAppLock();
+  const attach = useAttach();
   const router = useRouter();
   const open = useOpenConversation();
   const top = useHeaderHeight();
@@ -94,6 +96,7 @@ function BlankRoot(props: BlankRootProps) {
     modelChoices,
     newCommandId,
     lock: appLock,
+    attach,
   };
   const target: ComposerTarget = { machine: machine.id, id: localId, isBlankRoot: true };
   // The shell block shows the mode of the mode control (round 7, item 8).

@@ -7,14 +7,33 @@
 // auto when the mode of this conversation is auto AND the Face ID unlock of the app is on.
 // The unlock is the check, so Send asks nothing more. With the unlock off the mode is
 // cautious. A steer names no mode.
+//
+// The files of the draft (S-Attach): the plus shows when the build has the pickers and
+// efrd sent the capability `attachments`. A draft with a file that is not ready sends
+// nothing, and while a turn runs it only queues.
 
 import { useSelector } from "@tanstack/react-store";
 import { createStore, type Readable } from "@tanstack/store";
 import { useState } from "react";
 
 import { devWarn } from "@/lib/dev/dev-warn";
+import type { AttachmentLimits } from "@/lib/protocol/generated";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
+import type { AppAttach } from "@/features/navigation/model/app-services";
 import type { SendMode } from "@/features/settings/model/preferences";
+import {
+  NO_ATTACHMENTS,
+  createLimitsSelector,
+  selectDraftFiles,
+  type AttachSource,
+} from "../../model/attachments";
+import {
+  draftTiles,
+  tilesReady,
+  trailingWithFiles,
+  type TileView,
+} from "../../model/attachments-tiles";
+import type { DraftKey } from "../../model/drafts";
 import {
   composerDraftKey,
   composerEditable,
@@ -32,7 +51,7 @@ import type { OutboxEntry } from "../../model/outbox";
 import { selectLockOn } from "@/features/navigation/model/app-lock";
 import { ANSWER_PLACEHOLDER, answerText } from "../../model/question";
 import { useComposerActions, type ComposerDeps } from "../../use-composer-actions";
-import type { ComposerAnswer, ComposerModel } from "./composer-context";
+import type { ComposerAnswer, ComposerAttach, ComposerModel } from "./composer-context";
 
 /** The typed answer of a composer that answers no question. */
 const NO_ANSWER: Readable<string> = createStore("");
@@ -72,6 +91,12 @@ export function useComposer(options: ComposerOptions): ComposerModel {
   const lockOn = useSelector(deps.lock.store, selectLockOn);
   // NOTE: auto only while the Face ID unlock is on (round 9); the unlock is the check.
   const mode = effectiveMode(stored, lockOn);
+  const [selectLimits] = useState(createLimitsSelector);
+  const limits = useSelector(options.connection, selectLimits);
+  const files = useSelector(
+    deps.attach?.attachments.store ?? NO_ATTACHMENTS,
+    selectDraftFiles(key),
+  );
   const actions = useComposerActions(deps, target, runningTurnId);
   const state = composerState({
     isBlankRoot: target.isBlankRoot,
@@ -81,13 +106,20 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     sending: inFlight !== undefined || actions.steering,
     sendMode,
   });
+  const tiles = draftTiles(files, limits);
+  const attach = composerAttach(deps.attach, key, tiles, limits);
 
   // NOTE: Each send runs before the call of `onSend`. `onSend?.(actions.send(text))` does
   // not send at all when the screen gives no `onSend`, as a conversation screen does.
   const submit = (pickedMode: SendMode): void => {
-    const kind = sendKindOf(state, pickedMode);
+    // A steer takes no file, so a draft with files queues.
+    const kind = sendKindOf(state, tiles.length > 0 ? "queue" : pickedMode);
     if (kind === undefined) {
       devWarn(`the composer of ${target.id} ignores a submit: ${ignoreReason(state)}`);
+      return;
+    }
+    if (!tilesReady(tiles)) {
+      devWarn(`the composer of ${target.id} ignores a submit: a file is not ready`);
       return;
     }
     // A steer names no mode: it joins the turn that runs, in its own mode.
@@ -102,8 +134,10 @@ export function useComposer(options: ComposerOptions): ComposerModel {
 
   const model: ComposerModel = {
     answering: undefined,
+    attach,
+    queueOnly: tiles.length > 0,
     state,
-    trailing: composerTrailing(state),
+    trailing: trailingWithFiles(composerTrailing(state), tiles),
     isBlankRoot: target.isBlankRoot,
     value: state.kind === "sending" ? (inFlight ?? text) : text,
     placeholder: composerPlaceholder(state, {
@@ -145,6 +179,8 @@ export function useComposer(options: ComposerOptions): ComposerModel {
   return {
     ...model,
     answering,
+    attach: undefined,
+    queueOnly: false,
     trailing: answering.sending
       ? { kind: "sending", stop: false }
       : { kind: "send", enabled: answer !== undefined && online },
@@ -158,6 +194,45 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     submit: (): void => {
       if (answer !== undefined && online && !answering.sending) {
         answering.send(answer);
+      }
+    },
+  };
+}
+
+/**
+ * The files of the draft of `key`, or undefined when the plus does not show: no pickers in
+ * the build, or no capability `attachments` of efrd.
+ */
+function composerAttach(
+  attach: AppAttach | null | undefined,
+  key: DraftKey,
+  tiles: readonly TileView[],
+  limits: AttachmentLimits | undefined,
+): ComposerAttach | undefined {
+  if (attach === null || attach === undefined || limits === undefined) {
+    return undefined;
+  }
+  const { native, attachments } = attach;
+  const room = Math.max(0, limits.max_per_message - tiles.length);
+  return {
+    tiles,
+    limits,
+    room,
+    pick: (source: AttachSource): void => {
+      native
+        .pick(source, room)
+        .then((picked) => attachments.add(key, picked, limits.max_edge_px))
+        .catch((error: unknown) => {
+          devWarn(`the picker of ${source} failed: ${String(error)}`);
+        });
+    },
+    remove: (id: string): void => attachments.remove(key, id),
+    quickLook: (id: string): void => {
+      const file = selectDraftFiles(key)(attachments.store.get()).find((held) => held.id === id);
+      if (file !== undefined) {
+        native.files.quickLook(file.uri, file.name).catch((error: unknown) => {
+          devWarn(`Quick Look of ${file.name} failed: ${String(error)}`);
+        });
       }
     },
   };

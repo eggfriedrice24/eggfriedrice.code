@@ -253,8 +253,8 @@ the send button. Tap it to write: it grows to the full composer, with the status
 on top and room for 6 lines. When you tap the transcript or close the keyboard, it
 becomes a pill again and keeps your text.
 
-The plus button at the left (attach a file or an image) and the microphone before the
-send button (record a voice message) are off for now. A later release turns them on.
+The microphone before the send button (record a voice message) is off for now. A later
+release turns it on.
 
 The status line shows the directory and how full the context of the model is, such as `ctx 42%`. It shows
 "waiting for you" while a question of this conversation waits, and "reconnecting" while
@@ -281,6 +281,46 @@ A prompt shows at once, with "sending", until efrd has it. When the connection s
 or when iOS closes the app, the app sends the prompt again later. efrd runs it only
 once. Send is off while the machine is offline. The app keeps the draft of each
 conversation.
+
+### Attach photos and files
+
+The plus button at the left of the composer attaches files to the prompt. It shows
+only when the efrd of the machine takes attachments (efrd 0.0.13 or later, with
+`attachments.enabled` on). A tap opens a menu:
+
+- Photo Library: the photo picker of iOS. It asks for no permission, and it shows only
+  the photos that you pick. You can pick more than one.
+- Take Photo: the camera. iOS asks once if efr can use the camera.
+- Choose File: the file picker of iOS, for a PDF or any other file, also from iCloud
+  Drive.
+
+Each file is a tile in one row above the field: a photo shows its picture, and a file
+shows its icon. Under the tile are the name and the size. The row scrolls sideways when
+it is full. The xmark at the top right of a tile removes it. Touch and hold a photo for
+Quick Look and Remove.
+
+The phone makes a photo into a JPEG whose longer edge is at most `attachments.max_edge_px`
+(2000 px by default), with no EXIF data, so no GPS position leaves the phone. The tile
+says "Preparing" while it does that. A file over `attachments.max_file_mib` shows the
+limit under the row, and Send is off until you remove it. A prompt takes at most
+`attachments.max_per_message` files; then the plus is off. A prompt needs text, also
+with files. The files of a draft stay while the app runs; only its text stays after
+iOS ends the app.
+
+The files upload when you send. The prompt on its way shows the tiles with the
+progress of each file, such as "40%", and "withdraw" takes the prompt and its files back
+until the files are all on the machine. When iOS stops the app, the tile says "Waiting",
+and the upload goes on from where it stopped when you open the app again. When efrd lost
+an upload, for example after a restart, the tile says "Uploading again" and the app sends
+the file again, at most 3 times. Then the prompt shows "The upload did not arrive" with
+retry and withdraw.
+
+While a turn runs, a draft with files can only queue: a steer takes no files. In the
+transcript, a tap on a photo of this phone opens it in Quick Look. A file that the
+terminal sent shows its icon: the picture stays on the machine. "As a path" under a file
+means that the model got the path of the file and not its content, such as an image for
+a model that reads no images. When a provider refuses a file, a quiet line says so, and
+efrd sends its path from then on.
 
 ### Pick a model
 
@@ -564,7 +604,7 @@ so a changed app cannot get past them:
 Limits of this version:
 
 - iPhone only. No Android, no iPad layout.
-- No attachments, such as images.
+- No video attachments, and no picture of a file that another device sent.
 - No terminal view of the hidden shell.
 - A dark theme only.
 - The connection is `ws://` inside Tailscale. WireGuard encrypts it, and efrd adds no

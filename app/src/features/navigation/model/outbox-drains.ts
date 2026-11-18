@@ -5,6 +5,8 @@
 //   read the entries of the last launch, so the old prompts go first and in order.
 // - It stops when the connection goes down. A prompt in flight still ends.
 // - A machine that the user pairs gets a drain; a machine that the user forgets loses it.
+// - In a build with efr-files, a drain uploads the files of a prompt on the connection of
+//   its machine, with the chunk size that the capability `attachments` of efrd gives.
 //
 // - A dev build logs a prompt that waits while its drain does not run, with the reason,
 //   so the Metro log tells why it did not go.
@@ -14,8 +16,15 @@
 import { DEV_WARNINGS, devWarn } from "@/lib/dev/dev-warn";
 import type { Clock } from "@/lib/net/clock";
 import type { PromptSend, PromptSendResult } from "@/lib/protocol/generated";
-import { createOutboxDrain, type OutboxDrain } from "@/features/conversation/model/outbox-drain";
-import type { Outbox } from "@/features/conversation/model/outbox";
+import { attachmentLimits } from "@/features/conversation/model/attachments";
+import {
+  createOutboxDrain,
+  type OutboxDrain,
+  type OutboxDrainOptions,
+  type OutboxUploads,
+} from "@/features/conversation/model/outbox-drain";
+import type { Outbox, OutboxEntry } from "@/features/conversation/model/outbox";
+import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import type { Runtime } from "@/features/machines/model/runtime";
 
@@ -30,6 +39,28 @@ export interface OutboxDrainsDeps {
   readonly random: () => number;
   /** True while an entry may go out in auto: the Face ID unlock is on. */
   readonly autoAllowed: () => boolean;
+  /** Reads a chunk of a file to upload; none in a build without efr-files. */
+  readonly readChunk?: OutboxUploads["readChunk"];
+  /** Called after efrd took an entry. */
+  readonly onSent?: (entry: OutboxEntry) => void;
+}
+
+/** The uploads of the files of a prompt on the connection of `machine`. */
+function machineUploads(
+  runtime: OutboxDrainsDeps["runtime"],
+  machine: MachineId,
+  connection: () => MachineConnection,
+  readChunk: OutboxUploads["readChunk"],
+): OutboxUploads {
+  return {
+    chunkBytes: () => attachmentLimits(connection())?.chunk_bytes,
+    put: (params) => runtime.call(machine, "attachment.put", params),
+    discard: (uploadId) => {
+      // NOTE: an upload that efrd keeps after a lost discard ends with its life.
+      runtime.call(machine, "attachment.discard", { upload_id: uploadId }).catch(() => undefined);
+    },
+    readChunk,
+  };
 }
 
 interface MachineDrain {
@@ -58,7 +89,7 @@ export function wireOutboxDrains(deps: OutboxDrainsDeps): () => void {
     if (supervisor === undefined) {
       return;
     }
-    const drain = createOutboxDrain({
+    const options: { -readonly [K in keyof OutboxDrainOptions]: OutboxDrainOptions[K] } = {
       outbox,
       machine,
       send: (params: PromptSend): Promise<PromptSendResult> =>
@@ -66,7 +97,19 @@ export function wireOutboxDrains(deps: OutboxDrainsDeps): () => void {
       clock: deps.clock,
       random: deps.random,
       autoAllowed: deps.autoAllowed,
-    });
+    };
+    if (deps.readChunk !== undefined) {
+      options.uploads = machineUploads(
+        runtime,
+        machine,
+        () => supervisor.connection.get(),
+        deps.readChunk,
+      );
+    }
+    if (deps.onSent !== undefined) {
+      options.onSent = deps.onSent;
+    }
+    const drain = createOutboxDrain(options);
     const isOnline = (): boolean => supervisor.connection.get().view.kind === "online";
     const entry: MachineDrain = {
       drain,

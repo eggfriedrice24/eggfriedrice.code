@@ -7,6 +7,10 @@
 //   accent_ui.
 // - Sending (the outbox has it, efrd has not echoed it yet): the tag "sending" with the
 //   braille cell of the network. Not sent: "not sent · retry".
+// - The files of a prompt stand under its text as the tile row of the composer, with no
+//   xmark (board S-Attach 6). A tap on a photo of this phone opens Quick Look. A prompt
+//   with files on its way shows the upload in each tile and offers withdraw until its
+//   `prompt.send` goes; a failed upload says so in the tag.
 // - A long press opens Copy and Edit and resend.
 
 import { useSelector } from "@tanstack/react-store";
@@ -17,11 +21,17 @@ import { cn } from "@/components/ui/cn";
 import { MenuView } from "@/components/ui/menu-view";
 import { MonoText } from "@/components/ui/mono-text";
 import { PlainButton } from "@/components/ui/plain-button";
+import { devWarn } from "@/lib/dev/dev-warn";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
+import type { AppAttach } from "@/features/navigation/model/app-services";
+import { NO_ATTACHMENTS } from "../model/attachments";
+import { promptTiles, type TileView } from "../model/attachments-tiles";
 import { clockTime } from "../model/durations";
 import { paragraphs } from "../model/paragraphs";
+import type { OutboxPrompt } from "../model/screen-outbox";
 import { compareShallow, selectPrompt, selectSteer } from "../model/selectors";
+import { AttachmentRow } from "./attachment-row";
 import { useTranscriptScope } from "./use-transcript-scope";
 
 /** The state of your message, for its tag. */
@@ -32,14 +42,25 @@ export type YourMessageState =
   | { readonly kind: "steering" }
   | { readonly kind: "withdrawn" }
   | { readonly kind: "queued"; readonly onWithdraw: () => void }
-  | { readonly kind: "sending" }
-  | { readonly kind: "failed"; readonly onResend: () => void };
+  /** `onWithdraw` takes back a prompt whose files still upload. */
+  | { readonly kind: "sending"; readonly onWithdraw?: () => void }
+  | {
+      readonly kind: "failed";
+      readonly onResend: () => void;
+      /** Why it failed, such as a lost upload. */
+      readonly reason?: string;
+      readonly onWithdraw?: () => void;
+    };
 
 export interface YourMessageViewProps {
   readonly text: string;
   readonly state: YourMessageState;
   /** Puts the text in the composer again. */
   readonly onEditAndResend: (text: string) => void;
+  /** The files of the prompt. */
+  readonly tiles?: readonly TileView[];
+  /** Quick Look of a photo tile. */
+  readonly onLook?: (tile: TileView) => void;
 }
 
 const MENU = [
@@ -59,9 +80,9 @@ export function tagText(state: YourMessageState): string | undefined {
     case "queued":
       return "queued · sends when this turn ends ·";
     case "sending":
-      return "sending";
+      return state.onWithdraw === undefined ? "sending" : "sending ·";
     case "failed":
-      return "not sent ·";
+      return state.reason === undefined ? "not sent ·" : `not sent · ${state.reason} ·`;
     default:
       return undefined;
   }
@@ -106,6 +127,11 @@ export function YourMessageView(props: YourMessageViewProps) {
               </Text>
             ))}
           </View>
+          {props.tiles === undefined || props.tiles.length === 0 ? null : (
+            <View className="mt-8">
+              <AttachmentRow tiles={props.tiles} onLook={props.onLook} />
+            </View>
+          )}
           {tag === undefined ? null : <Tag state={state} text={tag} />}
         </View>
       </View>
@@ -129,6 +155,16 @@ function Tag(props: { readonly state: YourMessageState; readonly text: string })
       {state.kind === "failed" ? (
         <PlainButton label="retry" accessibilityLabel="Send it again" onPress={state.onResend} />
       ) : null}
+      {(state.kind === "sending" || state.kind === "failed") && state.onWithdraw !== undefined ? (
+        <>
+          {state.kind === "failed" ? <MonoText>·</MonoText> : null}
+          <PlainButton
+            label="withdraw"
+            accessibilityLabel="Withdraw the message and its files"
+            onPress={state.onWithdraw}
+          />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -137,10 +173,25 @@ export interface PromptRowProps {
   readonly turnId: string;
 }
 
+/** Quick Look of a photo tile with its preview. */
+function lookAt(attach: AppAttach | null | undefined, tile: TileView): void {
+  if (attach === null || attach === undefined || tile.previewUri === undefined) {
+    return;
+  }
+  attach.native.files.quickLook(tile.previewUri, tile.name).catch((error: unknown) => {
+    devWarn(`Quick Look of ${tile.name} failed: ${String(error)}`);
+  });
+}
+
 /** The prompt of turn `turnId`. */
 export function PromptRow(props: PromptRowProps) {
   const scope = useTranscriptScope();
   const view = useSelector(scope.store, selectPrompt(props.turnId), { compare: compareShallow });
+  const withheld = useSelector(scope.store, (state) => state.withheld);
+  const commandId = view.prompt?.commandId ?? "";
+  const previews = useSelector(scope.attach?.attachments.store ?? NO_ATTACHMENTS, (state) =>
+    state.previews.get(commandId),
+  );
   if (view.prompt === undefined) {
     return null;
   }
@@ -148,11 +199,14 @@ export function PromptRow(props: PromptRowProps) {
   const state: YourMessageState = view.queued
     ? { kind: "queued", onWithdraw: () => scope.actions.withdraw(turnId) }
     : { kind: "sent" };
+  const tiles = promptTiles(view.prompt, withheld, (index) => previews?.uris[index] ?? undefined);
   return (
     <YourMessageView
       text={view.prompt.text}
       state={state}
       onEditAndResend={scope.actions.editAndResend}
+      tiles={tiles}
+      onLook={(tile) => lookAt(scope.attach, tile)}
     />
   );
 }
@@ -184,30 +238,45 @@ export function SteerRow(props: SteerRowProps) {
   );
 }
 
-/** A prompt in the outbox that efrd has not echoed yet. */
-export interface PendingPrompt {
-  /** The outbox key of the entry (its command id). */
-  readonly key: string;
-  readonly text: string;
-  readonly failed: boolean;
-}
-
 export interface PendingPromptRowProps {
-  readonly prompt: PendingPrompt;
+  readonly prompt: OutboxPrompt;
 }
 
 /** A prompt on its way, from the outbox. */
 export function PendingPromptRow(props: PendingPromptRowProps) {
   const scope = useTranscriptScope();
   const prompt = props.prompt;
-  const state: YourMessageState = prompt.failed
-    ? { kind: "failed", onResend: () => scope.actions.resend(prompt.key) }
-    : { kind: "sending" };
+  const attach = scope.attach;
+  const withdraw =
+    prompt.withdrawable && attach !== null && attach !== undefined
+      ? () => attach.attachments.withdraw(prompt.key)
+      : undefined;
+  let state: YourMessageState;
+  if (prompt.failed) {
+    const failed: { -readonly [K in keyof FailedState]: FailedState[K] } = {
+      kind: "failed",
+      onResend: () => scope.actions.resend(prompt.key),
+    };
+    if (prompt.reason !== undefined) {
+      failed.reason = prompt.reason;
+    }
+    if (withdraw !== undefined) {
+      failed.onWithdraw = withdraw;
+    }
+    state = failed;
+  } else {
+    state =
+      withdraw === undefined ? { kind: "sending" } : { kind: "sending", onWithdraw: withdraw };
+  }
   return (
     <YourMessageView
       text={prompt.text}
       state={state}
       onEditAndResend={scope.actions.editAndResend}
+      tiles={prompt.tiles}
+      onLook={(tile) => lookAt(attach, tile)}
     />
   );
 }
+
+type FailedState = Extract<YourMessageState, { readonly kind: "failed" }>;

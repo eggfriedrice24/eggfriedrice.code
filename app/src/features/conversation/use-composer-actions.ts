@@ -3,6 +3,7 @@
 // - `send` and `queue` put the prompt in the outbox, which sends it with `prompt.send`.
 //   The pending row shows at once, and a dropped socket or a killed app loses nothing. A
 //   prompt while a turn runs waits in the queue of efrd, so `queue` is the same path.
+//   The files of the draft go with the prompt; the drain uploads them first.
 //   The draft goes at once: the outbox holds the text now.
 // - `steer` is the `turn.steer` mutation with `if_late: queue`, in the scope of the
 //   conversation, so a steer that comes after the end of the turn becomes a queued
@@ -22,6 +23,7 @@ import { useSelector } from "@tanstack/react-store";
 
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import { type AppLock, selectLockOn } from "@/features/navigation/model/app-lock";
+import type { AppAttach } from "@/features/navigation/model/app-services";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import {
   interruptMutationOptions,
@@ -30,6 +32,7 @@ import {
   type InterruptInput,
   type SteerInput,
 } from "./conversation-queries";
+import { outboxFiles } from "./model/attachments";
 import { composerDraftKey, conversationIdOf, type ComposerTarget } from "./model/composer-state";
 import type { Drafts } from "./model/drafts";
 import type { ModelChoices } from "./model/model-choices";
@@ -49,13 +52,15 @@ export interface ComposerDeps {
   readonly newCommandId: () => string;
   /** The Face ID unlock of the app: auto from the phone needs it (round 9). */
   readonly lock: Pick<AppLock, "store" | "facts">;
+  /** The pickers and the files of the drafts; null in a build without them. */
+  readonly attach?: AppAttach | null;
 }
 
 /** The actions of one composer. */
 export interface ComposerActions {
-  /** Sends `text` as a prompt through the outbox and clears the draft. */
+  /** Sends `text` and the files of the draft as a prompt through the outbox, and clears the draft. */
   send(text: string): OutboxEntry;
-  /** Queues `text` behind the running turn through the outbox and clears the draft. */
+  /** Queues `text` and the files of the draft behind the running turn, and clears the draft. */
   queue(text: string): OutboxEntry;
   /** Steers the running turn with `text`. The draft goes when efrd took it. */
   steer(text: string): void;
@@ -96,11 +101,15 @@ export function useComposerActions(
 
   const enqueue = (text: string): OutboxEntry => {
     const lockOn = selectLockOn(deps.lock.store.get());
+    // NOTE: the composer takes no submit while a photo is in the work, so `take` gives
+    // the files here.
+    const files = deps.attach?.attachments.take(key) ?? [];
     const entry = sendPrompt(
       { outbox, modelChoices: deps.modelChoices, lockOn },
       list,
       target,
       text,
+      outboxFiles(files),
     );
     drafts.clear(key);
     return entry;

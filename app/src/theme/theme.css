@@ -160,6 +160,11 @@
   font-weight: 600;
 }
 
+@utility text-caption-small {
+  font-size: 11px;
+  line-height: 14px;
+}
+
 @utility text-table {
   font-size: 12.5px;
   line-height: 17px;

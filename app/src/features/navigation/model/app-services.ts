@@ -19,6 +19,9 @@
 // - In a build with expo-notifications, the push service gives each machine the push
 //   token of the switch "Notifications", and the taps on a notice reach the router as
 //   links to their conversation, for the machines that the phone knows.
+// - In a build with efr-files and the pickers, the attachments hold the files of each
+//   draft, the drains upload the files of a prompt, and a sent prompt keeps only the
+//   previews of its photos.
 //
 // Every effect comes in as a parameter, so the services run in Vitest with fakes. The
 // root layout gives the native ones.
@@ -37,6 +40,11 @@ import type { EventCaches } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { SqlDatabase } from "@/lib/store/sqlite-cache";
+import {
+  createAttachments,
+  type AttachNative,
+  type Attachments,
+} from "@/features/conversation/model/attachments";
 import {
   createConversationStream,
   type ConversationStream,
@@ -72,7 +80,7 @@ import { createPush, type Push, type PushNative } from "@/features/settings/mode
 import { createAppLock, type AppLock, type LockPhase } from "./app-lock";
 import type { LinkGate } from "./link-gate";
 import type { NoticeSource, NoticeTaps } from "./notice-taps";
-import { wireOutboxDrains } from "./outbox-drains";
+import { wireOutboxDrains, type OutboxDrainsDeps } from "./outbox-drains";
 import { withOutboxEcho } from "./outbox-echo";
 
 /** The runtime of the app: its streams are the full streams of the conversations. */
@@ -92,6 +100,8 @@ export interface AppServices {
   readonly appLock: AppLock;
   /** The push notices, or null in a build without expo-notifications. */
   readonly push: Push | null;
+  /** The attachments of the composer, or null in a build without efr-files and the pickers. */
+  readonly attach: AppAttach | null;
   /** Settles when the runtime read the paired machines. It never rejects. */
   readonly loaded: Promise<void>;
   /** Stops every connection, drain and listener. */
@@ -142,6 +152,14 @@ export interface AppServicesDeps {
   readonly noticeTaps?: NoticeTaps | undefined;
   /** The managers of Query; the tests give fakes. */
   readonly queryManagers?: QueryManagers;
+  /** The pickers of iOS and efr-files; none in a build without them. */
+  readonly attach?: AttachNative | null;
+}
+
+/** The pickers and the files of the drafts and the prompts. */
+export interface AppAttach {
+  readonly native: AttachNative;
+  readonly attachments: Attachments;
 }
 
 /** The effects of the Face ID unlock: the phases of the app and the checks of iOS. */
@@ -202,12 +220,32 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
   });
 
   const queryClient = createQueryClient();
+  const pickers = deps.attach ?? null;
+  const attach: AppAttach | null =
+    pickers === null
+      ? null
+      : {
+          native: pickers,
+          attachments: createAttachments({
+            files: pickers.files,
+            outbox,
+            discard: (machine, uploadId) => {
+              runtime
+                .call(machine, "attachment.discard", { upload_id: uploadId })
+                .catch(() => undefined);
+            },
+            newId: deps.newId,
+            storage: deps.keyValue,
+            onError,
+          }),
+        };
   const purges: MachinePurge[] = [
     (machine, caches) => caches?.removeMachine(machine),
     (machine) => outbox.removeMachine(machine),
     (machine) => {
       drafts.removeMachine(machine);
       modelChoices.removeMachine(machine);
+      attach?.attachments.removeMachine(machine);
     },
     (machine) => {
       preferences.forgetMachine(machine);
@@ -263,6 +301,19 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     onError,
   });
   deps.linkGate?.follow(appLock);
+  const drainsDeps: { -readonly [K in keyof OutboxDrainsDeps]: OutboxDrainsDeps[K] } = {
+    runtime,
+    outbox,
+    hydrated,
+    clock: deps.clock,
+    random: deps.random,
+    autoAllowed: () => appLock.store.get().on,
+  };
+  if (attach !== null) {
+    drainsDeps.readChunk = (uri, offset, length) =>
+      attach.native.files.readChunk(uri, offset, length);
+    drainsDeps.onSent = (entry) => attach.attachments.sent(entry);
+  }
   const stops = [
     wireQueryManagers(
       {
@@ -272,14 +323,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
       deps.queryManagers,
     ),
     invalidateOnReady(runtime, queryClient),
-    wireOutboxDrains({
-      runtime,
-      outbox,
-      hydrated,
-      clock: deps.clock,
-      random: deps.random,
-      autoAllowed: () => appLock.store.get().on,
-    }),
+    wireOutboxDrains(drainsDeps),
     lock.followAppPhase((phase) => appLock.phase(phase)),
     deps.lifecycle.followAppState((active) => {
       if (!active) {
@@ -320,6 +364,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     modelChoices,
     appLock,
     push,
+    attach,
     loaded,
     dispose(): void {
       for (const stop of stops.splice(0)) {

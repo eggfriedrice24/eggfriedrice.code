@@ -16,6 +16,7 @@ import type { Attachment, AttachmentLimits } from "@/lib/protocol/generated";
 import type { PromptView } from "@/lib/stream/reducer";
 import { uploadPercent, type TileKind, type TileState, type TileText } from "./attachments-format";
 import type { DraftAttachment } from "./attachments";
+import type { ComposerTrailing } from "./composer-state";
 import type { OutboxEntry } from "./outbox";
 
 /** One tile of the row. */
@@ -44,13 +45,14 @@ export function draftTiles(
     } else if (limits !== undefined && file.bytes > limits.max_file_bytes) {
       state = { kind: "over_limit", limit: limits.max_file_bytes };
     }
+    // Before efr-files ends, the tile shows the copy of the photo picker.
     return {
       key: file.id,
       kind: file.kind,
       name: file.name,
       bytes: file.bytes,
       state,
-      previewUri: file.previewUri,
+      previewUri: file.previewUri ?? (file.kind === "photo" ? file.uri : undefined),
     };
   });
 }
@@ -63,6 +65,27 @@ export function overLimit(tiles: readonly TileView[]): TileView | undefined {
 /** True when a draft with `tiles` can go: no photo in the work, no file over the limit. */
 export function tilesReady(tiles: readonly TileView[]): boolean {
   return tiles.every((held) => held.state.kind === "size");
+}
+
+/**
+ * The trailing action of a composer whose draft holds `tiles`. While a file is not ready,
+ * nothing goes. While a turn runs, the prompt can only queue: a steer takes no file.
+ */
+export function trailingWithFiles(
+  trailing: ComposerTrailing,
+  tiles: readonly TileView[],
+): ComposerTrailing {
+  if (tiles.length === 0) {
+    return trailing;
+  }
+  const ready = tilesReady(tiles);
+  if (trailing.kind === "send") {
+    return trailing.enabled && !ready ? { kind: "send", enabled: false } : trailing;
+  }
+  if (trailing.kind === "stop" && trailing.capsule !== null) {
+    return { kind: "stop", capsule: ready ? "queue" : null };
+  }
+  return trailing;
 }
 
 /** The tiles of a prompt on its way. */

@@ -7,7 +7,8 @@
 // - The Steer capsule (yolk fill, text_on_accent) or the Queue capsule (1 pt yolk border,
 //   yolk text), with chevron.down, after Stop while there is text. A tap sends in the
 //   mode of the capsule. A long press opens the native menu ("Steer now", "Queue"); a
-//   pick sends in that mode, and the choice sticks.
+//   pick sends in that mode, and the choice sticks. While the draft holds a file, the
+//   capsule is only Queue, with no chevron and no menu: a steer takes no file (S-Attach 5).
 // - Sending: the yolk circle with the braille cell in text_on_accent.
 
 import { use, useState } from "react";
@@ -50,7 +51,9 @@ export function ComposerTrailing() {
       return (
         <>
           <StopButton onPress={model.stop} />
-          {trailing.capsule === null ? null : (
+          {trailing.capsule === null ? null : model.queueOnly ? (
+            <QueueCapsule onPress={model.submit} />
+          ) : (
             <ModeCapsule mode={trailing.capsule} onPress={model.submit} onPick={model.pick} />
           )}
         </>
@@ -157,6 +160,29 @@ function isSendMode(id: string): id is SendMode {
   return id === "steer" || id === "queue";
 }
 
+/** The frame of a capsule. Its sides differ: the chevron of the menu takes room. */
+const CAPSULE_FRAME = "h-action my-4 flex-row items-center gap-6 rounded-full active:opacity-80";
+
+/** The Queue capsule of a draft with files: a tap queues, and it has no menu. */
+function QueueCapsule(props: { readonly onPress: () => void }) {
+  const look = CAPSULE.queue;
+  return (
+    <Pressable
+      testID="composer-capsule"
+      accessibilityRole="button"
+      accessibilityLabel={capsuleLabel("queue")}
+      accessibilityHint="A steer takes no attachment."
+      hitSlop={{ top: SLOP, bottom: SLOP }}
+      onPress={props.onPress}
+      className={cn(CAPSULE_FRAME, "px-14", look.frame)}
+    >
+      <Text numberOfLines={1} className={cn("text-capsule", look.text)}>
+        {capsuleLabel("queue")}
+      </Text>
+    </Pressable>
+  );
+}
+
 interface ModeCapsuleProps {
   readonly mode: SendMode;
   readonly onPress: () => void;
@@ -188,10 +214,7 @@ function ModeCapsule(props: ModeCapsuleProps) {
         accessibilityState={{ expanded: open }}
         hitSlop={{ top: SLOP, bottom: SLOP }}
         onPress={props.onPress}
-        className={cn(
-          "h-action my-4 flex-row items-center gap-6 rounded-full pr-12 pl-14 active:opacity-80",
-          look.frame,
-        )}
+        className={cn(CAPSULE_FRAME, "pr-12 pl-14", look.frame)}
       >
         <Text numberOfLines={1} className={cn("text-capsule", look.text)}>
           {label}

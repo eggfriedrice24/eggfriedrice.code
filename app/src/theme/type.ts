@@ -62,6 +62,8 @@ export const TYPE = {
   caption: { fontSize: 12, lineHeight: 16 },
   /** The effort step in use and "Use default" of the model sheet (S-ModelSheet). */
   captionStrong: { fontSize: 12, lineHeight: 16, ...semibold },
+  /** The size line under an attachment tile (S-Attach). */
+  captionSmall: { fontSize: 11, lineHeight: 14 },
   /** Markdown tables. */
   table: { fontSize: 12.5, lineHeight: 17 },
   /** Markdown h1 (Headline based). */

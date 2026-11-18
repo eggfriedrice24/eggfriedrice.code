@@ -102,6 +102,22 @@ export const BRAILLE = {
   button: { width: 9, height: 17 },
 } as const;
 
+/** An attachment tile (S-Attach): its square, its glyph and the xmark of a draft tile. */
+export const TILE = {
+  size: 80,
+  /** From the text size AX1 on, so a cut name still shows about 10 letters. */
+  largeSize: 104,
+  glyph: 28,
+  mark: 22,
+  /** The xmark stands this far in from the top right corner. */
+  markInset: 4,
+  /** The caption stops growing at this text size. */
+  maxFontScale: 1.5,
+  /** The `fontScale` of React Native at the text size AX1 of iOS. */
+  largeFontScale: 1.786,
+  gap: 8,
+} as const;
+
 /** The dots that mark an approval: 7 pt in the header and strip, 8 pt in blocks and rows. */
 export const DOT = {
   small: 7,

@@ -11,6 +11,9 @@
 //   items), the conversation lists, `models.list` (the accounts of the boards,
 //   demo-models.ts), `conversation.switch_preview`, `prompt.send` (idempotent by `command_id`),
 //   `approval.respond`, `turn.steer`, `turn.interrupt` and `prompt.withdraw`.
+// - It takes attachments as efrd does (demo-uploads.ts): `attachment.put`,
+//   `attachment.discard`, and a `prompt.send` that names finished uploads, or answers
+//   `not_found` with `missing_uploads`. The echo of the prompt carries the attachments.
 // - A stage (`stage`) sets the conversations of every demo machine for one board of the
 //   gallery, and the mode of each machine: online, offline, silent (the socket opens and
 //   efrd never answers), starting, re-pair needed, or too old.
@@ -29,11 +32,14 @@ import {
 import { isJsonObject } from "@/lib/protocol/envelope";
 import {
   PROTOCOL_VERSION,
+  type Attachment,
   type ErrorBody,
   type HelloResult,
   type RecentConversation,
   type ScopeName,
+  type UploadInfo,
 } from "@/lib/protocol/generated";
+import type { EventOf } from "@/lib/protocol/wire";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { demoModels } from "./demo-models";
 import {
@@ -50,6 +56,7 @@ import {
   type DemoMachineKey,
 } from "./demo-machines";
 import { DEMO_CWD, DemoScript, type DemoStep } from "./demo-script";
+import { DEMO_ATTACHMENT_LIMITS, DemoUploads } from "./demo-uploads";
 
 /** How a demo machine answers. */
 export type MachineMode =
@@ -139,6 +146,8 @@ export class DemoServer {
   private changeTimers: Timer[] = [];
   private nextId = 1;
   private stageName = "";
+  /** The uploads of the phone: an upload outlives the socket that sent it. */
+  readonly uploads = new DemoUploads();
 
   constructor(deps: DemoServerDeps) {
     this.deps = deps;
@@ -314,6 +323,8 @@ export class ServedConversation {
   private hold: Extract<DemoStep, { kind: "hold" }> | undefined;
   private subscribed = false;
   private stopped = false;
+  /** The attachments of the conversation so far, for their ids. */
+  private attachments = 0;
 
   constructor(
     server: DemoServer,
@@ -429,14 +440,24 @@ export class ServedConversation {
   }
 
   /** A prompt of the phone: it runs now, or after the turn that runs. */
-  prompt(text: string, commandId: string): { seq: number; turnId: string; queued: boolean } {
+  prompt(
+    text: string,
+    commandId: string,
+    files: readonly UploadInfo[] = [],
+  ): { seq: number; turnId: string; queued: boolean } {
     const turn = this.server.newId();
     const queued = this.log.runningTurn !== undefined || this.queue.length > 0;
-    const sent = this.sendNow({
-      kind: "event",
-      wait: 0,
-      event: { kind: "prompt_queued", turn_id: turn, command_id: commandId, text, origin: "phone" },
-    });
+    const event: EventOf<"prompt_queued"> = {
+      kind: "prompt_queued",
+      turn_id: turn,
+      command_id: commandId,
+      text,
+      origin: "phone",
+    };
+    if (files.length > 0) {
+      event.attachments = files.map((file) => this.attachment(file));
+    }
+    const sent = this.sendNow({ kind: "event", wait: 0, event });
     const reply = new DemoScript()
       .wait(queued ? 300 : 400)
       .start(turn)
@@ -448,6 +469,24 @@ export class ServedConversation {
     this.queue.push(...reply.steps());
     this.pump();
     return { seq: sent, turnId: turn, queued };
+  }
+
+  /** The record of a finished upload in this conversation: `a1`, `a2` and on. */
+  private attachment(file: UploadInfo): Attachment {
+    this.attachments += 1;
+    const record: Attachment = {
+      id: `a${this.attachments}`,
+      name: file.name,
+      media_type: file.media_type,
+      bytes: file.bytes,
+      sha256: "0".repeat(64),
+      kind: file.kind,
+      origin: { kind: "phone" },
+    };
+    if (file.sent !== undefined && file.sent !== null) {
+      record.sent = file.sent;
+    }
+    return record;
   }
 
   /** The phone answers the question `callId`. Gives the seq of the answer, or undefined. */
@@ -636,6 +675,7 @@ export function demoHello(machine: DemoMachine, protocol: number): HelloResult {
       snapshot_live: true,
       device_prove: true,
       approval_local_only: true,
+      attachments: DEMO_ATTACHMENT_LIMITS,
     },
     paths: {
       scratch_root: "/home/me/.local/share/efr/scratch",
@@ -847,6 +887,13 @@ export class DemoSession implements Socket {
       case "conversation.subscribe":
         this.subscribe(id, params);
         return;
+      case "attachment.put":
+        this.result(id, this.server.uploads.put(params));
+        return;
+      case "attachment.discard":
+        this.server.uploads.discard(stringOf(params["upload_id"]) ?? "");
+        this.result(id, {});
+        return;
       default:
         this.write(id, method, params);
     }
@@ -893,13 +940,36 @@ export class DemoSession implements Socket {
     conversation.subscribe(this, id, numberOf(params["after_seq"]));
   }
 
+  /**
+   * The finished uploads that a `prompt.send` names, or undefined after the answer
+   * `not_found` with the ones that are missing: that answer is no receipt.
+   */
+  private files(id: number, params: Json): readonly UploadInfo[] | undefined {
+    const named = params["attachments"];
+    const ids = Array.isArray(named) ? named.filter((one) => typeof one === "string") : [];
+    const taken = this.server.uploads.take(ids);
+    if ("files" in taken) {
+      return taken.files;
+    }
+    this.error(id, {
+      code: "not_found",
+      message: "an upload of the prompt is not there",
+      data: { missing_uploads: taken.missing },
+    });
+    return undefined;
+  }
+
   /** The writes of the phone: each needs a conversation of this machine. */
   private write(id: number, method: string, params: Json): void {
     const commandId = stringOf(params["command_id"]) ?? "";
     if (method === "prompt.send" && params["new_conversation"] === true) {
+      const files = this.files(id, params);
+      if (files === undefined) {
+        return;
+      }
       const text = stringOf(params["text"]) ?? "";
       const conversation = this.server.startConversation(this.machine, text.slice(0, 60));
-      const sent = conversation.prompt(text, commandId);
+      const sent = conversation.prompt(text, commandId, files);
       const result = {
         conversation_id: conversation.id,
         queued: false,
@@ -920,7 +990,11 @@ export class DemoSession implements Socket {
       this.result(id, earlier);
       return;
     }
-    const result = this.change(conversation, method, params);
+    const files = method === "prompt.send" ? this.files(id, params) : [];
+    if (files === undefined) {
+      return;
+    }
+    const result = this.change(conversation, method, params, files);
     if (result === undefined) {
       this.error(id, { code: "conflict", message: `${method} does not apply now` });
       return;
@@ -937,12 +1011,14 @@ export class DemoSession implements Socket {
     conversation: ServedConversation,
     method: string,
     params: Json,
+    files: readonly UploadInfo[],
   ): Json | { readonly code: "invalid" } | undefined {
     switch (method) {
       case "prompt.send": {
         const sent = conversation.prompt(
           stringOf(params["text"]) ?? "",
           stringOf(params["command_id"]) ?? "",
+          files,
         );
         return {
           conversation_id: conversation.id,

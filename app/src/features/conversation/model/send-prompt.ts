@@ -5,7 +5,8 @@
 //   thread the favourite of the last plan;
 // - it carries auto when the mode of the composer is auto and the Face ID unlock of the
 //   app is on at the moment of the call (`effectiveMode`);
-// - a prompt that names an account makes it the last plan of the machine.
+// - a prompt that names an account makes it the last plan of the machine;
+// - the files of the draft go in the same entry, and the drain uploads them first.
 //
 // Pure TypeScript on the stores of the app.
 
@@ -13,7 +14,7 @@ import type { ModelsListResult } from "@/lib/protocol/generated";
 import { composerDraftKey, outboxInput, type ComposerTarget } from "./composer-state";
 import { effectiveMode, type ModelChoices } from "./model-choices";
 import { promptChoice } from "./model-sheet";
-import type { Outbox, OutboxEntry } from "./outbox";
+import type { Outbox, OutboxAttachment, OutboxEntry } from "./outbox";
 
 /** What a new prompt needs from the app. */
 export interface SendPromptDeps {
@@ -23,12 +24,16 @@ export interface SendPromptDeps {
   readonly lockOn: boolean;
 }
 
-/** Puts `text` in the outbox as a new prompt of `target`, by the rule of the module. */
+/**
+ * Puts `text` in the outbox as a new prompt of `target`, with `files`, by the rule of the
+ * module.
+ */
 export function sendPrompt(
   deps: SendPromptDeps,
   list: ModelsListResult | undefined,
   target: ComposerTarget,
   text: string,
+  files: readonly OutboxAttachment[] = [],
 ): OutboxEntry {
   const { outbox, modelChoices } = deps;
   const key = composerDraftKey(target);
@@ -42,7 +47,8 @@ export function sendPrompt(
     plan: state.plans.get(target.machine),
   });
   const auto = effectiveMode(modelChoices.mode(key), deps.lockOn) === "auto";
-  const entry = outbox.enqueue(outboxInput(outbox.store.get(), target, text, choice, auto));
+  const input = outboxInput(outbox.store.get(), target, text, choice, auto);
+  const entry = outbox.enqueue(files.length > 0 ? { ...input, attachments: files } : input);
   if (choice?.provider !== undefined) {
     modelChoices.setPlan(target.machine, choice.provider);
   }

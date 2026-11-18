@@ -153,6 +153,11 @@ export function uploadsDone(entry: OutboxEntry): boolean {
   return entry.attachments?.every((file) => file.uploaded) ?? true;
 }
 
+/** True when `discard` takes `entry`: it is not in flight, or its files still upload. */
+export function discardable(entry: OutboxEntry): boolean {
+  return entry.state !== "sending" || !uploadsDone(entry);
+}
+
 /** Where the outbox keeps its entries. */
 export interface OutboxStorage {
   /** Every valid entry, by order. */
@@ -742,7 +747,7 @@ export function createOutbox(deps: OutboxDeps): Outbox {
 
     discard(commandId: CommandId): OutboxEntry | undefined {
       const entry = find(commandId);
-      if (entry === undefined || (entry.state === "sending" && uploadsDone(entry))) {
+      if (entry === undefined || !discardable(entry)) {
         return undefined;
       }
       removeWhere((held) => held.commandId === commandId);

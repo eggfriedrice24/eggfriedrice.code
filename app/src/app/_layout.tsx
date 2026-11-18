@@ -14,6 +14,7 @@ import { blurSearchBars } from "@/lib/native/search-bars";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
+import { nativeAttach } from "@/features/conversation/native/attach";
 import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
 import { LockGate, LockOverlay } from "@/features/navigation/components/lock-overlay";
@@ -94,6 +95,7 @@ const services = createAppServices({
   linkGate,
   push: nativePush(),
   noticeTaps,
+  attach: nativeAttach(),
 });
 
 function machineMenu(machine: string) {

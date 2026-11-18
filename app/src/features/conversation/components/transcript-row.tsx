@@ -4,6 +4,7 @@
 // call the transcript does not hold, and draws the same card.
 
 import type { Row } from "../model/rows";
+import type { OutboxPrompt } from "../model/screen-outbox";
 import { MessageRow } from "./message-row";
 import { PauseRow } from "./pause-row";
 import { RunningRow } from "./running-line";
@@ -11,12 +12,13 @@ import { SwitchRow } from "./switch-row";
 import { ThoughtRow } from "./thought-row";
 import { ApprovalCardRow, ToolRow } from "./tool-row";
 import { TurnEndRow } from "./turn-end-line";
-import { type PendingPrompt, PendingPromptRow, PromptRow, SteerRow } from "./your-message";
+import { WithheldRow } from "./withheld-row";
+import { PendingPromptRow, PromptRow, SteerRow } from "./your-message";
 
 /** A row of the transcript list: a row of the stream, or a prompt of the outbox. */
 export type TranscriptItem =
   | Row
-  | { readonly kind: "pending"; readonly key: string; readonly prompt: PendingPrompt };
+  | { readonly kind: "pending"; readonly key: string; readonly prompt: OutboxPrompt };
 
 export interface TranscriptRowProps {
   readonly item: TranscriptItem;
@@ -42,6 +44,8 @@ export function TranscriptRow(props: TranscriptRowProps) {
       return <SteerRow turnId={item.turnId} seq={item.seq} />;
     case "pause":
       return <PauseRow turnId={item.turnId} />;
+    case "withheld":
+      return <WithheldRow turnId={item.turnId} seq={item.seq} />;
     case "status":
       return <RunningRow turnId={item.turnId} />;
     case "end":

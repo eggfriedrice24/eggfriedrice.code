@@ -6,7 +6,10 @@ import type { Readable } from "@tanstack/store";
 import { createContext, type RefObject } from "react";
 import type { TextInputInstance } from "react-native";
 
+import type { AttachmentLimits } from "@/lib/protocol/generated";
 import type { SendMode } from "@/features/settings/model/preferences";
+import type { AttachSource } from "../../model/attachments";
+import type { TileView } from "../../model/attachments-tiles";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
 import type { PhoneMode } from "../../model/model-choices";
 
@@ -34,10 +37,32 @@ export interface ComposerAnswer {
   readonly leave: () => void;
 }
 
+/** The files of the draft (board S-Attach): the plus, the tile row and its menus. */
+export interface ComposerAttach {
+  readonly tiles: readonly TileView[];
+  /** The limits of efrd: its capability `attachments`. */
+  readonly limits: AttachmentLimits;
+  /** How many more files the draft takes; at 0 the plus is off. */
+  readonly room: number;
+  /** Opens the picker of `source`; its files join the draft. */
+  readonly pick: (source: AttachSource) => void;
+  /** The xmark or Remove of the tile `key`. */
+  readonly remove: (key: string) => void;
+  /** Quick Look of the photo tile `key`. */
+  readonly quickLook: (key: string) => void;
+}
+
 /** What the slots of the composer read. */
 export interface ComposerModel {
   /** The question that Send answers now; none for a message. */
   readonly answering: ComposerAnswer | undefined;
+  /**
+   * The files of the draft. Undefined when the plus does not show: a build without the
+   * native parts, an efrd that takes no attachments, or an answer to a question.
+   */
+  readonly attach: ComposerAttach | undefined;
+  /** True while the draft holds a file: a steer takes none, so the capsule is only Queue. */
+  readonly queueOnly: boolean;
   readonly state: ComposerState;
   readonly trailing: ComposerTrailing;
   /** True on the blank root: a prompt there starts a new conversation. */

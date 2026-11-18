@@ -2,88 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import { flush } from "@/lib/net/testing";
 import { MemoryKeyValue } from "@/lib/store/testing";
-import type { PreparedImage } from "../../../../modules/efr-files";
 import {
   MAX_PREVIEW_PROMPTS,
   PREVIEWS_KEY,
-  createAttachments,
   outboxFiles,
   photoName,
   selectDraftFiles,
   selectPreview,
   uploadName,
-  type AttachFiles,
   type Attachments,
 } from "./attachments";
+import { testAttach } from "./attachments-testing";
 import { draftKey } from "./drafts";
-import type { OutboxEntry } from "./outbox";
-import { CONVERSATION_A, DESKTOP, LAPTOP, idMaker, testOutbox } from "./outbox-testing";
+import type { Outbox, OutboxEntry } from "./outbox";
+import { CONVERSATION_A, DESKTOP, LAPTOP, testOutbox } from "./outbox-testing";
 
 const KEY = draftKey(DESKTOP, CONVERSATION_A);
 
-/** efr-files with photos that the test prepares by hand, and a list of removed files. */
-class FakeFiles implements AttachFiles {
-  readonly removed: string[] = [];
-  readonly waiting: { readonly uri: string; done(): void; fail(): void }[] = [];
-
-  prepareImage(uri: string, maxEdge: number): Promise<PreparedImage> {
-    return new Promise((resolve, reject) => {
-      this.waiting.push({
-        uri,
-        done: () =>
-          resolve({
-            uri: `${uri}.jpg`,
-            width: maxEdge,
-            height: maxEdge / 2,
-            bytes: 1_200_000,
-            previewUri: `${uri}-preview.jpg`,
-          }),
-        fail: () => reject(new Error("iOS cannot read it as an image")),
-      });
-    });
-  }
-
-  fileInfo(): Promise<{ readonly bytes: number }> {
-    return Promise.resolve({ bytes: 48_000 });
-  }
-
-  remove(uri: string): Promise<void> {
-    this.removed.push(uri);
-    return Promise.resolve();
-  }
-
-  /** Ends the work on the photo `uri`. */
-  finish(uri: string, ok = true): void {
-    const at = this.waiting.findIndex((held) => held.uri === uri);
-    const [held] = this.waiting.splice(at, 1);
-    if (ok) {
-      held?.done();
-    } else {
-      held?.fail();
-    }
-  }
-}
-
-function setup(storage = new MemoryKeyValue()): {
-  readonly attachments: Attachments;
-  readonly files: FakeFiles;
-  readonly discards: string[];
-  readonly errors: unknown[];
-  readonly outbox: ReturnType<typeof testOutbox>["outbox"];
-} {
-  const files = new FakeFiles();
-  const { outbox } = testOutbox();
-  const discards: string[] = [];
-  const errors: unknown[] = [];
-  const attachments = createAttachments({
-    files,
-    outbox,
-    discard: (machine, uploadId) => discards.push(`${machine.slice(-1)}:${uploadId.slice(-1)}`),
-    newId: idMaker("0f0f0f0f"),
-    storage,
-    onError: (error) => errors.push(error),
-  });
-  return { attachments, files, discards, errors, outbox };
+function setup(storage = new MemoryKeyValue()) {
+  return testAttach(testOutbox().outbox, storage);
 }
 
 function draft(attachments: Attachments) {
@@ -181,11 +118,8 @@ describe("the files of a draft", () => {
   });
 });
 
-/** An outbox entry of `commandId` with the files of `attachments.take`. */
-function entryWith(
-  outbox: ReturnType<typeof testOutbox>["outbox"],
-  attachments: Attachments,
-): OutboxEntry {
+/** A prompt in `outbox` with the files of the draft. */
+function entryWith(outbox: Outbox, attachments: Attachments): OutboxEntry {
   return outbox.enqueue({
     machine: DESKTOP,
     target: { kind: "conversation", conversationId: CONVERSATION_A },

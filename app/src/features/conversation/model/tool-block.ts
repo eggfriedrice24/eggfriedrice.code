@@ -5,8 +5,9 @@
 // - The verb comes from the tool: `$` for a shell command, `read` for a file read,
 //   `edit` for a file tool. Another tool shows its own name.
 // - Done: `✓ 0 · 38s` (exit code and time). A read says how many lines it gave
-//   (`✓ 61 lines`). Failed: `✗ 101 · 9s`. A call that its turn left behind, such as at an
-//   interrupt, failed too (`✗ 130` when efrd gave the code).
+//   (`✓ 61 lines`), and a read of an image its size (`✓ image 1920x1080`, S-Attach 7).
+//   Failed: `✗ 101 · 9s`. A call that its turn left behind, such as at an interrupt,
+//   failed too (`✗ 130` when efrd gave the code).
 // - Collapsed, the block shows the last 3 lines of the output; expanded, the whole
 //   output, at most 200 lines. Each line has a key from its byte offset in the whole
 //   output, so a line keeps its view (and fades in only once) while the output grows.
@@ -195,7 +196,12 @@ export function toolStatus(
     return { kind: "failed", detail: "refused" };
   }
   if (call.tool === "read_file" && !call.isError && call.output !== undefined) {
-    return { kind: "done", detail: lineCount(call.output) };
+    const image = call.attachments?.[0]?.kind;
+    return {
+      kind: "done",
+      detail:
+        image?.kind === "image" ? `image ${image.width}x${image.height}` : lineCount(call.output),
+    };
   }
   if (time !== undefined) {
     parts.push(time);

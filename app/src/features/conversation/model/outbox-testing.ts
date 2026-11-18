@@ -14,6 +14,7 @@ import type {
 } from "@/lib/protocol/generated";
 import { createOutbox, type Outbox, type OutboxAttachment, type OutboxStorage } from "./outbox";
 import type { OutboxUploads } from "./outbox-drain";
+import type { OutboxPrompt } from "./screen-outbox";
 
 export const DESKTOP = "019a9b1c-3d00-7a10-8b20-000000000001";
 export const LAPTOP = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -212,6 +213,19 @@ export function fakeUploads(
       reads.push(`${uri}@${offset}`);
       return Promise.resolve(base64Encode(new Uint8Array(length)));
     },
+  };
+}
+
+/** A prompt on its way as the transcript shows it, with no files, and `change`. */
+export function outboxPrompt(change: Partial<OutboxPrompt>): OutboxPrompt {
+  return {
+    key: "k",
+    text: "t",
+    failed: false,
+    tiles: [],
+    reason: undefined,
+    withdrawable: false,
+    ...change,
   };
 }
 
