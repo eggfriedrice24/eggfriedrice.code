@@ -10,13 +10,14 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, DeviceId, Event, EventEnvelope, Seq};
+use efr_protocol::{ConversationId, DeviceId, Event, EventEnvelope, SecretText, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
 use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::deletes::{self, DeleteStep};
+use crate::device_push;
 use crate::devices::{self, Device, NewDevice, RevokeOutcome};
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
 use crate::search::{self, SearchApplied, SearchPage};
@@ -272,8 +273,35 @@ impl WriterHandle {
         self.run(move |state| state.write(|tx, at| devices::insert(tx, &device, at))).await
     }
 
-    /// Revokes the device `device_id`. When this call revoked it, the id goes to every
-    /// receiver of [`WriterHandle::subscribe_revocations`] after the commit.
+    /// Sets the push token of the device `device_id` to `token`, or deletes it for
+    /// `None` ([`device_push::set`]); false, with no change, for a device that is
+    /// unknown or revoked.
+    pub async fn device_push_set(
+        &self,
+        device_id: DeviceId,
+        token: Option<SecretText>,
+    ) -> Result<bool, StoreError> {
+        self.run(move |state| {
+            state.write(|tx, at| device_push::set(tx, device_id, token.as_ref(), at))
+        })
+        .await
+    }
+
+    /// Deletes the push token of the device `device_id` when it is still `token`, after
+    /// the Expo push service said that the token is dead; false when the device has
+    /// another token by now, or none.
+    pub async fn device_push_drop(
+        &self,
+        device_id: DeviceId,
+        token: SecretText,
+    ) -> Result<bool, StoreError> {
+        self.run(move |state| state.write(|tx, _at| device_push::drop_token(tx, device_id, &token)))
+            .await
+    }
+
+    /// Revokes the device `device_id` and deletes its push token. When this call revoked
+    /// it, the id goes to every receiver of [`WriterHandle::subscribe_revocations`]
+    /// after the commit.
     pub async fn device_revoke(&self, device_id: DeviceId) -> Result<RevokeOutcome, StoreError> {
         self.run(move |state| {
             let outcome = state.write(|tx, at| devices::revoke(tx, device_id, at))?;

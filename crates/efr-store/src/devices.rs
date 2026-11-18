@@ -5,7 +5,7 @@
 //! the scopes of its connections. efrd writes a row only after the user confirms the
 //! pairing in the terminal
 //! ([`WriterHandle::device_insert`](crate::WriterHandle::device_insert)). A revoke
-//! keeps the row and sets its time
+//! keeps the row, sets its time and deletes its push token ([`crate::device_push`])
 //! ([`WriterHandle::device_revoke`](crate::WriterHandle::device_revoke)); a revoked
 //! device never comes back. The writer announces each revoke after its commit
 //! ([`WriterHandle::subscribe_revocations`](crate::WriterHandle::subscribe_revocations)),
@@ -278,7 +278,8 @@ pub(crate) fn insert(
     })
 }
 
-/// Revokes `device_id` at `at`, inside the writer's transaction.
+/// Revokes `device_id` at `at` and deletes its push token, inside the writer's
+/// transaction, so no push goes to it after the commit.
 pub(crate) fn revoke(
     conn: &Connection,
     device_id: DeviceId,
@@ -294,6 +295,7 @@ pub(crate) fn revoke(
         "UPDATE devices SET revoked_at = ?2 WHERE device_id = ?1",
         params![device_id.to_string(), sql::micros(at)],
     )?;
+    crate::device_push::remove(conn, device_id)?;
     Ok(RevokeOutcome::Revoked { at })
 }
 
