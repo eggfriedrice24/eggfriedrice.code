@@ -22,6 +22,16 @@ const CELL_HEIGHT_PX: u32 = 16;
 /// the sequence ends; ordinary sequences are far shorter.
 const CONTINUATION_LIMIT: usize = 1 << 20;
 
+/// The most bytes that libghostty-vt keeps for one APC string. libghostty-vt reads
+/// two APC protocols, Kitty graphics and the Glyph Protocol, and `configure` turns
+/// both off, so efr needs no APC: the terminal reads a command to its end and then
+/// ignores it. This limit only bounds what one long or endless APC can make the
+/// terminal keep: 8 KiB, not the library default of 65 MiB. 8 KiB still holds any
+/// one Kitty graphics command that obeys the protocol, which sends data in chunks
+/// of at most 4096 bytes with short control keys. Raise it together with the image
+/// store if the hidden terminal ever shows images.
+const APC_LIMIT: usize = 8 * 1024;
+
 /// Settings of a [`GhosttyScreen`] that its owner may change.
 ///
 /// Build it from [`GhosttyConfig::default`] and change the fields that differ.
@@ -133,6 +143,13 @@ impl GhosttyScreen {
             .set_scrollback_max_lines(Some(config.scrollback_lines))
             .and_then(|terminal| terminal.set_scrollback_max_bytes(Some(usize::MAX)))
             .and_then(|terminal| terminal.set_continuation_max_bytes(CONTINUATION_LIMIT))
+            // NOTE: a hidden terminal draws nothing, so it must not say that it can.
+            // A store limit of 0 turns the Kitty graphics protocol off on both
+            // screens, and then the terminal does not answer the `a=q` support query.
+            // Without this, the library keeps up to 10 MB of images on each screen.
+            .and_then(|terminal| terminal.set_kitty_image_storage_limit(0))
+            .and_then(|terminal| terminal.set_glyph_protocol_enabled(false))
+            .and_then(|terminal| terminal.set_apc_max_bytes(Some(APC_LIMIT)))
             .and_then(|terminal| terminal.set_default_fg_color(config.foreground.map(rgb)))
             .and_then(|terminal| terminal.set_default_bg_color(config.background.map(rgb)))
             .map_err(configure)?;

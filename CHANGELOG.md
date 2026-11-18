@@ -16,6 +16,13 @@ into the GitHub release notes, and it stops when the section is missing.
   scrollback after a resize, for prompts after a resize and for a scrollback line
   limit that was slow. A build from source still needs Zig 0.17.0.
 
+### Fixed
+
+- The hidden shell no longer says that it can show Kitty graphics or custom glyphs.
+  Before, it answered the support queries of both protocols, so a program could send
+  images that nobody saw, and efrd kept up to 10 MB of them for each screen. One APC
+  string now takes at most 8 KiB of memory, not 65 MiB.
+
 ## [0.0.12] - 2026-11-18
 
 ### Added

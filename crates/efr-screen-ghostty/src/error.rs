@@ -21,7 +21,7 @@ pub enum GhosttyError {
     },
 
     /// libghostty-vt refused a setting: an effect callback, a colour, the scrollback
-    /// limit or continuation tracking.
+    /// limit, continuation tracking or a protocol limit.
     #[error("could not configure the ghostty terminal")]
     Configure {
         /// The error from libghostty-vt.

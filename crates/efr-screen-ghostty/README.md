@@ -48,8 +48,8 @@ Tier 2.
 `libghostty-vt` and `libghostty-vt-sys`.
 
 Third-party crates: `libghostty-vt` at the pinned git rev with default features off
-(no kitty graphics), `thiserror` and `tracing` (the cross-check warnings and the
-factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
+and `kitty-graphics` on (only for the setter that turns the protocol off), `thiserror`
+and `tracing` (the cross-check warnings and the factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
 `conformance` feature, `efr-render` (a dev-dependency only, for its width count) and
 `efr-test-support` (the bench helpers).
 
@@ -64,6 +64,9 @@ factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
   the buffers after libghostty-vt returns.
 - The cross-check only logs. The scanner's marks stay the truth, and a feed always
   reaches the terminal in full.
+- A hidden terminal draws nothing, so it does not say that it can. `configure` sets
+  the Kitty image store to 0 (the protocol is off, and the `a=q` query gets no
+  answer), turns the Glyph Protocol off, and keeps at most 8 KiB of one APC string.
 
 ## Tests
 

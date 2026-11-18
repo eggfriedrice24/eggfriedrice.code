@@ -65,9 +65,14 @@ The sys crate's `pkg-config` feature skips the Zig build when an installed libra
 found. Release builds set `LIBGHOSTTY_VT_SYS_CPU=baseline` so the binaries run on older
 machines; `baseline` is also the default.
 
-`default-features = false` drops the `kitty-graphics` feature. At this rev that feature
-only gates the Rust wrapper of the kitty graphics API (`libghostty_vt::kitty::graphics`);
-the sys crate's `build.rs` never reads it, so the Zig build is the same either way.
+efr turns on the `kitty-graphics` feature. At this rev that feature only gates the Rust
+wrapper of the Kitty graphics API (`libghostty_vt::kitty::graphics`). The sys crate's
+`build.rs` never reads it, so the Zig build is the same either way, and the protocol is
+in the library with or without the feature: a new terminal keeps up to 10 MB of images
+on each screen and answers the `a=q` support query. The wrapper documentation says
+that graphics are off until a storage limit is set; that is wrong for this build.
+`efr-screen-ghostty` needs the feature for `Terminal::set_kitty_image_storage_limit`,
+which it calls with 0 to turn the protocol off.
 
 ## Build cost
 

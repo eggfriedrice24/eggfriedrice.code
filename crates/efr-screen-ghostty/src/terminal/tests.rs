@@ -102,6 +102,62 @@ fn a_disagreement_with_the_scanner_never_fails_a_feed() {
     assert_eq!(screen.pwd(), Some("http://arch/tmp"));
 }
 
+/// The Kitty graphics support query: can the terminal take one RGB pixel as image 31?
+const KITTY_QUERY: &[u8] = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
+
+/// A Kitty graphics command that stores a black RGB image of `width` x `height` pixels
+/// as image `id`. Its APC holds about `4 * width * height` bytes.
+fn kitty_image(id: u32, width: u32, height: u32) -> Vec<u8> {
+    let mut apc = format!("\x1b_Ga=t,f=24,s={width},v={height},i={id};").into_bytes();
+    // Three zero bytes are "AAAA" in base64.
+    for _ in 0..width * height {
+        apc.extend_from_slice(b"AAAA");
+    }
+    apc.extend_from_slice(b"\x1b\\");
+    apc
+}
+
+#[test]
+fn the_kitty_graphics_query_gets_no_answer_on_either_screen() {
+    let mut screen = screen(10, 2);
+    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), Vec::<u8>::new());
+    // The alternate screen starts later, with the limit of the primary screen.
+    feed(&mut screen, b"\x1b[?1049h");
+    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), Vec::<u8>::new());
+    // With an image store, the same query gets an answer: the setting is what stops it.
+    screen.terminal.set_kitty_image_storage_limit(10_000_000).unwrap();
+    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), b"\x1b_Gi=31;OK\x1b\\".to_vec());
+}
+
+#[test]
+fn the_glyph_protocol_query_gets_no_answer() {
+    let query = b"\x1b_25a1;s\x1b\\";
+    let mut screen = screen(10, 2);
+    assert_eq!(feed(&mut screen, query).replies(), Vec::<u8>::new());
+    screen.terminal.set_glyph_protocol_enabled(true).unwrap();
+    assert!(!feed(&mut screen, query).replies().is_empty());
+}
+
+#[test]
+fn an_apc_longer_than_the_limit_is_dropped() {
+    let mut screen = screen(10, 2);
+    // An image store for this test only, so that a stored image is answered with OK.
+    screen.terminal.set_kitty_image_storage_limit(10_000_000).unwrap();
+    assert_eq!(feed(&mut screen, &kitty_image(7, 1, 1)).replies(), b"\x1b_Gi=7;OK\x1b\\".to_vec());
+    let long = kitty_image(8, 64, 64);
+    assert!(long.len() > super::APC_LIMIT);
+    assert_eq!(feed(&mut screen, &long).replies(), Vec::<u8>::new());
+    // The terminal reads on after the dropped APC.
+    feed(&mut screen, b"ok");
+    assert_eq!(texts(&[screen.row(0)]), vec!["ok"]);
+    // With the library default, the same image is stored: the limit is what drops it.
+    screen.terminal.set_apc_max_bytes(None).unwrap();
+    assert_eq!(
+        feed(&mut screen, &kitty_image(9, 64, 64)).replies(),
+        b"\x1b_Gi=9;OK\x1b\\".to_vec()
+    );
+}
+
 #[test]
 fn resize_changes_the_grid_and_keeps_the_text() {
     let mut screen = screen(5, 2);

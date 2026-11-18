@@ -137,7 +137,9 @@ qrcode = { version = "0.14.1", default-features = false }
 vt100 = "0.16.2"
 # The pin triple (this rev, ghostty 108cacb1, Zig 0.17.0) is recorded in docs/ghostty-pin.md.
 # Only efr-screen-ghostty may depend on it; `cargo xtask deps` enforces that.
-libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", default-features = false }
+# `kitty-graphics` adds only Rust code (the Zig build is the same without it), and
+# efr-screen-ghostty needs it to turn the Kitty graphics protocol off.
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", default-features = false, features = ["kitty-graphics"] }
 
 # Tests
 tempfile = "3.27.0"
