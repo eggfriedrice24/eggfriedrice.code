@@ -125,6 +125,11 @@ impl CrossCheck {
         mark: Option<&ShellMarkKind>,
         found: &mut Vec<Disagreement>,
     ) {
+        // A full reset clears libghostty-vt's working directory without the callback,
+        // so the directory read last is gone too.
+        if effects.take_reset() {
+            self.pwd = None;
+        }
         let pwd_changed = effects.take_pwd_changed();
         match mark {
             // A working directory that is not UTF-8 cannot be read through the safe

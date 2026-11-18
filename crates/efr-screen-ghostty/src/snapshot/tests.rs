@@ -1,7 +1,7 @@
 use efr_screen::{Cursor, RowCells, Size};
 use pretty_assertions::assert_eq;
 
-use super::{active_row, capture, cursor, decode, encode, title};
+use super::{active_row, capture, cursor, decode, encode, title, title_text};
 use crate::testing::{terminal, texts};
 
 #[test]
@@ -58,6 +58,27 @@ fn there_is_no_title_until_a_program_sets_one() {
     assert_eq!(capture(&terminal, 0).title, None);
     terminal.vt_write(b"\x1b]0;vim\x07");
     assert_eq!(capture(&terminal, 0).title.as_deref(), Some("vim"));
+}
+
+#[test]
+fn a_title_cut_inside_a_character_keeps_the_whole_characters() {
+    let (mut terminal, _effects) = terminal(5, 2);
+    // 1023 bytes and a character of two: libghostty-vt keeps 1024 bytes, so the last
+    // character loses its second byte.
+    let kept = "a".repeat(1023);
+    terminal.vt_write(format!("\x1b]2;{kept}\u{e9}x\x07").as_bytes());
+    assert_eq!(terminal.title().unwrap().len(), 1024);
+    assert_eq!(title(&terminal), Some(kept.as_str()));
+}
+
+#[test]
+fn title_text_drops_only_a_cut_character_at_the_end() {
+    assert_eq!(title_text(b"ok"), Some("ok"));
+    assert_eq!(title_text(b""), Some(""));
+    assert_eq!(title_text(b"menu \xc3"), Some("menu "));
+    assert_eq!(title_text(b"\xf0\x9f\x98"), Some(""));
+    assert_eq!(title_text(b"bad \xff byte"), None);
+    assert_eq!(title_text(b"bad end \xff"), None);
 }
 
 #[test]

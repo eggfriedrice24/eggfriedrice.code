@@ -63,11 +63,21 @@ pub(crate) fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
 /// The title the program set; libghostty-vt reports "no title" as an empty string.
 /// A title that is not UTF-8 shows as no title.
 pub(crate) fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
-    terminal
-        .title()
-        .ok()
-        .and_then(|title| str::from_utf8(title).ok())
-        .filter(|title| !title.is_empty())
+    terminal.title().ok().and_then(title_text).filter(|title| !title.is_empty())
+}
+
+/// The bytes of a title as text. libghostty-vt cuts a title at 1024 bytes, also
+/// inside a character, so a character that is cut at the end is removed and the
+/// rest stays. Bytes that are not UTF-8 before the end give `None`.
+pub(crate) fn title_text(bytes: &[u8]) -> Option<&str> {
+    match str::from_utf8(bytes) {
+        Ok(text) => Some(text),
+        // NOTE: no `error_len` means that the bytes end inside a character.
+        Err(error) if error.error_len().is_none() => {
+            bytes.get(..error.valid_up_to()).and_then(|valid| str::from_utf8(valid).ok())
+        }
+        Err(_) => None,
+    }
 }
 
 /// The whole terminal as a GHOSTSNP record stream.

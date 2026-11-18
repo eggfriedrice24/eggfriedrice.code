@@ -93,6 +93,20 @@ fn an_osc_7_cut_short_by_an_escape_is_dispatched_only_by_ghostty() {
 }
 
 #[test]
+fn a_full_reset_raises_no_disagreement() {
+    assert_eq!(run(&[PROMPT_CYCLE, b"\x1bc", PROMPT_CYCLE]), Vec::new());
+    assert_eq!(run(&[PROMPT_CYCLE, b"\x1bcok"]), Vec::new());
+}
+
+#[test]
+fn an_unmarked_directory_after_a_full_reset_is_reported() {
+    // The same directory as before the reset: the reset cleared it, so it changed.
+    let found = run(&[PROMPT_CYCLE, b"\x1bc\x1b]7;kitty-shell-cwd://arch/home/egg\x1b[0m"]);
+    let backend = Some("kitty-shell-cwd://arch/home/egg".to_owned());
+    assert_eq!(found, vec![Disagreement::UnmarkedCwd { backend }]);
+}
+
+#[test]
 fn a_prompt_mark_ghostty_did_not_apply_is_reported() {
     let (mut terminal, effects) = terminal(10, 2);
     terminal.vt_write(b"ab");

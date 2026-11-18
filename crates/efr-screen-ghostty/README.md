@@ -15,7 +15,10 @@ libghostty-vt, so it is the only crate whose build needs Zig.
 - `effects`: the effect callbacks. libghostty-vt runs them inside `vt_write`, so they
   push answers to terminal queries (DA, DSR, DECRQM, OSC 10 and 11, in-band resize
   reports), bells and title changes into `RefCell` buffers, and the screen drains
-  them into the `ScreenSink` after each feed and resize.
+  them into the `ScreenSink` after each feed and resize. A full reset (RIS) clears
+  the title without a title callback, so its own callback reports an empty title.
+  libghostty-vt cuts a title at 1024 bytes, also inside a character; such a title
+  keeps its whole characters.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it

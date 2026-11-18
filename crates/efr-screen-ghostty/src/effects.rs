@@ -13,6 +13,8 @@ use std::rc::Rc;
 use efr_screen::ScreenSink;
 use libghostty_vt::Terminal;
 
+use crate::snapshot;
+
 /// What the callbacks of one terminal produced since the last drain.
 ///
 /// Shared through an `Rc` between the terminal's callbacks and the screen, so the
@@ -29,6 +31,10 @@ pub(crate) struct Effects {
     /// Set when libghostty-vt changed its working directory, cleared by
     /// [`take_pwd_changed`](Effects::take_pwd_changed).
     pwd_changed: Cell<bool>,
+    /// Set when the program made a full reset (RIS), which clears the working
+    /// directory without a working directory callback. Cleared by
+    /// [`take_reset`](Effects::take_reset).
+    reset: Cell<bool>,
 }
 
 /// A callback other than a reply, kept in order.
@@ -48,17 +54,24 @@ impl Effects {
         let bells = Rc::clone(&effects);
         let titles = Rc::clone(&effects);
         let pwd = Rc::clone(&effects);
+        let resets = Rc::clone(&effects);
         terminal
             .on_pty_write(move |_, bytes| replies.replies.borrow_mut().extend_from_slice(bytes))?
             .on_bell(move |_| bells.notices.borrow_mut().push(Notice::Bell))?
             .on_title_changed(move |terminal| {
                 // NOTE: libghostty-vt gives the title as bytes. A title that is not
                 // UTF-8 is not reported; title() then shows no title either.
-                if let Some(title) = terminal.title().ok().and_then(|t| str::from_utf8(t).ok()) {
+                if let Some(title) = terminal.title().ok().and_then(snapshot::title_text) {
                     titles.notices.borrow_mut().push(Notice::Title(title.to_owned()));
                 }
             })?
-            .on_pwd_changed(move |_| pwd.pwd_changed.set(true))?;
+            .on_pwd_changed(move |_| pwd.pwd_changed.set(true))?
+            // A full reset clears the title and the working directory, but calls
+            // neither callback above, so the cleared title is reported here.
+            .on_reset(move |_| {
+                resets.notices.borrow_mut().push(Notice::Title(String::new()));
+                resets.reset.set(true);
+            })?;
         Ok(effects)
     }
 
@@ -81,6 +94,11 @@ impl Effects {
     /// True when libghostty-vt changed its working directory since the last call.
     pub(crate) fn take_pwd_changed(&self) -> bool {
         self.pwd_changed.replace(false)
+    }
+
+    /// True when the program made a full reset since the last call.
+    pub(crate) fn take_reset(&self) -> bool {
+        self.reset.replace(false)
     }
 }
 

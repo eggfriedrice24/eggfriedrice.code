@@ -57,6 +57,45 @@ fn plain_output_produces_no_calls() {
 }
 
 #[test]
+fn a_full_reset_reports_the_cleared_title() {
+    let (mut terminal, effects) = terminal(10, 2);
+    terminal.vt_write(b"\x1b]2;build\x07\x1b]7;file:///tmp\x07");
+    assert!(effects.take_pwd_changed());
+    assert!(!effects.take_reset());
+    terminal.vt_write(b"\x1bc");
+    let mut sink = Recorder::default();
+    effects.drain(&mut sink);
+    assert_eq!(sink.calls, vec![Call::Title("build".to_owned()), Call::Title(String::new())]);
+    assert!(effects.take_reset());
+    assert!(!effects.take_reset());
+    // The reset cleared the working directory, but it is no working directory change.
+    assert!(!effects.take_pwd_changed());
+    assert_eq!(terminal.pwd().unwrap(), b"");
+}
+
+#[test]
+fn a_soft_reset_keeps_the_title_and_reports_nothing() {
+    let (mut terminal, effects) = terminal(10, 2);
+    terminal.vt_write(b"\x1b]2;build\x07");
+    effects.drain(&mut Recorder::default());
+    terminal.vt_write(b"\x1b[!p");
+    let mut sink = Recorder::default();
+    effects.drain(&mut sink);
+    assert_eq!(sink.calls, Vec::new());
+    assert!(!effects.take_reset());
+}
+
+#[test]
+fn a_title_cut_inside_a_character_is_reported_without_it() {
+    let (mut terminal, effects) = terminal(10, 2);
+    let kept = "a".repeat(1023);
+    terminal.vt_write(format!("\x1b]2;{kept}\u{e9}\x07").as_bytes());
+    let mut sink = Recorder::default();
+    effects.drain(&mut sink);
+    assert_eq!(sink.calls, vec![Call::Title(kept)]);
+}
+
+#[test]
 fn a_working_directory_report_raises_the_flag_once() {
     let (mut terminal, effects) = terminal(10, 2);
     assert!(!effects.take_pwd_changed());
