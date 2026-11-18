@@ -254,7 +254,6 @@ describe("the generated constants", () => {
   });
 });
 
-/** The source of the schema of definition `name` in the output of `zodSchemas`. */
 /** The schema of an object of the kind `kind`, with the members `extra`. */
 function tagged(kind: string, extra: Record<string, unknown> = {}) {
   return {
@@ -264,6 +263,7 @@ function tagged(kind: string, extra: Record<string, unknown> = {}) {
   };
 }
 
+/** The source of the schema of definition `name` in the output of `zodSchemas`. */
 function schemaOf(defs: Record<string, unknown>, name: string): string {
   const source = zodSchemas(defs);
   const start = source.indexOf(`export const ${schemaName(name)}`);

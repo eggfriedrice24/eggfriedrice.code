@@ -19,6 +19,7 @@ import { TextInput } from "react-native";
 import { cn } from "@/components/ui/cn";
 import { roles } from "@/theme/roles";
 
+import { ANSWER_PLACEHOLDER } from "../../model/question";
 import { ComposerContext, ComposerInputRefContext, ComposerSizeContext } from "./composer-context";
 
 /** The text input of the composer. It reads the draft through the composer. */
@@ -34,7 +35,7 @@ export function ComposerInput() {
     <TextInput
       ref={inputRef ?? undefined}
       testID="composer-input"
-      accessibilityLabel={model.answering === undefined ? "Message" : "Your answer"}
+      accessibilityLabel={model.answering === undefined ? "Message" : ANSWER_PLACEHOLDER}
       multiline
       submitBehavior="newline"
       keyboardAppearance="dark"

@@ -51,6 +51,14 @@ const WAKE_PREFIX = "(job notice turn) ";
 /** The detail line for a question that a job notice started. */
 export const WAKE_DETAIL = "a job notice started this turn";
 
+/**
+ * `line` without the mark of a job notice turn at its start, or `undefined` when it has
+ * none. efrd puts the mark in front of a summary and of a question of the model.
+ */
+export function withoutWakeMark(line: string): string | undefined {
+  return line.startsWith(WAKE_PREFIX) ? line.slice(WAKE_PREFIX.length) : undefined;
+}
+
 /** The first line of a question of full mode (`FULL_ASKS` of efrd): a detail line. */
 const FULL_PREFIX = "full mode still asks for this: ";
 
@@ -66,9 +74,10 @@ export function summaryParts(summary: string, diff: DiffCount | undefined): Summ
   let subject: Subject | undefined;
   for (const raw of summary.split("\n")) {
     let line = raw;
-    if (line.startsWith(WAKE_PREFIX)) {
+    const woken = withoutWakeMark(line);
+    if (woken !== undefined) {
       details.push(WAKE_DETAIL);
-      line = line.slice(WAKE_PREFIX.length);
+      line = woken;
     }
     if (line.length === 0) {
       continue;

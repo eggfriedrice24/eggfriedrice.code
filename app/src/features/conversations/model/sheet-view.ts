@@ -14,7 +14,7 @@
 
 import { searchWords } from "@/lib/text/search-words";
 import type { ConversationItem } from "./conversation-item";
-import { listAge, spokenAge } from "./list-format";
+import { listAge } from "./list-format";
 import {
   filterConversations,
   mergeConversationLists,
@@ -185,10 +185,8 @@ export function offlineBanner(input: OfflineBannerInput): OfflineBanner | undefi
   if (oldest === undefined) {
     return { text: who, label: who };
   }
-  return {
-    text: `${who} · rows from ${listAge(oldest, input.now)}`,
-    label: `${who}, rows from ${spokenAge(oldest, input.now)}`,
-  };
+  const age = listAge(oldest, input.now);
+  return { text: `${who} · rows from ${age.text}`, label: `${who}, rows from ${age.label}` };
 }
 
 /**

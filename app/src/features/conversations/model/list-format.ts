@@ -148,36 +148,33 @@ function sameYear(date: Date, now: number): boolean {
   return date.getFullYear() === new Date(now).getFullYear();
 }
 
+/** An age as the screen shows it, and in full words for VoiceOver. */
+export interface ListAge {
+  readonly text: string;
+  readonly label: string;
+}
+
 /**
  * The age of the rows that the phone keeps of an offline machine (SH-Offline), seen at
  * `now`: `12m ago` (at least `1m ago`), `3h ago` on the same day, `yesterday`, then the
- * date as the lists give it, `Nov 12` or `Nov 12, 2025`. The spoken form of each is in
- * `spokenAge`.
+ * date as the lists give it, `Nov 12` or `Nov 12, 2025`. The label says each in full
+ * words: `2 hours ago`, `November 12`.
  */
-export function listAge(then: number, now: number): string {
+export function listAge(then: number, now: number): ListAge {
   switch (listDay(then, now)) {
     case "today": {
       const minutes = Math.max(1, minutesBetween(then, now));
-      return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
+      const hours = Math.floor(minutes / 60);
+      return minutes < 60
+        ? { text: `${minutes}m ago`, label: ago(minutes, "minute") }
+        : { text: `${hours}h ago`, label: ago(hours, "hour") };
     }
     case "yesterday":
-      return "yesterday";
-    default:
-      return shortDate(new Date(then), now);
-  }
-}
-
-/** The age of `listAge` in full words, for VoiceOver: `2 hours ago`, `November 12`. */
-export function spokenAge(then: number, now: number): string {
-  switch (listDay(then, now)) {
-    case "today": {
-      const minutes = Math.max(1, minutesBetween(then, now));
-      return minutes < 60 ? ago(minutes, "minute") : ago(Math.floor(minutes / 60), "hour");
+      return { text: "yesterday", label: "yesterday" };
+    default: {
+      const date = new Date(then);
+      return { text: shortDate(date, now), label: longDate(date, now) };
     }
-    case "yesterday":
-      return "yesterday";
-    default:
-      return longDate(new Date(then), now);
   }
 }
 

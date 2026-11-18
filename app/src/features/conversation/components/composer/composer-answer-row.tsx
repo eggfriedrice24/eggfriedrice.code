@@ -8,7 +8,7 @@
 // keyboard. A ref callback does it, so the row needs no effect.
 
 import { use } from "react";
-import { Pressable, Text, View, type HostInstance } from "react-native";
+import { Pressable, View, type HostInstance } from "react-native";
 
 import { BodyText } from "@/components/ui/body-text";
 import { MonoText } from "@/components/ui/mono-text";
@@ -36,7 +36,9 @@ export function ComposerAnswerRow() {
       testID="composer-answer-row"
       className="min-h-44 flex-row items-center gap-8 pr-0 pl-16"
     >
-      <Text className="text-row-detail text-accent-primary">Answer</Text>
+      <BodyText size="rowDetail" tone="accent_primary">
+        Answer
+      </BodyText>
       <BodyText size="rowDetail" tone="text_primary" numberOfLines={1} className="flex-1">
         {answering.question}
       </BodyText>

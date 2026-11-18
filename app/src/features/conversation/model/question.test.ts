@@ -10,6 +10,7 @@ import {
   MAX_ANSWER_BYTES,
   answerText,
   questionChoice,
+  questionLine,
   questionRow,
   questionSheet,
   questionStrip,
@@ -60,6 +61,14 @@ describe("questionStrip (S-Ask 1)", () => {
   it("is none once the question ended", () => {
     const skipped: UserQuestionView = { ...QUESTION, answer: { kind: "skipped" } };
     expect(questionStrip(skipped, ONLINE, { index: 0, count: 1 })).toBeUndefined();
+  });
+});
+
+describe("questionLine", () => {
+  it("drops the mark of a job notice turn that efrd puts in front", () => {
+    const woken = { ...QUESTION, question: "(job notice turn) Restart the\nserver?" };
+    expect(questionLine(woken)).toBe("Restart the server?");
+    expect(questionLine(QUESTION)).toBe("Which database should the tests use?");
   });
 });
 

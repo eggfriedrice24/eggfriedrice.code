@@ -16,6 +16,7 @@ import type { ActionSheet } from "@/components/ui/action-sheet";
 import type { QuestionReply } from "@/lib/protocol/generated";
 import type { UserQuestionView } from "@/lib/stream/reducer";
 import { utf8Length } from "@/lib/stream/utf8";
+import { withoutWakeMark } from "./approval-block-text";
 import { metaOf, type ApprovalMeta, type ApprovalQueue } from "./approval-strip";
 import { TERMINAL_ORIGINS } from "./quarantine";
 
@@ -31,9 +32,13 @@ export const ANSWER_PLACEHOLDER = "Your answer";
 /** The VoiceOver label of Send while the user types an answer. */
 export const SEND_ANSWER_LABEL = "Send the answer";
 
-/** The question on one line: the strip, the row and the answer row show it so. */
+/**
+ * The question on one line, without the mark of a job notice turn that efrd puts in
+ * front of it: the strip, the row and the answer row show it so.
+ */
 export function questionLine(question: UserQuestionView): string {
-  return question.question.replace(/\s+/g, " ").trim();
+  const text = question.question;
+  return (withoutWakeMark(text) ?? text).replace(/\s+/g, " ").trim();
 }
 
 /** What the strip of a question knows about the phone's answer. */

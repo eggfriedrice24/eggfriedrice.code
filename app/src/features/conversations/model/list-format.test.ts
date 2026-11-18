@@ -7,7 +7,6 @@ import {
   listTime,
   rowTitle,
   shortPath,
-  spokenAge,
   spokenTime,
   startOfLocalDay,
   startOfLocalDayBefore,
@@ -129,23 +128,24 @@ describe("statusWord", () => {
 
 describe("listAge (SH-Offline)", () => {
   it("gives minutes and hours ago today, at least 1m", () => {
-    expect(listAge(NOW, NOW)).toBe("1m ago");
-    expect(listAge(NOW + 5 * MINUTE, NOW)).toBe("1m ago");
-    expect(listAge(NOW - 12 * MINUTE, NOW)).toBe("12m ago");
-    expect(listAge(NOW - 59 * MINUTE, NOW)).toBe("59m ago");
-    expect(listAge(NOW - 3 * 60 * MINUTE, NOW)).toBe("3h ago");
-    expect(spokenAge(NOW, NOW)).toBe("1 minute ago");
-    expect(spokenAge(NOW - 12 * MINUTE, NOW)).toBe("12 minutes ago");
-    expect(spokenAge(NOW - 2 * 60 * MINUTE, NOW)).toBe("2 hours ago");
+    expect(listAge(NOW, NOW)).toEqual({ text: "1m ago", label: "1 minute ago" });
+    expect(listAge(NOW + 5 * MINUTE, NOW).text).toBe("1m ago");
+    expect(listAge(NOW - 12 * MINUTE, NOW)).toEqual({
+      text: "12m ago",
+      label: "12 minutes ago",
+    });
+    expect(listAge(NOW - 59 * MINUTE, NOW).text).toBe("59m ago");
+    expect(listAge(NOW - 3 * 60 * MINUTE, NOW).text).toBe("3h ago");
+    expect(listAge(NOW - 2 * 60 * MINUTE, NOW)).toEqual({ text: "2h ago", label: "2 hours ago" });
   });
 
   it("gives yesterday, then a date", () => {
-    expect(listAge(october(25, 20), NOW)).toBe("yesterday");
-    expect(spokenAge(october(25, 20), NOW)).toBe("yesterday");
-    expect(listAge(october(20, 9), NOW)).toBe("Oct 20");
-    expect(spokenAge(october(20, 9), NOW)).toBe("October 20");
-    expect(listAge(at(2025, 11, 12), NOW)).toBe("Nov 12, 2025");
-    expect(spokenAge(at(2025, 11, 12), NOW)).toBe("November 12, 2025");
+    expect(listAge(october(25, 20), NOW)).toEqual({ text: "yesterday", label: "yesterday" });
+    expect(listAge(october(20, 9), NOW)).toEqual({ text: "Oct 20", label: "October 20" });
+    expect(listAge(at(2025, 11, 12), NOW)).toEqual({
+      text: "Nov 12, 2025",
+      label: "November 12, 2025",
+    });
   });
 });
 
