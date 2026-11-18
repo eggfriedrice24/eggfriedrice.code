@@ -3,8 +3,8 @@
 //!
 //! The history holds only their metadata. A turn fills the bytes of each part that its
 //! model reads as content into its window once, when it starts or when a tool result
-//! brings a new image ([`Turn::fill`](crate::turn)), and strips them from the messages
-//! that it keeps. The rules of what goes as content are here ([`TurnAttachments`]):
+//! brings a new image (`turn.rs`), and strips them from the messages that it keeps.
+//! The rules of what goes as content are here ([`TurnAttachments`]):
 //! the model's input kinds, the withheld set of the conversation, the budget of each
 //! request and the recovery after a provider refused one.
 
@@ -97,7 +97,7 @@ impl Attachments for NoAttachments {
 /// What one turn knows of the attachments of its conversation: the ids that it gives,
 /// what its model reads, what goes as a label from now on, and what a good call of the
 /// model carried already.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct TurnAttachments {
     /// The highest number of an attachment of the conversation so far.
     last: u32,
@@ -181,7 +181,7 @@ impl TurnAttachments {
 /// True when `error` can be the refusal of an attachment: a 400 or a 413 of the API that
 /// is no overflow of the window, no limit and no login error (those have their own
 /// variants).
-pub(crate) fn refused(error: &ProviderError) -> bool {
+pub(crate) fn is_refusal(error: &ProviderError) -> bool {
     matches!(error, ProviderError::Api { status: Some(400 | 413), .. })
 }
 

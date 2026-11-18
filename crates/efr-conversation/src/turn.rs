@@ -1213,7 +1213,7 @@ impl Turn {
         let mut response = self.respond(request).await?;
         let mut first = true;
         while let Response::Failed(error) = &response
-            && attachments::refused(error)
+            && attachments::is_refusal(error)
         {
             let refused = self.attachments.refused(&sent, first);
             if refused.is_empty() {

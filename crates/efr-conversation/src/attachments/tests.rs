@@ -84,11 +84,11 @@ fn a_refusal_withholds_the_new_parts_first_and_then_all() {
 fn only_a_400_or_a_413_of_the_api_can_be_a_refused_attachment() {
     let api =
         |status| ProviderError::Api { status: Some(status), code: None, message: "no".into() };
-    assert!(refused(&api(400)));
-    assert!(refused(&api(413)));
-    assert!(!refused(&api(500)));
-    assert!(!refused(&ProviderError::api(Some(413), None, "prompt is too long".into())));
-    assert!(!refused(&ProviderError::NotLoggedIn));
+    assert!(is_refusal(&api(400)));
+    assert!(is_refusal(&api(413)));
+    assert!(!is_refusal(&api(500)));
+    assert!(!is_refusal(&ProviderError::api(Some(413), None, "prompt is too long".into())));
+    assert!(!is_refusal(&ProviderError::NotLoggedIn));
 }
 
 #[test]
