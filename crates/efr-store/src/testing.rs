@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_protocol::{
-    CallId, CommandId, ConversationId, DeviceId, ErrorBody, ErrorCode, Event, Origin, PtyId,
-    QuestionId, Scope, ShellContext, TurnId, TurnSettings,
+    CallId, CommandId, ConversationId, DeviceId, ErrorBody, ErrorCode, Event, InputWait, Origin,
+    PtyId, QuestionId, Scope, ShellContext, TurnId, TurnSettings,
 };
 use efr_stdx::time::{Clock, Sleep};
 use jiff::{SignedDuration, Timestamp};
@@ -90,6 +90,37 @@ pub(crate) fn device(n: u64) -> DeviceId {
 
 pub(crate) fn question(n: u64) -> QuestionId {
     id(8, n)
+}
+
+/// The input wait of call `call` of turn 1 changes to `input`.
+pub(crate) fn input_changed(call: u64, input: InputWait) -> Event {
+    Event::ToolCallInputChanged {
+        turn_id: turn(1),
+        call_id: self::call(call),
+        input,
+        looks_secret: false,
+    }
+}
+
+/// The model's question `n` of turn 1, asked by call 9.
+pub(crate) fn user_question(n: u64) -> Event {
+    Event::UserQuestionRequested {
+        turn_id: turn(1),
+        call_id: call(9),
+        question_id: question(n),
+        question: "Which database?".to_owned(),
+        options: Vec::new(),
+    }
+}
+
+/// The quarantine question `n` of turn 1, about call 8.
+pub(crate) fn surface_question(n: u64) -> Event {
+    Event::SurfaceQuestionRequested {
+        turn_id: turn(1),
+        call_id: call(8),
+        question_id: question(n),
+        changes: Vec::new(),
+    }
 }
 
 /// Each way that the turn `turn` ends: completed, failed, interrupted and cancelled.

@@ -21,6 +21,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 use crate::sandbox::{REVIEWER_ALLOWS, ScriptedModel, kinds};
+use crate::support::outputs;
 
 /// The question of the model: which database, with two options.
 fn which_database() -> Value {
@@ -74,17 +75,6 @@ async fn until_end(follow: &mut ItemStream<ConversationSubscribeItem>) -> Vec<Ev
     })
     .await
     .unwrap()
-}
-
-/// What the model read of each call in `events`, with whether it was an error.
-fn outputs(events: &[EventEnvelope]) -> Vec<(String, bool)> {
-    events
-        .iter()
-        .filter_map(|envelope| match &envelope.event {
-            Event::ToolCallCompleted { output, is_error, .. } => Some((output.clone(), *is_error)),
-            _ => None,
-        })
-        .collect()
 }
 
 /// How the model's question ended in `events`, and who answered.

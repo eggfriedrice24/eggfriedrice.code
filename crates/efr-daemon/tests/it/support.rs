@@ -3,6 +3,19 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use efr_protocol::{Event, EventEnvelope};
+
+/// The output of each finished tool call of `events`, with whether it failed.
+pub(crate) fn outputs(events: &[EventEnvelope]) -> Vec<(String, bool)> {
+    events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::ToolCallCompleted { output, is_error, .. } => Some((output.clone(), *is_error)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Everything every span and event of this process logs, at every level.
 pub(crate) fn logs() -> Arc<Mutex<Vec<u8>>> {
     static LOGS: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();

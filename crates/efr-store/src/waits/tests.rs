@@ -1,20 +1,13 @@
 use efr_protocol::{ConversationId, Event, InputWait, Origin, UserAnswer};
 use pretty_assertions::assert_eq;
 
-use crate::testing::{self, TestClock, on_writer, question};
+use crate::testing::{
+    self, TestClock, input_changed as input, on_writer, question, surface_question, user_question,
+};
 use crate::{Batch, StoreWriter, WriterHandle};
 
 async fn rows(writer: &WriterHandle) -> Vec<String> {
     on_writer(writer, |conn| Ok(testing::dump(conn, "waits"))).await.unwrap()
-}
-
-fn input(call: u64, input: InputWait) -> Event {
-    Event::ToolCallInputChanged {
-        turn_id: testing::turn(1),
-        call_id: testing::call(call),
-        input,
-        looks_secret: false,
-    }
 }
 
 fn completed(call: u64) -> Event {
@@ -30,25 +23,6 @@ fn completed(call: u64) -> Event {
         changes: None,
         diff: None,
         left_running: false,
-    }
-}
-
-fn user_question(n: u64) -> Event {
-    Event::UserQuestionRequested {
-        turn_id: testing::turn(1),
-        call_id: testing::call(9),
-        question_id: question(n),
-        question: "Which one?".to_owned(),
-        options: Vec::new(),
-    }
-}
-
-fn surface_question(n: u64) -> Event {
-    Event::SurfaceQuestionRequested {
-        turn_id: testing::turn(1),
-        call_id: testing::call(8),
-        question_id: question(n),
-        changes: Vec::new(),
     }
 }
 

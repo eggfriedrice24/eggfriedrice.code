@@ -10,7 +10,9 @@ use pretty_assertions::assert_eq;
 use rusqlite::Connection;
 
 use super::super::*;
-use crate::testing::{self, question};
+use crate::testing::{
+    self, input_changed as input, question, surface_question as surface, user_question as asked,
+};
 use crate::{Migrations, db, projection};
 
 /// A migrated in-memory store and the sequence number of its next event.
@@ -70,40 +72,12 @@ fn resolved(call: u64) -> Event {
     }
 }
 
-fn input(call: u64, input: InputWait) -> Event {
-    Event::ToolCallInputChanged {
-        turn_id: testing::turn(1),
-        call_id: testing::call(call),
-        input,
-        looks_secret: false,
-    }
-}
-
-fn asked(n: u64) -> Event {
-    Event::UserQuestionRequested {
-        turn_id: testing::turn(1),
-        call_id: testing::call(9),
-        question_id: question(n),
-        question: "Which database?".to_owned(),
-        options: Vec::new(),
-    }
-}
-
 fn answered(n: u64) -> Event {
     Event::UserQuestionAnswered {
         turn_id: testing::turn(1),
         question_id: question(n),
         answer: UserAnswer::Unanswered { away: true },
         origin: None,
-    }
-}
-
-fn surface(n: u64) -> Event {
-    Event::SurfaceQuestionRequested {
-        turn_id: testing::turn(1),
-        call_id: testing::call(8),
-        question_id: question(n),
-        changes: Vec::new(),
     }
 }
 

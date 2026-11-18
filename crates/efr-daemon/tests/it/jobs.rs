@@ -28,6 +28,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 use crate::sandbox::{REVIEWER_ALLOWS, ready};
+use crate::support::outputs;
 
 /// A gate before a step of the model: the step waits until it says yes.
 type Gate = Arc<dyn Fn() -> bool + Send + Sync>;
@@ -247,17 +248,6 @@ fn started(events: &[EventEnvelope]) -> Vec<JobInfo> {
         .iter()
         .filter_map(|envelope| match &envelope.event {
             Event::JobStarted { job, .. } => Some(job.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// The output of each finished tool call of `events`, with whether it failed.
-fn outputs(events: &[EventEnvelope]) -> Vec<(String, bool)> {
-    events
-        .iter()
-        .filter_map(|envelope| match &envelope.event {
-            Event::ToolCallCompleted { output, is_error, .. } => Some((output.clone(), *is_error)),
             _ => None,
         })
         .collect()

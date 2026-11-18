@@ -38,7 +38,7 @@ use serde_json::json;
 
 use super::{JOB_WORK, git, ready, real_launcher, skip, with_zsh};
 use crate::jobs_wake::{Answer, Recorder, turn};
-use crate::support::zsh_enabled;
+use crate::support::{outputs, zsh_enabled};
 
 /// A background `shell` call that runs `command`.
 fn job(command: &str) -> Answer {
@@ -250,17 +250,6 @@ fn started(events: &[EventEnvelope]) -> Vec<(JobInfo, u32)> {
 /// none or more started.
 fn one_job(events: &[EventEnvelope]) -> [(JobInfo, u32); 1] {
     started(events).try_into().unwrap_or_else(|_| panic!("{:?}", outputs(events)))
-}
-
-/// The output of each finished tool call of `events`, with whether it failed.
-fn outputs(events: &[EventEnvelope]) -> Vec<(String, bool)> {
-    events
-        .iter()
-        .filter_map(|envelope| match &envelope.event {
-            Event::ToolCallCompleted { output, is_error, .. } => Some((output.clone(), *is_error)),
-            _ => None,
-        })
-        .collect()
 }
 
 /// The summary of each question of `events`.
