@@ -384,6 +384,12 @@ impl<S: Screen> Screen for CountedScreen<S> {
         snapshot
     }
 
+    // The count reads no row, so the default `text` takes a snapshot, and counts its
+    // rows, only for a screen whose scrollback is not full.
+    fn scrollback_rows(&mut self) -> Option<usize> {
+        self.inner.scrollback_rows()
+    }
+
     fn row(&self, index: usize) -> RowCells {
         self.inner.row(index)
     }

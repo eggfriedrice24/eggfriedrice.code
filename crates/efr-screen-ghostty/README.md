@@ -125,9 +125,10 @@ through `efr_test_support::bench`, a dev-dependency.
 
 - `bench_perf_replay_screen` (`tests/it/replay_screen.rs`): the capture screens of a
   replay of 512 KiB and 5 MiB of output that moves the cursor, on vt100 and on ghostty.
-  It uses the split rule of efr-shell's replay, and reads each screen with all its
-  scrollback and with 1,000 rows. It reports the time, the screens and the history
-  rows.
+  It uses the split rule of efr-shell's replay, and reads each screen in three ways: a
+  snapshot with all its scrollback, a snapshot with 1,000 rows, and `Screen::text`
+  with the limit of 1,000 rows, as efr-shell does. It reports the time, the screens,
+  and the history rows or the bytes of text.
 - `bench_perf_idle_compression` (`src/terminal/tests.rs`): a 160x48 screen with 5000
   lines of build output, then its idle steps until they are done. It reports the
   resident bytes that libghostty-vt counts and the RSS of the process before and

@@ -1,4 +1,4 @@
-use crate::row_text;
+use crate::{ScreenText, row_text};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
@@ -275,6 +275,35 @@ fn the_alternate_screen_is_reported_and_shows_no_scrollback() {
     assert!(!snapshot.alternate_screen);
     assert_eq!(texts(&snapshot.rows), ["3", "4"]);
     assert_eq!(texts(&snapshot.scrollback), ["1", "2"]);
+}
+
+#[test]
+fn the_scrollback_is_counted_without_a_row_and_matches_a_snapshot() {
+    for (rows, kept, lines) in [(2, 100, 6), (2, 3, 10), (1, 100, 5), (3, 0, 7), (3, 100, 1)] {
+        let mut screen = fed(5, rows, kept, &numbered_lines(lines));
+        let held = screen.snapshot(usize::MAX).scrollback.len();
+        assert_eq!(screen.scrollback_rows(), Some(held), "{rows} rows, {kept} kept, {lines} lines");
+        // The count leaves the view at the bottom.
+        assert_eq!(screen.parser.screen().scrollback(), 0);
+    }
+}
+
+#[test]
+fn the_text_is_the_text_of_the_snapshot_until_the_limit() {
+    let mut screen = fed(4, 2, 100, b"one\r\ntwo\r\nlong line\r\n");
+    // Four rows of scrollback: "one", "two" and the first two rows of the long line.
+    let snapshot = crate::snapshot::normalize(screen.snapshot(5), 5);
+    assert_eq!(screen.text(5), Some(ScreenText::of(&snapshot)));
+    assert_eq!(screen.text(5).map(|text| text.text), Some("one\ntwo\nlong line".to_owned()));
+    assert_eq!(screen.text(4), None);
+}
+
+#[test]
+fn the_alternate_screen_is_told_without_a_snapshot() {
+    let mut screen = fed(5, 2, 100, b"x");
+    assert!(!screen.alternate_screen());
+    screen.feed(b"\x1b[?1049h", &mut TestSink::default());
+    assert!(screen.alternate_screen());
 }
 
 #[test]

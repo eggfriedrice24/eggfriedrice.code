@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use efr_protocol::{Cursor, RowCells, ScreenSnapshot};
 
-use crate::ScreenSink;
+use crate::snapshot::normalize;
+use crate::{ScreenSink, ScreenText};
 
 /// A terminal emulator that turns PTY output into a grid of cells.
 ///
@@ -32,6 +33,38 @@ pub trait Screen {
     /// scrollback, newest last. The actor normalises the result before it leaves the
     /// thread, so a backend may return untrimmed rows.
     fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot;
+
+    /// The text of the scrollback and the visible rows, or `None` when the scrollback
+    /// holds `scrollback_limit` rows or more. A backend that keeps no more than that
+    /// many may have lost the oldest rows then, so the caller reads the bytes in
+    /// smaller pieces instead.
+    ///
+    /// The default asks [`scrollback_rows`](Screen::scrollback_rows) first and reads
+    /// no rows when the scrollback is full. Otherwise it reads a
+    /// [`snapshot`](Screen::snapshot) with up to `scrollback_limit` rows and gives
+    /// [`ScreenText::of`] its normalised form. A backend that can format its text
+    /// more cheaply overrides it, and must give the same text.
+    fn text(&mut self, scrollback_limit: usize) -> Option<ScreenText> {
+        if self.scrollback_rows().is_some_and(|rows| rows >= scrollback_limit) {
+            return None;
+        }
+        let snapshot = self.snapshot(scrollback_limit);
+        (snapshot.scrollback.len() < scrollback_limit)
+            .then(|| ScreenText::of(&normalize(snapshot, scrollback_limit)))
+    }
+
+    /// The rows of scrollback that the screen holds, when the backend can count them
+    /// without reading them. The default is `None`: the backend cannot.
+    fn scrollback_rows(&mut self) -> Option<usize> {
+        None
+    }
+
+    /// True while the alternate screen is up, as a full-screen program sets it. The
+    /// default reads a [`snapshot`](Screen::snapshot) without scrollback; a backend
+    /// that can tell more cheaply overrides it.
+    fn alternate_screen(&mut self) -> bool {
+        self.snapshot(0).alternate_screen
+    }
 
     /// One row of the visible grid, counted from 0 at the top. A row outside the grid
     /// is empty.

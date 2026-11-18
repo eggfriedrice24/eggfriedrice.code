@@ -384,6 +384,34 @@ fn bench_perf_idle_compression() {
 }
 
 #[test]
+fn a_full_scrollback_gives_no_text() {
+    let mut screen = screen(10, 2);
+    feed(&mut screen, b"1\r\n2\r\n3\r\n4\r\n5");
+    assert_eq!(screen.scrollback_rows(), Some(3));
+    assert_eq!(screen.text(3), None);
+    assert_eq!(screen.text(4).map(|text| text.text), Some("1\n2\n3\n4\n5".to_owned()));
+}
+
+#[test]
+fn a_text_read_of_the_scrollback_gives_the_idle_steps_work_again() {
+    let mut screen = full_screen();
+    idle_until_done(&mut screen);
+    assert_eq!(screen.idle(), None);
+    assert!(screen.text(usize::MAX).is_some_and(|text| text.text.contains("crate-5999")));
+    assert_ne!(screen.idle(), None);
+}
+
+#[test]
+fn the_alternate_screen_is_told_without_a_snapshot() {
+    let mut screen = screen(10, 2);
+    assert!(!screen.alternate_screen());
+    feed(&mut screen, b"\x1b[?1049h");
+    assert!(screen.alternate_screen());
+    feed(&mut screen, b"\x1b[?1049l");
+    assert!(!screen.alternate_screen());
+}
+
+#[test]
 fn the_default_config_uses_ghosttys_colours() {
     let config = GhosttyConfig::default();
     assert_eq!(config.scrollback_lines, 5000);

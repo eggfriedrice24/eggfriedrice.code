@@ -550,11 +550,9 @@ impl ShellSessions {
             return Err(refused(NOT_LEFT));
         }
         // NOTE: a job reads its command's output as lines, as for a running call.
-        match session.screen.snapshot(0).await {
-            Ok(capture) if capture.snapshot.alternate_screen => {
-                return Err(refused("a full-screen program cannot move"));
-            }
-            Ok(_) => {}
+        match session.screen.alternate_screen().await {
+            Ok(true) => return Err(refused("a full-screen program cannot move")),
+            Ok(false) => {}
             Err(_) => return Err(refused("the screen of the hidden shell cannot be read")),
         }
         let (tee, output) = adopt::tee();
@@ -1173,11 +1171,9 @@ impl ShellSessions {
         }
         // NOTE: a job reads its command's output as lines; a full-screen program has
         // none to read, and nobody could reach its keys there.
-        match session.screen.snapshot(0).await {
-            Ok(capture) if capture.snapshot.alternate_screen => {
-                return refuse(request, "a full-screen program cannot move");
-            }
-            Ok(_) => {}
+        match session.screen.alternate_screen().await {
+            Ok(true) => return refuse(request, "a full-screen program cannot move"),
+            Ok(false) => {}
             Err(_) => return refuse(request, "the screen of the hidden shell cannot be read"),
         }
         let (tee, output) = adopt::tee();

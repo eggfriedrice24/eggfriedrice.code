@@ -6,9 +6,15 @@ The screen model boundary. Everything that turns PTY output into a terminal scre
 goes through this crate, whichever backend renders it:
 
 - `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`, `row`, `cursor`, `title`,
-  `pwd`, and `idle_delay` and `idle` with defaults that do nothing), implemented by
+  `pwd`; `text`, `scrollback_rows` and `alternate_screen` with defaults that read a
+  snapshot; and `idle_delay` and `idle` with defaults that do nothing), implemented by
   the `vt100` module of this crate and by `efr-screen-ghostty`. It has no `Send`
-  bound.
+  bound. Both backends count their scrollback rows and tell the alternate screen
+  without reading a row, so `text` reads no row of a full scrollback.
+- `text`: `ScreenText`, the scrollback and the visible rows as lines of text: a
+  soft-wrapped row joined to the next, no trailing spaces, no blank line at the end,
+  and the count of blank lines above the cursor apart. `ScreenText::of` makes it from
+  a snapshot.
 - `sink`: the `ScreenSink` trait through which a backend reports PTY replies (DA, DSR,
   DECRQM, OSC 10 and 11 answers), bells and title changes while it processes bytes.
 - `actor`: `ScreenActor::spawn`, which runs one screen on its own named std thread,
@@ -48,7 +54,8 @@ that will not compile:
   through `efr_stdx::thread::spawn_named` and builds the `Screen` inside it from the
   `Send` factory. The screen is then resized to `size`, so a screen always starts at
   the size its owner asked for.
-- Inbound: feed, resize, snapshot and shutdown commands go over a bounded
+- Inbound: feed, resize, snapshot, text, alternate screen and shutdown commands go
+  over a bounded
   `std::sync::mpsc::sync_channel(64)`. The async PTY reader task parks on
   backpressure: `ScreenHandle::feed` waits on a `tokio::sync::Notify` that the actor
   signals after every command it takes, so a full queue never blocks a tokio worker.

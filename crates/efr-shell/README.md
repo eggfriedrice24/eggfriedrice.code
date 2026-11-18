@@ -404,8 +404,9 @@ so far of a run left running at its timeout:
   cursor, the alternate screen) is replayed on a capture screen: one from the
   session's own `ScreenFactory`, named `replay-<last eight hex digits>`, at the
   shell's current width (it follows `resize`), with as many rows as the output can
-  fill, at least the shell's height and at most 200, and read back with the newest
-  1000 rows of its scrollback. The text is the rows that the screen shows at the end: a soft-wrapped
+  fill, at least the shell's height and at most 200, and read back as text
+  (`ScreenHandle::text`) with its scrollback. The screen counts its scrollback rows
+  first and reads no row when it holds 1000 or more. The text is the rows that the screen shows at the end: a soft-wrapped
   row joined to the next, colours dropped, wide characters kept, trailing blanks and
   blank rows at the end removed. So a multi-line progress display that redraws itself
   with cursor-up leaves only its last frame.
@@ -793,7 +794,8 @@ The benches are ignored tests. `just bench-perf` runs them in release. They need
 - `bench_perf_replay` (`src/replay/tests.rs`): `Replayer::render` on vt100 for
   512 KiB and 5 MiB of output that moves the cursor, and for 5 MiB kept as a run keeps
   it (1 MiB), and for 5 MiB on a vt100 that keeps 5,000 rows of scrollback, as ghostty
-  does. It counts the capture screens and the history rows that their snapshots build.
+  does. It counts the capture screens and the history rows that their snapshots build;
+  a screen whose scrollback is full builds none, because vt100 counts its rows first.
   Budget: no snapshot builds more than 1,000 history rows, the rows that the replay
   trusts. efr-shell names no backend, so the ghostty numbers come from
   `bench_perf_replay_screen` of efr-screen-ghostty.

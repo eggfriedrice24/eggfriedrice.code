@@ -6,6 +6,7 @@ use std::time::Duration;
 use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
 use libghostty_vt::Terminal;
 use libghostty_vt::color::Rgb;
+use libghostty_vt::screen::Screen as ActiveScreen;
 use libghostty_vt::terminal::{CompressionActivity, CompressionMode, CompressionResult};
 
 use crate::GhosttyError;
@@ -225,6 +226,16 @@ impl Screen for GhosttyScreen {
             self.compressed = None;
         }
         snapshot::capture(&self.terminal, scrollback_rows)
+    }
+
+    /// libghostty-vt keeps the count of its rows, so this reads no row, and
+    /// [`Screen::text`] reads no cell of a full scrollback.
+    fn scrollback_rows(&mut self) -> Option<usize> {
+        self.terminal.scrollback_rows().ok()
+    }
+
+    fn alternate_screen(&mut self) -> bool {
+        self.terminal.active_screen().is_ok_and(|screen| screen == ActiveScreen::Alternate)
     }
 
     fn row(&self, index: usize) -> RowCells {

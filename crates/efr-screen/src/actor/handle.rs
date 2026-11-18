@@ -10,8 +10,8 @@ use efr_protocol::{Seq, Size};
 use tokio::sync::{Notify, oneshot};
 
 use super::{ScreenCommand, SnapshotReply};
-use crate::ScreenError;
 use crate::snapshot::ScreenCapture;
+use crate::{ScreenError, ScreenText};
 
 /// Sends commands to one screen thread. Cheap to clone; every clone talks to the same
 /// screen, and the screen stops when the last clone is dropped.
@@ -93,6 +93,30 @@ impl ScreenHandle {
             reply: SnapshotReply::Caller(reply),
         })?;
         answer.blocking_recv().map_err(|_| self.closed())
+    }
+
+    /// The text of the scrollback and the visible rows, taken after every command
+    /// queued before it, or `None` when the scrollback holds `scrollback_limit` rows or
+    /// more (see [`Screen::text`](crate::Screen::text)). It costs no cells: a backend
+    /// counts its scrollback first and builds the text only when it is used.
+    ///
+    /// NOTE: the task that reads this screen's events must not await this, for the
+    /// reason that [`snapshot`](Self::snapshot) gives.
+    pub async fn text(&self, scrollback_limit: usize) -> Result<Option<ScreenText>, ScreenError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(ScreenCommand::Text { scrollback_limit, reply }).await?;
+        answer.await.map_err(|_| self.closed())
+    }
+
+    /// True while the alternate screen is up, after every command queued before it.
+    /// It reads no rows.
+    ///
+    /// NOTE: the task that reads this screen's events must not await this, for the
+    /// reason that [`snapshot`](Self::snapshot) gives.
+    pub async fn alternate_screen(&self) -> Result<bool, ScreenError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(ScreenCommand::AlternateScreen { reply }).await?;
+        answer.await.map_err(|_| self.closed())
     }
 
     /// Asks for a snapshot that arrives on the event stream as

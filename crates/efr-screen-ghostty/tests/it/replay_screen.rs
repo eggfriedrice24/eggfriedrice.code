@@ -3,14 +3,16 @@
 //! its scrollback; a piece whose scrollback holds 1,000 rows or more is replayed again
 //! in two halves (`efr-shell/src/replay.rs`). efr-shell names no backend, so its own
 //! bench (`bench_perf_replay`) runs only vt100; this one runs the same loop on vt100
-//! and on ghostty, which keeps 5,000 rows of scrollback, and reads each screen with all
-//! its scrollback (as today) and with 1,000 rows (plan slice W1-J). It reports the time,
-//! the screens and the history rows that the snapshots built. A bench, ignored:
-//! `just bench-perf` runs it in release.
+//! and on ghostty, which keeps 5,000 rows of scrollback, and reads each screen in three
+//! ways: a snapshot with all its scrollback, a snapshot with 1,000 rows (plan slice
+//! W1-J), and `Screen::text` with the limit of 1,000 rows, which efr-shell uses now. It
+//! reports the time, the screens, and the history rows that the snapshots built or the
+//! bytes of text. A bench, ignored: `just bench-perf` runs it in release.
 //!
 //! NOTE: the loop copies the split rule of `efr-shell/src/replay.rs` (`replay`,
-//! `rows_for`, `middle_line_end`) and leaves out the text of the rows, so it measures
-//! the screens alone. The rows of a capture screen are approximated by the line feeds.
+//! `rows_for`, `middle_line_end`) and leaves out the text of the snapshot rows, so it
+//! measures the screens alone. The rows of a capture screen are approximated by the
+//! line feeds.
 
 use std::time::{Duration, Instant};
 
@@ -75,11 +77,21 @@ struct Counts {
     screens: u64,
     history: u64,
     bytes_fed: u64,
+    text_bytes: u64,
 }
 
-/// Replays `bytes` as efr-shell does, on screens from `make`, reading `ask` rows of the
-/// scrollback of each.
-fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], ask: usize) -> Counts {
+/// How a replay reads each screen.
+#[derive(Debug, Clone, Copy)]
+enum Read {
+    /// A snapshot with up to this many rows of scrollback, as efr-shell did before
+    /// `Screen::text`.
+    Snapshot(usize),
+    /// `Screen::text` with the trusted limit, as efr-shell does now.
+    Text,
+}
+
+/// Replays `bytes` as efr-shell does, on screens from `make`, reading each with `read`.
+fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], read: Read) -> Counts {
     let mut counts = Counts::default();
     let mut pieces: Vec<&[u8]> = vec![bytes];
     while let Some(piece) = pieces.pop() {
@@ -87,11 +99,23 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], ask: usize) -> Coun
         let rows = u16::try_from(feeds).unwrap_or(u16::MAX).clamp(SHELL.rows, MAX_ROWS);
         let mut screen = make(Size { cols: SHELL.cols, rows });
         screen.feed(piece, &mut Discard);
-        let snapshot = screen.snapshot(ask);
         counts.screens += 1;
-        counts.history += snapshot.scrollback.len() as u64;
         counts.bytes_fed += piece.len() as u64;
-        if snapshot.scrollback.len() < TRUSTED_SCROLLBACK {
+        let full = match read {
+            Read::Snapshot(ask) => {
+                let snapshot = screen.snapshot(ask);
+                counts.history += snapshot.scrollback.len() as u64;
+                snapshot.scrollback.len() >= TRUSTED_SCROLLBACK
+            }
+            Read::Text => match screen.text(TRUSTED_SCROLLBACK) {
+                Some(text) => {
+                    counts.text_bytes += text.text.len() as u64;
+                    false
+                }
+                None => true,
+            },
+        };
+        if !full {
             continue;
         }
         if let Some(at) = middle_line_end(piece) {
@@ -106,18 +130,25 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], ask: usize) -> Coun
 fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S) {
     for (size_name, size) in [("512 KiB", 512 * 1024), ("5 MiB", 5 * 1024 * 1024)] {
         let output = status_line_output(size);
-        for (ask_name, ask) in [("all", usize::MAX), ("1000", TRUSTED_SCROLLBACK)] {
-            let label = format!("{name} {size_name} scrollback {ask_name}");
+        for (read_name, read) in [
+            ("scrollback all", Read::Snapshot(usize::MAX)),
+            ("scrollback 1000", Read::Snapshot(TRUSTED_SCROLLBACK)),
+            ("text", Read::Text),
+        ] {
+            let label = format!("{name} {size_name} {read_name}");
             let mut samples = Vec::new();
             let mut counts = Counts::default();
             for _ in 0..3 {
                 let start = Instant::now();
-                counts = replay(make, &output, ask);
+                counts = replay(make, &output, read);
                 samples.push(start.elapsed());
             }
             let stats = report.time(&label, &samples);
             report.count(&format!("{label} screens"), counts.screens);
-            report.count(&format!("{label} history rows"), counts.history);
+            match read {
+                Read::Snapshot(_) => report.count(&format!("{label} history rows"), counts.history),
+                Read::Text => report.bytes(&format!("{label} text"), counts.text_bytes),
+            }
             report.bytes(&format!("{label} bytes fed"), counts.bytes_fed);
             if stats.p50 > Duration::from_secs(10) {
                 report.count(&format!("{name} stopped_at_n"), size as u64);

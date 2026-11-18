@@ -178,6 +178,21 @@ impl Screen for Vt100Screen {
         }
     }
 
+    /// The rows that a snapshot with all the scrollback gives: vt100's own scrollback
+    /// and, on a one-row screen, the rows above the view. vt100 clamps the offset of
+    /// its scrolled view to the rows it holds, so this reads no row.
+    fn scrollback_rows(&mut self) -> Option<usize> {
+        let screen = self.parser.screen_mut();
+        screen.set_scrollback(usize::MAX);
+        let held = screen.scrollback();
+        screen.set_scrollback(0);
+        Some(held + usize::from(self.top()))
+    }
+
+    fn alternate_screen(&mut self) -> bool {
+        self.parser.screen().alternate_screen()
+    }
+
     fn row(&self, index: usize) -> RowCells {
         match u16::try_from(index) {
             Ok(index) if index < self.size.rows => {

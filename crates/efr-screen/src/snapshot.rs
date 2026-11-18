@@ -68,7 +68,7 @@ fn trim_trailing_blanks(row: &mut RowCells) {
 
 /// A cell that shows nothing: no glyph and nothing that paints the cell itself. A
 /// foreground colour, bold or italic on an empty cell does not show.
-fn is_blank(cell: &Cell) -> bool {
+pub(crate) fn is_blank(cell: &Cell) -> bool {
     (cell.text.is_empty() || cell.text == " ")
         && cell.bg.is_none()
         && !cell.underline

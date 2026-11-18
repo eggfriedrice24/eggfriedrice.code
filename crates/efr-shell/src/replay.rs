@@ -13,8 +13,9 @@
 //! A row that scrolled off the top is out of reach of every cursor movement, so the
 //! scrollback is final; but a backend keeps only so much of it. A replay whose
 //! scrollback reaches [`TRUSTED_SCROLLBACK`] may have lost its oldest rows, so it is
-//! replayed again in two halves split at a line end. A replay therefore reads at most
-//! that many rows of scrollback: the text of a screen that holds more is not used.
+//! replayed again in two halves split at a line end. The screen counts its scrollback
+//! before it makes text, so a screen that holds that many rows gives no text, and the
+//! text of the others comes in one piece ([`ScreenHandle::text`]).
 //!
 //! When the capture screen cannot start or stops early, the cleaner reads the bytes.
 //!
@@ -24,8 +25,8 @@
 
 use bytes::Bytes;
 use efr_holder::Size;
-use efr_protocol::{RowCells, ScreenSnapshot, Seq};
-use efr_screen::{ScreenError, row_text};
+use efr_protocol::{ScreenSnapshot, Seq};
+use efr_screen::{ScreenError, ScreenHandle, ScreenText};
 
 use crate::ScreenFactory;
 use crate::capture::{Captured, Kept, clean, join, skip_escape};
@@ -104,7 +105,7 @@ impl<'a> Replayer<'a> {
         if !scan.wants_screen() {
             return clean(bytes);
         }
-        match self.replay_piece(bytes, self.size, 0).await {
+        match self.visible(bytes).await {
             Ok(snapshot) => {
                 let mut text = screen_text(&snapshot, true);
                 if scan.full_screen {
@@ -135,12 +136,14 @@ impl<'a> Replayer<'a> {
         while let Some(piece) = pieces.pop() {
             let last = pieces.is_empty();
             let size = Size { cols: self.size.cols, rows: rows_for(&piece, self.size) };
-            // NOTE: both backends give the newest rows up to the limit. A piece that
-            // holds fewer rows reads whole, and one that holds the limit or more is
-            // split, as with all of its scrollback; its older rows are never built.
-            let snapshot = self.replay_piece(&piece, size, TRUSTED_SCROLLBACK).await?;
-            if snapshot.scrollback.len() < TRUSTED_SCROLLBACK {
-                text.push_str(&screen_text(&snapshot, last));
+            // NOTE: the screen counts its scrollback first. A piece that holds fewer
+            // rows than the limit reads whole, and one that holds the limit or more is
+            // split; its rows are never read.
+            let screen = self.replayed(&piece, size).await?;
+            let read = screen.text(TRUSTED_SCROLLBACK).await;
+            stop(&screen).await;
+            if let Some(read) = read? {
+                text.push_str(&piece_text(read, last));
                 continue;
             }
             if let Some(at) = middle_line_end(&piece) {
@@ -162,34 +165,38 @@ impl<'a> Replayer<'a> {
         Ok(text)
     }
 
-    /// Replays `piece` on a capture screen of its own of `size` and reads it back with
-    /// at most `scrollback` rows of its scrollback. The screen stops when this returns,
-    /// and also when the caller drops the future, because its last handle goes with it.
-    async fn replay_piece(
-        &self,
-        piece: &Bytes,
-        size: Size,
-        scrollback: usize,
-    ) -> Result<ScreenSnapshot, ScreenError> {
+    /// Replays `bytes` on a capture screen of the shell's size and reads back its
+    /// visible rows, without the scrollback.
+    async fn visible(&self, bytes: &Bytes) -> Result<ScreenSnapshot, ScreenError> {
+        let screen = self.replayed(bytes, self.size).await?;
+        let capture = screen.snapshot(0).await;
+        stop(&screen).await;
+        Ok(capture?.snapshot)
+    }
+
+    /// A capture screen of its own of `size` with `piece` replayed on it. The screen
+    /// stops when its handle is dropped, also when the caller drops the future, and
+    /// when a feed fails.
+    async fn replayed(&self, piece: &Bytes, size: Size) -> Result<ScreenHandle, ScreenError> {
         let (screen, events) = self.screens.spawn(&self.name, size)?;
         // Nobody answers this screen's terminal queries or hears its bells. With the
         // stream gone, the actor drops its events instead of waiting for a reader.
         drop(events);
-        let read = async {
-            screen.feed(piece.clone(), Seq::ZERO).await?;
-            // What a full-screen program shows is gone once it ends; a program cut off
-            // by the end of the bytes is ended here, so that its main screen shows.
-            if Scan::of(piece).alternate_at_end {
-                let at = Seq::new(piece.len() as u64);
-                screen.feed(Bytes::from_static(LEAVE_ALTERNATE), at).await?;
-            }
-            screen.snapshot(scrollback).await
-        };
-        let capture = read.await;
-        // A screen that already stopped has nothing left to stop.
-        let _ = screen.shutdown().await;
-        Ok(capture?.snapshot)
+        screen.feed(piece.clone(), Seq::ZERO).await?;
+        // What a full-screen program shows is gone once it ends; a program cut off by
+        // the end of the bytes is ended here, so that its main screen shows.
+        if Scan::of(piece).alternate_at_end {
+            let at = Seq::new(piece.len() as u64);
+            screen.feed(Bytes::from_static(LEAVE_ALTERNATE), at).await?;
+        }
+        Ok(screen)
     }
+}
+
+/// Stops a capture screen once it was read. A screen that already stopped has nothing
+/// left to stop.
+async fn stop(screen: &ScreenHandle) {
+    let _ = screen.shutdown().await;
 }
 
 /// What a part of the output does to a terminal beyond printing text.
@@ -354,66 +361,24 @@ pub(crate) fn middle_line_end(bytes: &[u8]) -> Option<usize> {
         .min_by_key(|&at| at.abs_diff(middle))
 }
 
-/// The text of a replayed screen: the scrollback, then the visible rows, a soft-wrapped
-/// row joined to the next, each line without trailing blanks, and no blank lines at
-/// the end. A piece that more pieces follow keeps the blank lines above its cursor,
-/// where the next piece goes on, and ends with a line break.
+/// The text of a replayed screen snapshot, by the rules of [`piece_text`].
 pub(crate) fn screen_text(snapshot: &ScreenSnapshot, last: bool) -> String {
-    let rows: Vec<&RowCells> = snapshot.scrollback.iter().chain(&snapshot.rows).collect();
-    let cols = usize::from(snapshot.size.cols);
-    let cursor = snapshot.scrollback.len() + usize::from(snapshot.cursor.row);
-    // Each line with the index of its first row.
-    let mut lines: Vec<(usize, String)> = Vec::new();
-    let mut open: Option<(usize, String)> = None;
-    for (index, row) in rows.iter().enumerate() {
-        let (start, mut text) = open.take().unwrap_or_else(|| (index, String::new()));
-        match rows.get(index + 1) {
-            Some(next) if row.wrapped => {
-                text.push_str(&wrapped_text(row, cols, next));
-                open = Some((start, text));
-            }
-            _ => {
-                text.push_str(&row_text(row));
-                text.truncate(text.trim_end_matches(' ').len());
-                lines.push((start, text));
-            }
-        }
-    }
-    while lines.last().is_some_and(|(start, text)| text.is_empty() && (last || *start >= cursor)) {
-        lines.pop();
-    }
-    let ends_a_line = !last && !lines.is_empty();
-    let mut text = lines.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join("\n");
-    if ends_a_line {
-        text.push('\n');
-    }
-    text
+    piece_text(ScreenText::of(snapshot), last)
 }
 
-/// The text of a soft-wrapped row: every column, because the line goes on in the next
-/// row and a blank at the wrap is part of it. The snapshot leaves trailing blank cells
-/// out, so they come back as spaces, except the one that a wide character leaves in
-/// the last column when it does not fit there and starts the next row instead.
-fn wrapped_text(row: &RowCells, cols: usize, next: &RowCells) -> String {
-    let mut text = String::new();
-    let mut after_wide = false;
-    for cell in &row.cells {
-        if cell.text.is_empty() {
-            if !after_wide {
-                text.push(' ');
-            }
-        } else {
-            text.push_str(&cell.text);
-        }
-        after_wide = cell.wide;
+/// The text of a replayed piece: the scrollback, then the visible rows, a soft-wrapped
+/// row joined to the next, each line without trailing blanks, and no blank lines at
+/// the end (see [`ScreenText`]). A piece that more pieces follow keeps the blank lines
+/// above its cursor, where the next piece goes on, and ends with a line break.
+fn piece_text(screen: ScreenText, last: bool) -> String {
+    let ScreenText { mut text, blank_lines_before_cursor: blank } = screen;
+    if last || (text.is_empty() && blank == 0) {
+        return text;
     }
-    // A wide character in the last cells lost its blank second cell to the trim.
-    let covered = row.cells.len() + usize::from(row.cells.last().is_some_and(|cell| cell.wide));
-    let mut blanks = cols.saturating_sub(covered);
-    if blanks > 0 && next.cells.first().is_some_and(|cell| cell.wide) {
-        blanks -= 1;
-    }
-    text.extend(std::iter::repeat_n(' ', blanks));
+    // Each kept blank line is a line break, and a piece with lines ends with one more;
+    // without text, the first blank line is the start of the piece itself.
+    let breaks = if text.is_empty() { blank } else { blank + 1 };
+    text.extend(std::iter::repeat_n('\n', breaks));
     text
 }
 

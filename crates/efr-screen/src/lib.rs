@@ -12,6 +12,8 @@
 //!   so every backend reports the same marks.
 //! - [`ScreenCapture`] and [`row_text`]: snapshots in the wire form of
 //!   `efr_protocol::ScreenSnapshot`, and the text a row shows.
+//! - [`ScreenText`]: the scrollback and the visible rows of a screen as lines of
+//!   text, for a reader that wants words, not cells.
 //! - [`vt100`]: the backend over the pure-Rust vt100 crate, which needs no Zig:
 //!   `Vt100Screen` and its `factory`.
 //! - `conformance` (feature `conformance`, for test targets only): the suite every
@@ -39,6 +41,7 @@ mod screen;
 mod shell_marks;
 mod sink;
 mod snapshot;
+mod text;
 pub mod vt100;
 
 pub use actor::{SCREEN_STACK_SIZE, ScreenActor, ScreenEvent, ScreenEvents, ScreenHandle};
@@ -50,3 +53,4 @@ pub use shell_marks::{
 };
 pub use sink::ScreenSink;
 pub use snapshot::{ScreenCapture, row_text};
+pub use text::ScreenText;

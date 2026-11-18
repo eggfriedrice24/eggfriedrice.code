@@ -23,7 +23,7 @@ pub use self::events::{ScreenEvent, ScreenEvents};
 pub use self::handle::ScreenHandle;
 use crate::sink::{Collector, Notice};
 use crate::snapshot::{ScreenCapture, normalize};
-use crate::{Screen, ScreenError, ShellMarkScanner};
+use crate::{Screen, ScreenError, ScreenText, ShellMarkScanner};
 
 /// The stack of a screen thread. The actor loop is shallow, and Linux commits stack
 /// pages lazily, so N+1 screens cost little more than their grids.
@@ -44,6 +44,10 @@ pub(crate) enum ScreenCommand {
     Resize { size: Size },
     /// Take a snapshot with up to `scrollback_rows` rows of scrollback.
     Snapshot { scrollback_rows: usize, reply: SnapshotReply },
+    /// Read the text while the scrollback holds fewer than `scrollback_limit` rows.
+    Text { scrollback_limit: usize, reply: oneshot::Sender<Option<ScreenText>> },
+    /// Tell whether the alternate screen is up.
+    AlternateScreen { reply: oneshot::Sender<bool> },
     /// Stop the actor; commands queued behind this one are dropped.
     Shutdown,
 }
@@ -137,6 +141,13 @@ impl<S: Screen> ScreenActor<S> {
                 ScreenCommand::Resize { size } => self.resize(size),
                 ScreenCommand::Snapshot { scrollback_rows, reply } => {
                     self.snapshot(scrollback_rows, reply);
+                }
+                // A caller that stopped waiting needs nothing more.
+                ScreenCommand::Text { scrollback_limit, reply } => {
+                    let _ = reply.send(self.screen.text(scrollback_limit));
+                }
+                ScreenCommand::AlternateScreen { reply } => {
+                    let _ = reply.send(self.screen.alternate_screen());
                 }
                 ScreenCommand::Shutdown => break,
             }
