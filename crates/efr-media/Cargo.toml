@@ -15,6 +15,7 @@ doctest = false
 efr-stdx.workspace = true
 image.workspace = true
 miniz_oxide.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

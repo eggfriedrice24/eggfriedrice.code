@@ -924,6 +924,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "rstest",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -9,3 +9,20 @@
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
+
+mod error;
+mod jpeg;
+mod pdf;
+mod probe;
+mod scale;
+mod strip;
+#[cfg(test)]
+mod testing;
+
+pub use error::MediaError;
+pub use pdf::{PDF_INFLATE_MAX, PdfFacts, pdf_facts};
+pub use probe::{MAX_PIXELS, Probe, probe};
+pub use scale::{
+    Decoded, JPEG_QUALITY, Prepared, THUMB_HEIGHT, THUMB_WIDTH, decode, scale, thumbnail,
+};
+pub use strip::strip;
