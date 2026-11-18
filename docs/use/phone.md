@@ -456,6 +456,27 @@ The app measures the 5 minutes with the clock of the iPhone. A person who sets t
 clock back while the app is away can make the time away look shorter than 5 minutes.
 Then the app opens with no check.
 
+Under "When you are away", the switch "Notifications" (off by default) lets efrd send a
+notice to the phone when something needs you and you are not at the terminal. The
+first time that you turn it on, iOS asks if efr can send notices. The switch moves only
+after you allow them. When you do not allow them, the row says that notifications are
+off for efr in iOS Settings, and a tap on the row opens those settings. A machine whose
+efrd sends no notices (an efrd before 0.0.13, or one with `presence.push = false`) is
+named under the row, such as "Not available on homelab".
+
+While the app is in front, a notice shows no banner and plays no sound, and the app
+tells efrd that you look at it, so efrd sends no notice then. A tap on a notice opens
+its conversation, after the Face ID unlock when it is on. The app ignores a notice of a
+machine that it does not know. When a conversation opens, its notices go from the
+Notification Center. When you turn the switch off or forget a machine, the app tells
+the machine to stop at once.
+
+A notice has the title `efr` and a body such as `app: a question waits`: the name of the
+project, then what happened. It never holds a prompt, a command, a title or text of the
+model. efrd sends each notice through the Expo push service, which gives it to Apple.
+So the title, the name of the project, and the ids of the machine and the conversation
+pass through the servers of Expo and of Apple.
+
 Settings also has the Haptics switch, which turns off all the haptics of the app, and
 the version of the app.
 
