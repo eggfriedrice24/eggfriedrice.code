@@ -23,7 +23,7 @@ into the GitHub release notes, and it stops when the section is missing.
   limit that was slow. A build from source still needs Zig 0.17.0.
 - efrd uses less memory for each conversation with a hidden shell. 1 second after
   the last output, the screen of the shell compresses its old scrollback: a full
-  scrollback of 5000 lines at 160 columns now takes about 0.5 MiB, not 6.4 MiB.
+  scrollback of 5000 lines at 160 columns now takes about 0.51 MiB, not 6.44 MiB.
 - efrd turns the output of a command that moves the cursor, such as a progress display
   that draws itself again, into text in about half the time. Before, it read the rows
   of each full screen only to learn that the screen was full.

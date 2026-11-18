@@ -13,7 +13,7 @@ use std::rc::Rc;
 use efr_screen::ScreenSink;
 use libghostty_vt::Terminal;
 
-use crate::semantic_prompt::Step;
+use crate::semantic_prompt::{ReportedStep, Step};
 use crate::snapshot;
 
 /// What the callbacks of one terminal produced since the last drain.
@@ -36,10 +36,12 @@ pub(crate) struct Effects {
     /// directory without a working directory callback. Cleared by
     /// [`take_reset`](Effects::take_reset).
     reset: Cell<bool>,
+    /// True while the terminal holds a title that the sink heard of, so a full reset
+    /// reports the cleared title only when there was one.
+    titled: Cell<bool>,
     /// The last OSC 133 step that libghostty-vt reported, cleared by
-    /// [`take_step`](Effects::take_step). `Some(None)` is a step of a kind that this
-    /// crate does not know.
-    step: Cell<Option<Option<Step>>>,
+    /// [`take_step`](Effects::take_step).
+    step: Cell<ReportedStep>,
 }
 
 /// A callback other than a reply, kept in order.
@@ -55,6 +57,8 @@ impl Effects {
         terminal: &mut Terminal<'static, 'static>,
     ) -> Result<Rc<Effects>, libghostty_vt::Error> {
         let effects = Rc::new(Effects::default());
+        // A terminal restored from a snapshot may hold a title already.
+        effects.titled.set(title(terminal).is_some_and(|title| !title.is_empty()));
         let replies = Rc::clone(&effects);
         let bells = Rc::clone(&effects);
         let titles = Rc::clone(&effects);
@@ -67,18 +71,23 @@ impl Effects {
             .on_title_changed(move |terminal| {
                 // NOTE: libghostty-vt gives the title as bytes. A title that is not
                 // UTF-8 is not reported; title() then shows no title either.
-                if let Some(title) = terminal.title().ok().and_then(snapshot::title_text) {
+                if let Some(title) = title(terminal) {
+                    titles.titled.set(!title.is_empty());
                     titles.notices.borrow_mut().push(Notice::Title(title.to_owned()));
                 }
             })?
             .on_pwd_changed(move |_| pwd.pwd_changed.set(true))?
             // A full reset clears the title and the working directory, but calls
-            // neither callback above, so the cleared title is reported here.
+            // neither callback above, so a cleared title is reported here.
             .on_reset(move |_| {
-                resets.notices.borrow_mut().push(Notice::Title(String::new()));
+                if resets.titled.replace(false) {
+                    resets.notices.borrow_mut().push(Notice::Title(String::new()));
+                }
                 resets.reset.set(true);
             })?
-            .on_semantic_prompt(move |_, event| steps.step.set(Some(Step::of(event))))?;
+            .on_semantic_prompt(move |_, event| {
+                steps.step.set(Step::of(event).map_or(ReportedStep::Unknown, ReportedStep::Step));
+            })?;
         Ok(effects)
     }
 
@@ -108,11 +117,16 @@ impl Effects {
         self.reset.replace(false)
     }
 
-    /// The last OSC 133 step that libghostty-vt reported since the last call:
-    /// `Some(None)` for a kind that this crate does not know.
-    pub(crate) fn take_step(&self) -> Option<Option<Step>> {
+    /// The last OSC 133 step that libghostty-vt reported since the last call.
+    pub(crate) fn take_step(&self) -> ReportedStep {
         self.step.take()
     }
+}
+
+/// The title of `terminal` as text: empty when it has none, `None` when it is not
+/// UTF-8 (see [`snapshot::title_text`]).
+fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
+    terminal.title().ok().and_then(snapshot::title_text)
 }
 
 #[cfg(test)]

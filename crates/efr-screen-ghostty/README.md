@@ -15,16 +15,18 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   own default colours (`#ffffff` on `#282c34`) for the OSC 10 and 11 answers.
 - `effects`: the effect callbacks. libghostty-vt runs them inside `vt_write`, so they
   push answers to terminal queries (DA, DSR, DECRQM, OSC 10 and 11, in-band resize
-  reports), bells, title changes and OSC 133 steps into `RefCell` buffers, and the
-  screen drains them into the `ScreenSink` after each feed and resize. A full reset (RIS) clears
-  the title without a title callback, so its own callback reports an empty title.
+  reports), bells and title changes into `RefCell` buffers, and the screen drains
+  them into the `ScreenSink` after each feed and resize. The last OSC 133 step and the
+  flags of a working directory change and of a full reset go into `Cell`s, which the
+  cross-check reads and clears. A full reset (RIS) clears the title without a title
+  callback, so its own callback reports an empty title when a title was set.
   libghostty-vt cuts a title at 1024 bytes, also inside a character; such a title
   keeps its whole characters.
 - idle compression: `GhosttyScreen` asks the actor for an idle step 1 s after the last
   command. Each step is one `Terminal::compress(CompressionMode::Incremental)`, 1 ms
   apart, until the pass is done; then nothing happens until
   `Terminal::compression_activity` changes. A full scrollback of 160 columns goes from
-  about 7 MiB to under 1 MiB (see the bench `bench_perf_idle_compression`).
+  about 6.44 MiB to 0.51 MiB (see the bench `bench_perf_idle_compression`).
   libghostty-vt decompresses a page again when a snapshot reads it, and that does not
   change the activity, so a snapshot with scrollback starts a new pass.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
@@ -36,14 +38,18 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   the unfinished escape sequence of the snapshot, so a restored screen can make a
   snapshot again at once, also inside a sequence.
 - `semantic_prompt`: the cross-check. The actor gives the screen the marks of its one
-  scan with the bytes (`Screen::feed_marked`); the screen runs no scanner of its own.
-  The bytes go to libghostty-vt through `Terminal::vt_write_until`, which stops at the
-  end of every OSC that the library reads, so each mark must end at such a stop. At
-  the stop, the step that libghostty-vt reported (`Terminal::on_semantic_prompt`: the
-  kind of prompt, the exit code), its working directory (`Terminal::pwd`) and the
-  cursor row's prompt state must agree with the mark. A disagreement is a `warn` log
-  line; a feed never fails. A plain `Screen::feed`, which only tests use, is not
-  checked.
+  scan with the bytes (`Screen::feed_marked`); the screen runs no scanner over the
+  output. It reads its working directory back through a scanner only when an OSC 7
+  mark comes, so that the same rules read both. The bytes go to libghostty-vt
+  through `Terminal::vt_write_until`, which stops at the end of every OSC that the
+  library reads, so each mark must end at such a stop. At the stop, the step that
+  libghostty-vt reported (`Terminal::on_semantic_prompt`: the kind of prompt, the
+  exit code), its working directory (`Terminal::pwd`) and the cursor row's prompt
+  state must agree with the mark. libghostty-vt drops an OSC 133 whose body is longer
+  than 2048 bytes and an OSC 7 longer than 2047, so a mark with a longer body is not
+  checked. A
+  disagreement is a `warn` log line; a feed never fails. A plain `Screen::feed`,
+  which the actor never calls, is not checked.
 
 The marks themselves never come from here: the actor's scanner in `efr-screen` is
 the source of truth for every backend. libghostty-vt does not report `aid`, `cl`, the
@@ -68,8 +74,8 @@ Tier 2.
 
 Third-party crates: `libghostty-vt` at the pinned git rev with default features off
 and `kitty-graphics` on (only for the setter that turns the protocol off), `thiserror`
-and `tracing` (the cross-check warnings and the factory error). Tests add `bytes`, `pretty_assertions`, `tracing-subscriber` (the log
-test), `efr-screen` with its
+and `tracing` (the cross-check warnings and the factory error). Tests add `bytes`,
+`pretty_assertions`, `tracing-subscriber` (the log test), `efr-screen` with its
 `conformance` feature, `efr-render` (a dev-dependency only, for its width count) and
 `efr-test-support` (the bench helpers).
 
@@ -90,8 +96,12 @@ test), `efr-screen` with its
   what they touch (`Rc` buffers), so the terminal borrows nothing.
 - A callback never blocks and never calls back into the terminal; the screen drains
   the buffers after libghostty-vt returns.
-- The cross-check only logs. The scanner's marks stay the truth, and a feed always
-  reaches the terminal in full. Each chunk is scanned once, by the actor.
+- The cross-check only logs. The scanner's marks stay the truth, and a feed reaches
+  the terminal in full. Each chunk is scanned once, by the actor. The one exception:
+  when libghostty-vt stops at the end of an OSC in a way that the binding cannot
+  name, the bytes that it consumed are not known. Then the screen drops the rest of
+  the chunk and logs a warning, because a second write would answer queries twice.
+  The pinned library never stops that way.
 - A hidden terminal draws nothing, so it does not say that it can. `configure` sets
   the Kitty image store to 0 (the protocol is off, and the `a=q` query gets no
   answer), turns the Glyph Protocol off, and keeps at most 8 KiB of one APC string.

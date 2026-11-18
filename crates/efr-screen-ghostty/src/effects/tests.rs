@@ -74,6 +74,25 @@ fn a_full_reset_reports_the_cleared_title() {
 }
 
 #[test]
+fn a_full_reset_reports_a_cleared_title_only_when_there_was_one() {
+    let (mut terminal, effects) = terminal(10, 2);
+    terminal.vt_write(b"\x1bc");
+    let mut sink = Recorder::default();
+    effects.drain(&mut sink);
+    assert_eq!(sink.calls, Vec::new());
+    terminal.vt_write(b"\x1b]2;build\x07\x1bc\x1bc\x1b]2;\x07\x1bc");
+    effects.drain(&mut sink);
+    assert_eq!(
+        sink.calls,
+        vec![
+            Call::Title("build".to_owned()),
+            Call::Title(String::new()),
+            Call::Title(String::new())
+        ]
+    );
+}
+
+#[test]
 fn a_soft_reset_keeps_the_title_and_reports_nothing() {
     let (mut terminal, effects) = terminal(10, 2);
     terminal.vt_write(b"\x1b]2;build\x07");

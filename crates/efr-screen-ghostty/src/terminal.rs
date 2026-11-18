@@ -239,8 +239,8 @@ impl Screen for GhosttyScreen {
     }
 
     /// One step of the compression of old scrollback, the work that libghostty-vt
-    /// keeps for an idle moment. A full scrollback of 160 columns holds about 7 MiB
-    /// and less than 1 MiB when it is compressed. libghostty-vt decompresses a page
+    /// keeps for an idle moment. A full scrollback of 160 columns holds about 6.44 MiB,
+    /// and 0.51 MiB when it is compressed. libghostty-vt decompresses a page
     /// again when something reads it, such as a snapshot with scrollback.
     fn idle(&mut self) -> Option<Duration> {
         let activity = self.terminal.compression_activity().ok()?;

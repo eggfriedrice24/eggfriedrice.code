@@ -26,7 +26,9 @@
 //!
 //! A mark that ends where libghostty-vt read no OSC end is a disagreement too. An OSC
 //! 133 step that libghostty-vt reports where the scanner read no mark is not: the
-//! scanner skips the marks of a nested tmux on purpose. A disagreement is logged as a
+//! scanner skips the marks of a nested tmux on purpose. Nor is a mark whose OSC is
+//! longer than libghostty-vt reads ([`LIBRARY_OSC_BYTES`]): the library drops that
+//! OSC, while the scanner reads bodies up to 4096 bytes. A disagreement is logged as a
 //! warning by the screen and never fails a feed.
 
 use std::fmt;
@@ -43,6 +45,13 @@ use libghostty_vt::terminal::{Boundary, StringEnd};
 
 use crate::effects::Effects;
 
+/// The longest body of an OSC 7 or OSC 133 that libghostty-vt reads, in bytes, after
+/// the number and its `;`: `Parser.MAX_BUF` in ghostty's `src/terminal/osc.zig`, the
+/// fixed buffer of both. The library drops a longer one: no step, no working
+/// directory. An OSC 7 body holds one byte less, because the library ends the URL
+/// with a NUL in the same buffer.
+pub(crate) const LIBRARY_OSC_BYTES: u64 = 2048;
+
 /// The stream position and the last working directory of one ghostty screen.
 #[derive(Debug, Default)]
 pub(crate) struct CrossCheck {
@@ -55,6 +64,18 @@ pub(crate) struct CrossCheck {
     pending: Option<u64>,
     /// libghostty-vt's working directory when it was last read.
     pwd: Option<String>,
+}
+
+/// What libghostty-vt reported of OSC 133 since the step was read last.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ReportedStep {
+    /// No step.
+    #[default]
+    Nothing,
+    /// A step of a kind that this crate does not know.
+    Unknown,
+    /// This step.
+    Step(Step),
 }
 
 /// One OSC 133 step, as both parsers can tell it.
@@ -94,14 +115,20 @@ pub(crate) enum Disagreement {
     Step {
         /// The step of the mark.
         expected: Step,
-        /// The step that libghostty-vt reported; `Some(None)` for a kind that this
-        /// crate does not know.
-        actual: Option<Option<Step>>,
+        /// What libghostty-vt reported.
+        actual: ReportedStep,
     },
     /// The scanner read a mark that ends where libghostty-vt read no end of an OSC.
     Unread {
         /// The recording offset just after the mark.
         end: u64,
+    },
+    /// libghostty-vt stopped at the end of an OSC with a kind or an end that the
+    /// binding cannot name, so the bytes it consumed are not known. The rest of the
+    /// chunk was dropped. The pinned library never gives such a stop.
+    UnknownStop {
+        /// The recording offset of the last byte known to be written, plus one.
+        after: u64,
     },
     /// A prompt mark left the cursor row in another prompt state.
     PromptRow {
@@ -140,6 +167,10 @@ impl CrossCheck {
         base: Seq,
         marks: &[ShellMark],
     ) -> Vec<Disagreement> {
+        // An empty chunk changes nothing, not even an OSC that waits for its `\`.
+        if bytes.is_empty() {
+            return Vec::new();
+        }
         let base = base.get();
         // A gap in the recording: the mark of the pending OSC cannot come any more.
         if self.next != Some(base) && self.pending.take().is_some() {
@@ -150,27 +181,43 @@ impl CrossCheck {
         let mut found = Vec::new();
         if let Some(end) = self.pending.take() {
             let mark = marks.next_if(|mark| mark.end.get() == end);
-            self.check(terminal, effects, mark.map(|mark| &mark.kind), &mut found);
+            self.check(terminal, effects, readable(mark, ST_LEN), &mut found);
         }
         let mut written = 0;
         while written < bytes.len() {
             let stop = match terminal.vt_write_until(&bytes[written..], Boundary::OSC_END) {
                 Ok(Some(stop)) if stop.consumed > 0 => stop,
                 Ok(None) => break,
-                // NOTE: the call refuses only boundaries it does not know, and only a
-                // ground stop consumes nothing, so this does not happen; the bytes
-                // still reach the terminal in full.
-                Ok(Some(_)) | Err(_) => {
+                // NOTE: only a stop at ground consumes nothing, and OSC_END asks for
+                // none. Nothing was consumed, so the rest is written whole.
+                Ok(Some(_)) => {
                     terminal.vt_write(&bytes[written..]);
                     break;
+                }
+                // NOTE: the binding gives an error in two cases. The library refuses a
+                // boundary that it does not know before it reads a byte, but OSC_END
+                // is one that it knows. Or the stop holds a kind or an end that the
+                // binding cannot name, from a library newer than the pin: then the
+                // library consumed the bytes up to the stop, and the count is lost. A
+                // second write of those bytes would print them and answer their
+                // queries twice, so the rest of the chunk is dropped and logged.
+                Err(_) => {
+                    found.push(Disagreement::UnknownStop {
+                        after: base.saturating_add(written as u64),
+                    });
+                    self.pending = None;
+                    self.forget(terminal, effects);
+                    return found;
                 }
             };
             written += stop.consumed;
             let mut end = base.saturating_add(written as u64);
+            let mut terminator = BEL_LEN;
             // The terminal stops after the `ESC` of `ESC \`; the mark ends after the
             // `\`.
             if stop.end == Some(StringEnd::StEsc) {
                 end = end.saturating_add(1);
+                terminator = ST_LEN;
                 if written == bytes.len() {
                     self.pending = Some(end);
                     break;
@@ -180,7 +227,7 @@ impl CrossCheck {
                 found.push(Disagreement::Unread { end: missed.end.get() });
             }
             let mark = marks.next_if(|mark| mark.end.get() == end);
-            self.check(terminal, effects, mark.map(|mark| &mark.kind), &mut found);
+            self.check(terminal, effects, readable(mark, terminator), &mut found);
         }
         for missed in marks {
             found.push(Disagreement::Unread { end: missed.end.get() });
@@ -218,7 +265,7 @@ impl CrossCheck {
 
     /// Compares `terminal` at the end of one OSC with the mark that ends there, if
     /// any.
-    pub(crate) fn check(
+    fn check(
         &mut self,
         terminal: &Terminal<'_, '_>,
         effects: &Effects,
@@ -258,7 +305,7 @@ impl CrossCheck {
             return;
         };
         if let Some(expected) = Step::of_mark(event)
-            && step != Some(Some(expected))
+            && step != ReportedStep::Step(expected)
         {
             found.push(Disagreement::Step { expected, actual: step });
         }
@@ -312,6 +359,30 @@ impl Step {
             _ => None,
         }
     }
+}
+
+/// The length of the terminator `BEL`.
+const BEL_LEN: u64 = 1;
+
+/// The length of the terminator `ESC \`.
+const ST_LEN: u64 = 2;
+
+/// The kind of `mark`, unless libghostty-vt dropped its OSC for its length: then the
+/// terminal holds nothing to compare with the mark. `terminator` is the length of the
+/// terminator of that OSC.
+///
+/// The length counts the C0 controls inside the body, which both parsers ignore, so
+/// an OSC near the limit that holds such controls can go unchecked. It never gives a
+/// false warning.
+fn readable(mark: Option<&ShellMark>, terminator: u64) -> Option<&ShellMarkKind> {
+    let mark = mark?;
+    // The head is `ESC ]`, the number and its `;`.
+    let (head, limit) = match mark.kind {
+        ShellMarkKind::CwdChanged { .. } => (b"\x1b]7;".len(), LIBRARY_OSC_BYTES - 1),
+        _ => (b"\x1b]133;".len(), LIBRARY_OSC_BYTES),
+    };
+    let length = mark.end.get().saturating_sub(mark.start.get());
+    (length.saturating_sub(head as u64 + terminator) <= limit).then_some(&mark.kind)
 }
 
 /// The prompt state a prompt of `kind` gives its row, as ghostty records it; `None`
@@ -396,16 +467,16 @@ impl fmt::Display for Disagreement {
                 backend.as_deref().unwrap_or("nothing"),
             ),
             Disagreement::Step { expected, actual } => match actual {
-                Some(Some(actual)) => write!(
+                ReportedStep::Step(actual) => write!(
                     f,
                     "the scanner read OSC 133 {expected:?}, but libghostty-vt reported {actual:?}"
                 ),
-                Some(None) => write!(
+                ReportedStep::Unknown => write!(
                     f,
                     "the scanner read OSC 133 {expected:?}, but libghostty-vt reported a step \
                      of a kind efr does not know"
                 ),
-                None => write!(
+                ReportedStep::Nothing => write!(
                     f,
                     "the scanner read OSC 133 {expected:?}, but libghostty-vt reported no step"
                 ),
@@ -414,6 +485,11 @@ impl fmt::Display for Disagreement {
                 f,
                 "the scanner read a mark that ends at byte {end}, but libghostty-vt read no \
                  end of an OSC there"
+            ),
+            Disagreement::UnknownStop { after } => write!(
+                f,
+                "libghostty-vt stopped at the end of an OSC after byte {after} in a way that \
+                 efr cannot read, so the rest of the output chunk was dropped"
             ),
             Disagreement::PromptRow { kind, expected, actual } => write!(
                 f,

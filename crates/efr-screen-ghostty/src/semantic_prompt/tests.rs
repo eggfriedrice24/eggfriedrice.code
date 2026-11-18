@@ -7,7 +7,7 @@ use libghostty_vt::Terminal;
 use libghostty_vt::screen::RowSemanticPrompt;
 use pretty_assertions::assert_eq;
 
-use super::{CrossCheck, Disagreement, Step};
+use super::{CrossCheck, Disagreement, LIBRARY_OSC_BYTES, ReportedStep, Step};
 use crate::effects::Effects;
 use crate::testing::terminal;
 
@@ -149,7 +149,10 @@ fn a_prompt_mark_ghostty_did_not_apply_is_reported() {
     assert_eq!(
         found,
         vec![
-            Disagreement::Step { expected: Step::PromptStart(PromptKind::Initial), actual: None },
+            Disagreement::Step {
+                expected: Step::PromptStart(PromptKind::Initial),
+                actual: ReportedStep::Nothing,
+            },
             Disagreement::FreshLine { col: Some(2) },
             Disagreement::PromptRow {
                 kind: PromptKind::Initial,
@@ -172,7 +175,7 @@ fn a_continuation_mark_on_a_prompt_row_is_reported() {
         vec![
             Disagreement::Step {
                 expected: Step::PromptStart(PromptKind::Secondary),
-                actual: Some(Some(Step::PromptStart(PromptKind::Initial))),
+                actual: ReportedStep::Step(Step::PromptStart(PromptKind::Initial)),
             },
             Disagreement::PromptRow {
                 kind: PromptKind::Secondary,
@@ -219,7 +222,7 @@ fn the_steps_that_libghostty_reports_are_compared_with_the_marks() {
         found,
         vec![Disagreement::Step {
             expected: Step::CommandEnd(Some(1)),
-            actual: Some(Some(Step::CommandEnd(Some(3)))),
+            actual: ReportedStep::Step(Step::CommandEnd(Some(3))),
         }]
     );
 }
@@ -233,6 +236,56 @@ fn a_mark_that_ends_where_no_osc_ends_is_unread() {
     late[0].end = Seq::new(late[0].end.get() + 1);
     let found = check.write(&mut terminal, &effects, bytes, Seq::ZERO, &late);
     assert_eq!(found, vec![Disagreement::Unread { end: 11 }]);
+}
+
+#[test]
+fn an_empty_chunk_keeps_an_osc_that_waits_for_its_backslash() {
+    assert_eq!(run(&[b"\x1b]133;B\x1b", b"", b"\\ok"]), Vec::new());
+}
+
+/// `ESC ] <number> ; <start> a a a ... <terminator>`, whose body after the `;` is
+/// `body` bytes long.
+fn long_osc(number: &str, start: &str, body: u64, terminator: &[u8]) -> Vec<u8> {
+    let mut osc = format!("\x1b]{number};{start}").into_bytes();
+    osc.extend(std::iter::repeat_n(b'a', usize::try_from(body).unwrap() - start.len()));
+    osc.extend_from_slice(terminator);
+    osc
+}
+
+#[test]
+fn an_osc_133_is_checked_up_to_the_length_that_libghostty_reads() {
+    for terminator in [&b"\x07"[..], b"\x1b\\"] {
+        for (body, read) in [(LIBRARY_OSC_BYTES, true), (LIBRARY_OSC_BYTES + 1, false)] {
+            let bytes = long_osc("133", "C;cmdline_url=", body, terminator);
+            // The library reads the OSC at the limit and drops a longer one.
+            let (mut plain, effects) = terminal(20, 2);
+            plain.vt_write(&bytes);
+            let step =
+                if read { ReportedStep::Step(Step::OutputStart) } else { ReportedStep::Nothing };
+            assert_eq!(effects.take_step(), step, "{body} bytes");
+            // The scanner reads both, and neither is a disagreement.
+            assert_eq!(run(&[&bytes]), Vec::new(), "{body} bytes");
+            // A mark of another step disagrees only where the library read the OSC.
+            let (mut terminal, effects) = terminal(20, 2);
+            let mut check = CrossCheck::new(&terminal);
+            let mut wrong = marks(&bytes);
+            wrong[0].kind = ShellMarkKind::SemanticPrompt(SemanticPromptEvent::InputStart);
+            let found = check.write(&mut terminal, &effects, &bytes, Seq::ZERO, &wrong);
+            assert_eq!(found.len(), usize::from(read), "{body} bytes: {found:?}");
+        }
+    }
+}
+
+#[test]
+fn an_osc_7_is_checked_up_to_the_length_that_libghostty_reads() {
+    // The library ends the URL with a NUL in the same buffer: one byte less.
+    for (body, read) in [(LIBRARY_OSC_BYTES - 1, true), (LIBRARY_OSC_BYTES, false)] {
+        let bytes = long_osc("7", "file://arch/", body, b"\x07");
+        let (mut terminal, _effects) = terminal(20, 2);
+        terminal.vt_write(&bytes);
+        assert_eq!(!terminal.pwd().unwrap().is_empty(), read, "{body} bytes");
+        assert_eq!(run(&[&bytes]), Vec::new(), "{body} bytes");
+    }
 }
 
 #[test]

@@ -236,6 +236,14 @@ fn a_snapshot_round_trip_restores_the_same_screen() {
 }
 
 #[test]
+fn a_full_reset_of_a_restored_screen_reports_its_cleared_title() {
+    let mut screen = screen(10, 2);
+    feed(&mut screen, b"\x1b]2;old\x07");
+    let mut restored = GhosttyScreen::restore(&screen.encode_snapshot().unwrap()).unwrap();
+    assert_eq!(feed(&mut restored, b"\x1bc").calls, vec![Call::Title(String::new())]);
+}
+
+#[test]
 fn a_sequence_cut_by_a_snapshot_completes_after_the_restore() {
     let mut screen = screen(10, 2);
     feed(&mut screen, b"hello\x1b[3");
