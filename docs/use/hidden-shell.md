@@ -1,6 +1,6 @@
 # The hidden shell
 
-<!-- sources: README.md "Install" (the .zshrc note on EFR_HIDDEN_SHELL), "API keys" (the environment of efrd), "Use" (the bullet on commands that wait for input, Ctrl+\, sudo_cache), "A busy hidden shell"; docs/permissions.md "A command left running"; docs/config.md [shell]; crates/efr-shell/README.md "Purpose", "Environment hygiene"; crates/efr-conversation/src/turn.rs (move_shell); crates/efr-daemon/src/shells.rs; crates/efr-cli/src/cli.rs (shell); crates/efr-cli/README.md (the efr shell row, the answer line, the busy hidden shell); shell/zsh/efr.plugin.zsh (,shell); docs/adr/0017-busy-shell-and-call-reach.md -->
+<!-- sources: README.md "Install" (the .zshrc note on EFR_HIDDEN_SHELL), "API keys" (the environment of efrd), "Use" (the bullet on commands that wait for input, Ctrl+\, sudo_cache), "A busy hidden shell"; docs/permissions.md "A command left running"; docs/config.md [shell]; crates/efr-shell/README.md "Purpose", "Environment hygiene"; crates/efr-conversation/src/turn.rs (move_shell); crates/efr-daemon/src/shells.rs; crates/efr-cli/src/cli.rs (shell); crates/efr-cli/README.md (the efr shell row, the answer line, the busy hidden shell); shell/zsh/efr.plugin.zsh (,shell); docs/adr/0017-busy-shell-and-call-reach.md; crates/efr-shell/src/capture.rs, session.rs (the mark id); crates/efr-tools/src/output.rs -->
 
 The agent runs its shell commands in a hidden shell. This is a real zsh that efrd
 starts for each conversation. It reads your startup files, so your aliases, functions
@@ -59,6 +59,23 @@ efrd closes a hidden shell after `shell.idle_minutes` (60) with no output and no
 input, while it waits at its prompt and nobody watches it. The next call starts a new
 shell. The hidden shell also ends when efrd stops, and a command that runs in it ends
 too.
+
+## The output that the agent sees
+
+The agent sees the output of a command as plain text, without colours and cursor
+moves. efr keeps at most 1 MiB of each output: the first half and the last half. The
+agent then gets at most 32 KiB of it. Where efr left bytes out, one line tells how
+many, such as `[... 5210413 bytes omitted ...]`. This count holds the bytes of both
+cuts. The full output stays in the recording of the shell.
+
+- A long image or other control string in the output, such as an image from `chafa`
+  or a copy to the clipboard, never shows as text. This is also true when the cut
+  falls in the string.
+- The hidden shell writes an id of its own on its shell marks (OSC 133). A shell mark
+  that a command prints is output: the marks of a nested shell, or of a recorded
+  terminal session that you `cat`. Such a mark does not end the call early, and the
+  hidden shell does not look ready while the command runs. The id is no security
+  boundary: a command can read it.
 
 ## A command that asks for input
 

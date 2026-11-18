@@ -27,6 +27,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - efrd turns the output of a command that moves the cursor, such as a progress display
   that draws itself again, into text in about half the time. Before, it read the rows
   of each full screen only to learn that the screen was full.
+- With libghostty-vt, efrd gets that text 3.5 to 4 times faster: the formatter of
+  libghostty-vt gives all of it in one call, and efrd no longer reads it cell by cell.
+  At a few rare points where a line wraps, a space can now be there or not be there.
 
 ### Fixed
 
@@ -34,6 +37,12 @@ into the GitHub release notes, and it stops when the section is missing.
   Before, it answered the support queries of both protocols, so a program could send
   images that nobody saw, and efrd kept up to 10 MB of them for each screen. One APC
   string now takes at most 8 KiB of memory, not 65 MiB.
+- A long terminal image or control string in the output of a command no longer
+  reaches the model as text. A cut output shows one count of all the bytes that efr
+  left out, not only the bytes of the last cut. A command that prints shell marks,
+  such as a nested shell, no longer ends its call early.
+- With the vt100 screen, a full reset (`ESC c`) clears the title of the hidden shell,
+  as it does with libghostty-vt.
 
 ## [0.0.12] - 2026-11-18
 
