@@ -2236,7 +2236,7 @@ impl Follower<'_> {
         };
         let question_id = asked.question_id;
         let size = self.ctx.screen.size();
-        let text = match typed {
+        match typed {
             Typed::Reply(reply) => {
                 self.release(reader, &Asking::Question(asked), view).await;
                 let step = view.user_replied(question_id, &reply, size);
@@ -2247,18 +2247,13 @@ impl Follower<'_> {
                 self.keys = Some((reader, Asking::Question(asked)));
                 return Ok(());
             }
-            Typed::Opened => {
-                asked.line = Some(AnswerLine::new());
-                Some(String::new())
-            }
-            Typed::Changed => asked.line.as_ref().map(|line| line.text().to_owned()),
-            Typed::Closed => {
-                asked.line = None;
-                None
-            }
-        };
+            Typed::Opened => asked.line = Some(AnswerLine::new()),
+            Typed::Changed => {}
+            Typed::Closed => asked.line = None,
+        }
+        // NOTE: the view reads the text where the line keeps it; a key copies it once.
+        let step = view.user_typing(question_id, asked.line.as_ref().map(AnswerLine::text), size);
         self.keys = Some((reader, Asking::Question(asked)));
-        let step = view.user_typing(question_id, text.as_deref(), size);
         self.show(out, view, &step)
     }
 

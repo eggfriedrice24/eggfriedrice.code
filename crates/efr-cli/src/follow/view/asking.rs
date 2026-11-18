@@ -28,7 +28,8 @@ pub(super) struct UserQuestion {
     options: Vec<QuestionOption>,
     /// Keys answer it here.
     pub(super) keys: bool,
-    /// The text of the answer line while it is open.
+    /// The text of the answer line while it is open. On a terminal it stays empty: the
+    /// footer of the shown card keeps the text.
     typing: Option<String>,
 }
 
@@ -640,20 +641,32 @@ impl TurnView {
         else {
             return Step::default();
         };
-        let before = std::mem::replace(&mut asked.typing, text.map(str::to_owned));
-        let asks = text.map_or(card::Asks::Options, card::Asks::Typing);
         if terminal {
             // NOTE: the answer line is in the footer, so it shows also under a card
-            // that went to the scrollback.
-            let card = card::user_question(&asked.question, &asked.options, asks);
-            if let Some(shown) =
-                self.question.as_mut().filter(|shown| shown.about == About::User(question_id))
-            {
-                shown.set(card, card::user_question_footer(asks));
-                self.dirty = true;
+            // that went to the scrollback. The footer keeps the text; the card changes
+            // only when the line opens or closes.
+            let was_open = asked.typing.replace(String::new()).is_some();
+            if text.is_none() {
+                asked.typing = None;
             }
+            let Some(shown) =
+                self.question.as_mut().filter(|shown| shown.about == About::User(question_id))
+            else {
+                return Step::default();
+            };
+            let typed = match text {
+                Some(text) if was_open => shown.type_text(text),
+                _ => false,
+            };
+            if !typed {
+                let asks = text.map_or(card::Asks::Options, card::Asks::Typing);
+                let card = card::user_question(&asked.question, &asked.options, asks);
+                shown.set(card, card::user_question_footer(asks));
+            }
+            self.dirty = true;
             return Step::default();
         }
+        let before = std::mem::replace(&mut asked.typing, text.map(str::to_owned));
         // NOTE: elsewhere the rows go once, and the typed text as an echo line, as the
         // answer line of a command that waits for input.
         let options = self.options_at(size);

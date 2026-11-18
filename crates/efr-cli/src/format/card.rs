@@ -25,8 +25,8 @@
 //!
 //! The model's question (`ask_user`, [`user_question`]) has one row per option: its digit
 //! as the key, the label and what it means. The last row is `t type an answer   esc
-//! skip`. After `t` the digits are muted, and the line with the typed text, the fixed
-//! hint and the keys `enter send   esc back to the options` follow.
+//! skip`. After `t` the digits are muted, and the line with the typed text, the keys
+//! `enter send   esc back to the options` and the fixed hint follow.
 //!
 //! Every line of a command shows, each on its own, and nothing of what runs is cut: a
 //! line wider than the screen goes on in the next row. A cut after a space ends in a
@@ -257,21 +257,16 @@ pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
             push_row(&mut out, &Row::labelled(ALWAYS_SAVES, rule.clone()), options);
             key_pieces(CONFIRM_KEYS)
         }
-        Footer::Typing(text) => {
-            out.push_str(&typed_rows(text, options));
-            key_pieces(TYPING_KEYS)
-        }
+        Footer::Typing(text) => return typing_row(text, options).0,
     };
     push_text(&mut out, &pieces, options);
-    if matches!(footer, Footer::Typing(_)) {
-        out.push_str(&hint_row(options));
-    }
     out
 }
 
-/// The first rows of [`Footer::Typing`]: the prompt mark and the text of the open
-/// answer line, with their newlines. The cursor waits at the end of the last one.
-pub(crate) fn typed_rows(text: &str, options: &RenderOptions) -> String {
+/// The rows of [`Footer::Typing`] with `text`, each with its newline: the prompt mark
+/// and the typed text, the keys and [`ANSWER_HINT`]. The second value is the length of
+/// the rows of the typed text; the cursor waits at the end of the last one.
+pub(crate) fn typing_row(text: &str, options: &RenderOptions) -> (String, usize) {
     let typed = Row::Text(vec![
         (options.glyphs().prompt.to_owned(), Tone::Attention),
         (" ".to_owned(), Tone::Plain),
@@ -279,7 +274,10 @@ pub(crate) fn typed_rows(text: &str, options: &RenderOptions) -> String {
     ]);
     let mut out = String::new();
     push_row(&mut out, &typed, options);
-    out
+    let typed = out.len();
+    push_text(&mut out, &key_pieces(TYPING_KEYS), options);
+    out.push_str(&hint_row(options));
+    (out, typed)
 }
 
 /// `keys` as pieces of a row: each key in the `warning` role in bold, a space, what it

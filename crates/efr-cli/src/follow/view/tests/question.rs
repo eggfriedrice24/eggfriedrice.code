@@ -2,9 +2,7 @@
 //! row of its call, the answer line in the card, and the one line that takes the
 //! card's place at its end.
 
-use efr_protocol::{
-    Event, Origin, QuestionId, QuestionOption, QuestionReply, UserAnswer, WAKE_QUESTION,
-};
+use efr_protocol::{Event, Origin, QuestionOption, QuestionReply, UserAnswer, WAKE_QUESTION};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -12,13 +10,9 @@ use serde_json::json;
 use super::super::{Ask, Step, TurnView};
 use super::{feed, raw_view, turn_completed};
 use crate::terminal::Size;
-use crate::testing::{Grid, bare, call, now, turn};
+use crate::testing::{Grid, bare, call, now, question_id, turn};
 
 const WIDE: Size = Size { cols: 100, rows: 30 };
-
-fn question_id() -> QuestionId {
-    "019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap()
-}
 
 /// A terminal view of 100 columns without colour.
 fn terminal() -> TurnView {
@@ -142,6 +136,21 @@ fn the_answer_line_opens_in_the_card_and_closes_again() {
     let shown = bare(&back.out);
     assert!(!shown.contains("port 5433"), "{shown}");
     assert!(shown.contains("    t type an answer   esc skip\n"), "{shown}");
+}
+
+#[test]
+fn a_key_in_the_answer_line_renders_no_card() {
+    let renders = || crate::format::card::RENDERS.with(std::cell::Cell::get);
+    let mut view = terminal();
+    framed(view.event(&requested("Which database?"), WIDE, true), &mut view);
+    framed(view.user_typing(question_id(), Some(""), WIDE), &mut view);
+    let opened = renders();
+    framed(view.user_typing(question_id(), Some("p"), WIDE), &mut view);
+    let typed = framed(view.user_typing(question_id(), Some("pg"), WIDE), &mut view);
+    assert_eq!(renders(), opened, "only the tail changed");
+    assert!(bare(&typed.out).contains("    \u{203a} pg\n"), "{}", bare(&typed.out));
+    framed(view.user_typing(question_id(), None, WIDE), &mut view);
+    assert_eq!(renders(), opened + 1, "the options answer again: the digits change");
 }
 
 #[test]

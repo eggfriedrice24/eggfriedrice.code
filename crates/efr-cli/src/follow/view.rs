@@ -404,10 +404,19 @@ struct Shown {
     /// The card is in the scrollback, because it did not fit on the screen; only its
     /// keys stay in the live zone.
     committed: bool,
-    /// The card with the footer as the live zone showed it last, and the options and
-    /// the footer it was rendered with. Each frame shows the card, and most frames
-    /// change neither. In a box, so the view stays small in the futures that hold it.
-    rendered: RefCell<Option<Box<(RenderOptions, Footer, String)>>>,
+    /// The card as the live zone showed it last. Each frame shows the card, and most
+    /// frames change neither the options nor the footer. In a box, so the view stays
+    /// small in the futures that hold it.
+    rendered: RefCell<Option<Box<Rendered>>>,
+}
+
+/// A card as the live zone showed it, with the options and the footer that it was
+/// rendered with (none while the footer is the tail).
+#[derive(Debug)]
+struct Rendered {
+    at: RenderOptions,
+    footer: Option<Footer>,
+    text: String,
 }
 
 impl Shown {
@@ -416,11 +425,27 @@ impl Shown {
     }
 
     /// The same question with `card` and `footer`, such as the card of the model's
-    /// question while its answer line changes: the next frame renders it again.
+    /// question when its answer line opens or closes: the next frame renders it again.
     fn set(&mut self, card: Card, footer: Footer) {
         self.card = card;
         self.footer = footer;
         *self.rendered.get_mut() = None;
+    }
+
+    /// The open answer line shows `text`. Only the tail changes: the card keeps its
+    /// rendered rows. False when the footer is not the open answer line.
+    fn type_text(&mut self, text: &str) -> bool {
+        let Footer::Typing(typed) = &mut self.footer else {
+            return false;
+        };
+        typed.clear();
+        typed.push_str(text);
+        true
+    }
+
+    /// The footer that the card renders: none while it is the tail.
+    fn card_footer(&self) -> Option<&Footer> {
+        (!self.typing()).then_some(&self.footer)
     }
 
     /// True while the footer is the open answer line of the model's question, which is
@@ -437,32 +462,31 @@ impl Shown {
         let Footer::Typing(text) = &self.footer else {
             return None;
         };
-        let typed = card::typed_rows(text, options);
-        let line = typed.matches('\n').count().saturating_sub(1);
-        let last =
-            typed.strip_suffix('\n').unwrap_or(&typed).rsplit('\n').next().unwrap_or_default();
+        let (text, typed) = card::typing_row(text, options);
+        let rows = text.get(..typed).unwrap_or_default();
+        let line = rows.matches('\n').count().saturating_sub(1);
+        let last = rows.strip_suffix('\n').unwrap_or(rows).rsplit('\n').next().unwrap_or_default();
         // NOTE: after a full row the cursor waits on its last column.
         let column = display_width(last, options.width_method())
             .min(usize::from(options.width()).saturating_sub(1));
-        Some(Tail {
-            text: card::footer_row(&self.footer, options),
-            cursor: Some(Cursor { line, column }),
-        })
+        Some(Tail { text, cursor: Some(Cursor { line, column }) })
     }
 
     /// Adds the card with its footer at `options` to `out`, without the footer while it
-    /// is the tail. It is rendered again only when the options or the footer changed.
+    /// is the tail. It is rendered again only when the options or the footer that the
+    /// card renders changed, so a key in the answer line renders no card.
     fn push_card(&self, out: &mut String, options: &RenderOptions) {
         let mut rendered = self.rendered.borrow_mut();
+        let footer = self.card_footer();
         match rendered.as_deref() {
-            Some((at, footer, text)) if at == options && *footer == self.footer => {
-                out.push_str(text);
+            Some(shown) if shown.at == *options && shown.footer.as_ref() == footer => {
+                out.push_str(&shown.text);
             }
             _ => {
-                let footer = (!self.typing()).then_some(&self.footer);
                 let text = self.card.render(footer, options);
                 out.push_str(&text);
-                *rendered = Some(Box::new((options.clone(), self.footer.clone(), text)));
+                let at = options.clone();
+                *rendered = Some(Box::new(Rendered { at, footer: footer.cloned(), text }));
             }
         }
     }
@@ -1535,9 +1559,11 @@ impl TurnView {
         Some(if asking { progress::PAUSED } else { progress::RUNNING })
     }
 
-    /// True while the user is asked something here: an approval, the quarantine
-    /// question or an answer line.
-    pub(crate) fn waits_for_user(&self) -> bool {
+    /// True while the user is asked something here: a question that waits for a key
+    /// ([`question_pending`](Self::question_pending): an approval, the quarantine
+    /// question, the model's question, the stop or the background question) or the
+    /// answer line of a command.
+    fn waits_for_user(&self) -> bool {
         self.question_pending()
             || self.running.as_ref().is_some_and(|running| running.asking.is_some())
             || self.left.as_ref().is_some_and(|left| left.asking.is_some())
