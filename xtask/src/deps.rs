@@ -41,6 +41,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-render", &[]),
     // The pure logic of the auto sandbox; no efr-stdx, because it reaches tokio.
     ("efr-sandbox", &["efr-protocol"]),
+    // The images and PDFs of attachments as pure functions of their bytes; only efrd
+    // links it, and its image library stays out of every other crate.
+    ("efr-media", &["efr-stdx"]),
     // Tier 2
     ("efr-screen-ghostty", &["efr-screen"]),
     ("efr-pty", &["efr-holder", "efr-stdx"]),
@@ -107,6 +110,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-sandbox",
             "efr-snapshot",
             "efr-proxy",
+            "efr-media",
         ],
     ),
     ("efr-cli", &["efr-transport", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),

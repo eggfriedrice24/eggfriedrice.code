@@ -10,7 +10,7 @@ default-members = [
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
   "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "crates/efr-sbx", "crates/efr-snapshot",
-  "crates/efr-proxy",
+  "crates/efr-proxy", "crates/efr-media",
   "xtask",
 ]
 
@@ -133,6 +133,14 @@ unicode-segmentation = "1.13.3"
 # its default features it has no dependency: no image or SVG output.
 qrcode = { version = "0.14.1", default-features = false }
 
+# Images and PDFs of the attachments (efr-media, ADR 0026): the size, the decode check,
+# the downscale and the thumbnail of a PNG or a JPEG. The probe build of 0.0.13 measured
+# 0.62 MB of efrd for this set and 0.53 MB for png, zune-jpeg and jpeg-encoder, whose
+# IJG licence cargo deny refuses. miniz_oxide inflates the object streams of a PDF for
+# its page count; it is the version that png already brings through flate2.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+
 # Screen backends
 vt100 = "0.16.2"
 # The pin triple (this rev, ghostty 108cacb1, Zig 0.17.0) is recorded in docs/ghostty-pin.md.
@@ -169,6 +177,7 @@ efr-screen = { path = "crates/efr-screen" }
 efr-provider = { path = "crates/efr-provider" }
 efr-test-support = { path = "crates/efr-test-support" }
 efr-render = { path = "crates/efr-render" }
+efr-media = { path = "crates/efr-media" }
 efr-screen-ghostty = { path = "crates/efr-screen-ghostty" }
 efr-pty = { path = "crates/efr-pty" }
 efr-shell = { path = "crates/efr-shell" }

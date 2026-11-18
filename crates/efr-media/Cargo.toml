@@ -1,0 +1,25 @@
+[package]
+name = "efr-media"
+description = "The images and PDFs of efr's attachments: sizes, decode checks, metadata strips, downscales, thumbnails and PDF facts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-stdx.workspace = true
+image.workspace = true
+miniz_oxide.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+
+[lints]
+workspace = true
