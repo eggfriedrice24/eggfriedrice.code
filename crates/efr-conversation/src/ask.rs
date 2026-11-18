@@ -190,6 +190,11 @@ impl Question {
     }
 }
 
+/// The reason for a typed answer longer than [`QuestionReply::MAX_TEXT_BYTES`]. The
+/// reason names the limit of the wire, and the check below keeps the two equal.
+const TOO_LONG: &str = "the text is longer than 1024 bytes";
+const _: () = assert!(QuestionReply::MAX_TEXT_BYTES == 1024, "change TOO_LONG with the limit");
+
 /// Why efr does not take `reply` to a question with `options` options; `None` when it
 /// does. The reason never quotes the answer.
 pub(crate) fn refusal(reply: &QuestionReply, options: u8) -> Option<&'static str> {
@@ -200,7 +205,7 @@ pub(crate) fn refusal(reply: &QuestionReply, options: u8) -> Option<&'static str
         QuestionReply::Option { .. } | QuestionReply::Skipped => None,
         QuestionReply::Text { text } if text.trim().is_empty() => Some("the text is empty"),
         QuestionReply::Text { text } if text.len() > QuestionReply::MAX_TEXT_BYTES => {
-            Some("the text is longer than 1024 bytes")
+            Some(TOO_LONG)
         }
         QuestionReply::Text { text } if text.contains(char::is_control) => {
             Some("the text holds a control character")

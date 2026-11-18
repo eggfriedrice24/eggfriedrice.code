@@ -311,8 +311,10 @@ turns.
   event. `respond_question` (`question.respond`) checks the answer against the
   question first (`ConversationError::InvalidAnswer`: an index outside the options, a
   text that is empty, blank, longer than 1024 bytes or with a control character, an
-  unknown reply), so a bad answer leaves the question open; then it takes the question,
-  records the answer with the receipt and hands it to the turn. `Questions` is generic
+  unknown reply), so a bad answer leaves the question open; the check and the take are
+  one step under the lock of `Questions` (`take_if`). Then it records the answer with
+  the receipt (`record_answer`, which the approval and the quarantine answer use too)
+  and hands it to the turn. `Questions` is generic
   over the answer (`bool` for the quarantine question, `QuestionReply` here) and keeps
   the take-before-record rule in one place. `ConversationState::pending_user_questions`
   lists the questions that wait. An answer is never a user message: `UserMessages`,

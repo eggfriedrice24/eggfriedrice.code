@@ -55,9 +55,14 @@ async fn a_question_of_the_model_keeps_its_option_count_until_it_is_taken() {
     let questions = Questions::<QuestionReply, u8>::default();
     let answer = questions.park(turn_id, question_id, 3);
 
-    assert_eq!(questions.fact(question_id), Some(3));
-    let taken = questions.take(question_id).expect("the question waits");
-    assert_eq!(questions.fact(question_id), None, "a taken question has no fact");
+    let refused =
+        questions.take_if(question_id, |options| if options > 3 { Ok(()) } else { Err(options) });
+    assert!(matches!(refused, Some(Err(3))), "a failed check gives the fact back");
+    assert_eq!(questions.parked(), vec![question_id], "a failed check leaves it parked");
+    let taken = questions.take_if(question_id, |_| Ok::<(), u8>(()));
+    let taken = taken.expect("the question waits").expect("the check passes");
+    let again = questions.take_if(question_id, |_| Ok::<(), u8>(()));
+    assert!(again.is_none(), "a taken question is not parked");
     assert!(taken.answer(QuestionReply::Skipped));
     assert_eq!(answer.await, Ok(QuestionReply::Skipped));
 }

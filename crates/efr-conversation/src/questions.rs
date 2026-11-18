@@ -72,9 +72,21 @@ impl<A, F: Copy> Questions<A, F> {
         receiver
     }
 
-    /// The fact of `question_id` while a turn waits for it.
-    pub(crate) fn fact(&self, question_id: QuestionId) -> Option<F> {
-        self.lock().get(&question_id).map(|parked| parked.fact)
+    /// Takes `question_id` out to answer it when `check` passes its fact, in one step
+    /// under the lock. `None` when no turn waits for it; `Some(Err(_))` with the error
+    /// of `check`, which leaves the question parked.
+    pub(crate) fn take_if<E>(
+        &self,
+        question_id: QuestionId,
+        check: impl FnOnce(F) -> Result<(), E>,
+    ) -> Option<Result<Taken<A>, E>> {
+        let mut parked = self.lock();
+        let fact = parked.get(&question_id)?.fact;
+        if let Err(error) = check(fact) {
+            return Some(Err(error));
+        }
+        let parked = parked.remove(&question_id)?;
+        Some(Ok(Taken { turn_id: parked.turn_id, answer: parked.answer }))
     }
 
     /// Takes `question_id` out to answer it, if a turn waits for it.

@@ -1064,13 +1064,30 @@ impl ConversationActor {
             }
         }
         let event = Event::ApprovalResolved { turn_id, call_id, decision: params.decision, origin };
-        let result = ApprovalRespondResult { seq: Seq::ZERO };
-        let receipt = receipt(params.command_id, APPROVAL_RESPOND, &result)?;
-        let committed = self.append(vec![event], receipt).await?;
+        let result = self
+            .record_answer(event, params.command_id, APPROVAL_RESPOND, |seq| {
+                ApprovalRespondResult { seq }
+            })
+            .await?;
         if !self.shared.approvals.answer(call_id, params.decision) {
             tracing::warn!(call_id = %call_id, "an approval was recorded after its turn stopped waiting");
         }
-        Ok(ApprovalRespondResult { seq: committed.last_seq() })
+        Ok(result)
+    }
+
+    /// Records `event`, the answer of the command `command_id` of `method`, with the
+    /// receipt of its result, and gives the result. `result` makes the result of a
+    /// sequence number: the receipt keeps none, the answer gets the one of the record.
+    async fn record_answer<T: Serialize>(
+        &self,
+        event: Event,
+        command_id: CommandId,
+        method: &'static str,
+        result: impl Fn(Seq) -> T,
+    ) -> Result<T, ConversationError> {
+        let receipt = receipt(command_id, method, &result(Seq::ZERO))?;
+        let committed = self.append(vec![event], receipt).await?;
+        Ok(result(committed.last_seq()))
     }
 
     /// Answers a quarantine question. The question is taken out before the answer is
@@ -1097,15 +1114,17 @@ impl ConversationActor {
             keep: params.keep,
             origin: Some(origin),
         };
-        let result = SandboxSurfaceRespondResult { seq: Seq::ZERO };
         // NOTE: when the answer cannot be recorded, `taken` drops unanswered and the
         // turn keeps the changes in quarantine.
-        let receipt = receipt(params.command_id, SURFACE_RESPOND, &result)?;
-        let committed = self.append(vec![event], receipt).await?;
+        let result = self
+            .record_answer(event, params.command_id, SURFACE_RESPOND, |seq| {
+                SandboxSurfaceRespondResult { seq }
+            })
+            .await?;
         if !taken.answer(params.keep) {
             tracing::warn!(question_id = %question_id, "a quarantine answer was recorded after its turn stopped waiting");
         }
-        Ok(SandboxSurfaceRespondResult { seq: committed.last_seq() })
+        Ok(result)
     }
 
     /// Answers a question of the model (`ask_user`), from any surface that may operate
@@ -1120,15 +1139,15 @@ impl ConversationActor {
     ) -> Result<QuestionRespondResult, ConversationError> {
         self.check_conversation(Some(params.conversation_id))?;
         let question_id = params.question_id;
-        let questions = &self.shared.user_questions;
-        let Some(options) = questions.fact(question_id) else {
-            return Err(ConversationError::QuestionNotPending { question_id });
-        };
-        if let Some(reason) = crate::ask::refusal(&params.answer, options) {
-            return Err(ConversationError::InvalidAnswer { question_id, reason });
-        }
-        let Some(taken) = questions.take(question_id) else {
-            return Err(ConversationError::QuestionNotPending { question_id });
+        let checked = self.shared.user_questions.take_if(question_id, |options| {
+            crate::ask::refusal(&params.answer, options).map_or(Ok(()), Err)
+        });
+        let taken = match checked {
+            None => return Err(ConversationError::QuestionNotPending { question_id }),
+            Some(Err(reason)) => {
+                return Err(ConversationError::InvalidAnswer { question_id, reason });
+            }
+            Some(Ok(taken)) => taken,
         };
         let event = Event::UserQuestionAnswered {
             turn_id: taken.turn_id,
@@ -1136,15 +1155,17 @@ impl ConversationActor {
             answer: UserAnswer::Replied { reply: params.answer.clone() },
             origin: Some(origin),
         };
-        let result = QuestionRespondResult { seq: Seq::ZERO };
         // NOTE: when the answer cannot be recorded, `taken` drops unanswered and the
         // model reads that nobody answered.
-        let receipt = receipt(params.command_id, QUESTION_RESPOND, &result)?;
-        let committed = self.append(vec![event], receipt).await?;
+        let result = self
+            .record_answer(event, params.command_id, QUESTION_RESPOND, |seq| {
+                QuestionRespondResult { seq }
+            })
+            .await?;
         if !taken.answer(params.answer) {
             tracing::warn!(question_id = %question_id, "an answer to the model's question was recorded after its turn stopped waiting");
         }
-        Ok(QuestionRespondResult { seq: committed.last_seq() })
+        Ok(result)
     }
 
     /// Starts an undo in a task of its own, or refuses it: while a turn, a compaction or
