@@ -11,8 +11,9 @@
 
 mod cells;
 
-use efr_screen::{Cursor, RowCells, ScreenSnapshot, Size};
+use efr_screen::{Cursor, RowCells, ScreenSnapshot, ScreenText, Size};
 use libghostty_vt::Terminal;
+use libghostty_vt::fmt::{Format, Formatter};
 use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::screen::Screen as ActiveScreen;
 use libghostty_vt::snapshot::Decoder;
@@ -44,6 +45,51 @@ pub(crate) fn capture(terminal: &Terminal<'_, '_>, scrollback_rows: usize) -> Sc
             .active_screen()
             .is_ok_and(|screen| screen == ActiveScreen::Alternate),
     }
+}
+
+/// The text of the scrollback and the visible rows from libghostty-vt's formatter in
+/// one call: plain text, a soft-wrapped row joined to the next, no trailing spaces and
+/// no blank line at the end, which is the text that Ghostty copies to the clipboard.
+/// It follows the rules of `efr_screen::ScreenText::of` and reads no cells except for
+/// the blank rows next to the cursor.
+pub(crate) fn text(terminal: &Terminal<'_, '_>) -> Result<ScreenText, libghostty_vt::Error> {
+    let mut formatter = Formatter::new(terminal)?;
+    formatter.set_format(Format::Plain)?.set_unwrap(true)?.set_trim(true)?;
+    let bytes = formatter.format_alloc(None)?;
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    // NOTE: the formatter removes the blank rows at the end, but a row of spaces that
+    // the program printed is not blank to it: it gives an empty line there.
+    text.truncate(text.trim_end_matches('\n').len());
+    Ok(ScreenText { text, blank_lines_before_cursor: blank_lines_before_cursor(terminal) })
+}
+
+/// The blank lines that start above the cursor's row after the last line with text,
+/// which the formatter leaves out. None when a row at or below the cursor has text.
+fn blank_lines_before_cursor(terminal: &Terminal<'_, '_>) -> usize {
+    let cols = terminal.cols().unwrap_or(0);
+    let history = terminal.scrollback_rows().unwrap_or(0);
+    let cursor = terminal.cursor_y().unwrap_or(0);
+    let point = |row: usize| {
+        move |x| match row.checked_sub(history).and_then(|y| u32::try_from(y).ok()) {
+            Some(y) => Point::Active(Coordinate { x, y }),
+            None => Point::History(Coordinate { x, y: u32::try_from(row).unwrap_or(u32::MAX) }),
+        }
+    };
+    let below = history + usize::from(cursor)..history + usize::from(terminal.rows().unwrap_or(0));
+    if below.into_iter().any(|row| !cells::blank(terminal, cols, point(row))) {
+        return 0;
+    }
+    let mut blank = 0;
+    for row in (0..history + usize::from(cursor)).rev() {
+        if !cells::blank(terminal, cols, point(row)) {
+            break;
+        }
+        // A blank row starts a line of its own unless the row above wraps into it.
+        if row == 0 || !cells::wraps(terminal, point(row - 1)) {
+            blank += 1;
+        }
+    }
+    blank
 }
 
 /// The cursor in the visible grid. libghostty-vt keeps a cursor with a pending wrap

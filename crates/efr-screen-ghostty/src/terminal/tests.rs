@@ -1,5 +1,7 @@
 use bytes::Bytes;
-use efr_screen::{Color, Cursor, RowCells, Screen, ScreenActor, ScreenEvent, Seq, Size};
+use efr_screen::{
+    Color, Cursor, RowCells, Screen, ScreenActor, ScreenEvent, ScreenText, Seq, Size, cells_text,
+};
 use pretty_assertions::assert_eq;
 
 use super::{GhosttyScreen, SCROLLBACK_LINES, factory, restore_factory};
@@ -435,6 +437,119 @@ fn bench_perf_idle_compression() {
     report.count("160x48 5000 lines pages", usage.primary_pages);
     report.count("160x48 5000 lines compressed pages", usage.primary_compressed_pages);
     report.finish();
+}
+
+/// Output that tests the rules of the text: wraps, blanks, wide characters, graphemes,
+/// tabs, erased colours, cursor moves and blank lines around the cursor.
+const TEXT_CASES: &[&[u8]] = &[
+    b"",
+    b"plain\r\nlines\r\n",
+    b"trailing   \r\n   leading\r\n\r\n\r\nafter blank lines",
+    b"a line longer than the width wraps once and then again and again",
+    b"exactly ten",
+    b"wrap at a blank  next\r\n",
+    b"wide \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e at the edge\xe6\x97\xa5\xe6\x97\xa5\xe6\x97\xa5",
+    b"123456789\xe6\x97\xa5 the wide one starts the next row",
+    b"e\xcc\x81 combining, \xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9 zwj, \xf0\x9f\x87\xa9\xf0\x9f\x87\xaa flag",
+    b"tab\tstop\tand\tmore\r\n\ttab first",
+    b"     \r\nonly spaces above\r\n          \r\n",
+    b"\x1b[41m\x1b[Kred erase\x1b[0m\r\n\x1b[44m   \x1b[0m\r\n",
+    b"\x1b[31mcolours\x1b[0m are \x1b[1mdropped\x1b[0m",
+    b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\r\n10\r\n11\r\n12",
+    b"top\r\n\r\n\r\n\r\n\x1b[2A",
+    b"top\r\n\r\n\r\n\r\n\x1b[3A",
+    b"\r\n\r\n\r\n\x1b[1A",
+    b"above\x1b[5;1Hbelow the cursor\x1b[2;1H",
+    b"a long line that wraps into blank rows          \x1b[3;1H",
+    b"done\r\n\x1b[?1049hfull screen\x1b[?1049l",
+    b"progress 10%\r progress 50%\rprogress 100%\r\n",
+    b"layer a: 10%\r\nlayer b: 0%\r\n\x1b[2Alayer a: done\r\n\x1b[2Klayer b: done\r\n",
+    b"a status line that is wider than the screen 10%\r\n\x1b[2A\x1b[2K\x1b[1B\x1b[2K\x1b[1A\
+      a status line that is wider than the screen 50%\r\n\x1b[2A\x1b[J\
+      a status line that is wider than the screen done\r\n",
+    b"layer 1: Downloading [=====>     ] 12MB/50MB\r\nlayer 2: Waiting\r\n\
+      \x1b[2A\x1b[2Klayer 1: Pull complete\r\n\x1b[2Klayer 2: Downloading [=>   ]\r\n\
+      \x1b[1A\x1b[2Klayer 2: Pull complete\r\n",
+    b"\x1b[1G\x1b[0Kspinner one\x1b[1G\x1b[0Kspinner two that is long enough to wrap\
+      \x1b[1G\x1b[0Kadded 12 packages\r\n",
+    b"line one\r\nline two\r\n\x1b[1A\x1b[1A\x1b[Kreplaced one that is long enough to wrap twice over\r\n",
+];
+
+#[test]
+fn the_formatter_text_is_the_text_of_the_cells() {
+    let mut differ = Vec::new();
+    for (index, case) in TEXT_CASES.iter().enumerate() {
+        for (cols, rows) in [(10, 4), (40, 6), (3, 2)] {
+            let mut screen = screen(cols, rows);
+            screen.feed(case);
+            let cells = cells_text(&mut *screen, usize::MAX);
+            let text = screen.text(usize::MAX);
+            if text != cells {
+                differ.push(format!("case {index} at {cols}x{rows}: {text:?} != {cells:?}"));
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{}", differ.join("\n"));
+}
+
+#[test]
+fn the_formatter_text_of_long_output_is_the_text_of_the_cells() {
+    let mut screen = screen(80, 24);
+    let mut output = Vec::new();
+    for line in 0..900 {
+        let pad = " ".repeat(line % 7);
+        output.extend_from_slice(
+            format!(
+                "\x1b[1A\r\x1b[2K   Compiling crate-{line}{pad} \u{65e5}\r\n\x1b[2K    Building \
+                 [{:=<width$}] {line}/900\r\n",
+                "",
+                width = line % 90
+            )
+            .as_bytes(),
+        );
+    }
+    screen.feed(&output);
+    assert!(screen.scrollback_rows() > 800);
+    let cells = cells_text(&mut *screen, usize::MAX);
+    assert_eq!(screen.text(usize::MAX), cells);
+}
+
+/// Where the formatter and the cells differ. Each case is the smallest input that a
+/// search over 12,000 random inputs found for its kind; the screen and the input
+/// are first, then the formatter's text, then the text of the cells.
+#[test]
+fn the_formatter_and_the_cells_differ_only_at_these_edges() {
+    let cases: &[(u16, u16, &str, &str, &str)] = &[
+        // A soft-wrapped row that an erase to its start empties keeps its wrap flag.
+        // The cells join it to the next row as spaces; the formatter gives an empty
+        // line.
+        (4, 3, "abcdef\x1b[1;4H\x1b[1K", "\nef", "    ef"),
+        // The same for a row that only a tab moved over before a wide character
+        // wrapped.
+        (9, 2, "\t\u{65e5}", "\n\u{65e5}", "        \u{65e5}"),
+        // A wide character that did not fit left an empty last cell, and then the
+        // next row was written over. The cells keep the empty cell as a space.
+        (
+            8,
+            1,
+            "bc\x1b[Dbcae\u{301}\u{65e5}\u{672c}\rdef",
+            "bbcae\u{301}\u{65e5}def",
+            "bbcae\u{301}\u{65e5} def",
+        ),
+        // That empty last cell has a colour: the cells keep it as a space.
+        (4, 4, "\x1b[44m\x1b[C\u{65e5}\u{65e5}", " \u{65e5}\u{65e5}", " \u{65e5} \u{65e5}"),
+        // A space that the program printed in the last column, before a wide
+        // character that starts the next row. The cells cannot tell it from the
+        // empty cell above and drop it.
+        (3, 2, "ab \u{65e5}", "ab \u{65e5}", "ab\u{65e5}"),
+    ];
+    for &(cols, rows, input, formatter, cells) in cases {
+        let mut screen = screen(cols, rows);
+        screen.feed(input.as_bytes());
+        let text = |text: Option<ScreenText>| text.map(|text| text.text);
+        assert_eq!(text(screen.text(usize::MAX)).as_deref(), Some(formatter), "{input:?}");
+        assert_eq!(text(cells_text(&mut *screen, usize::MAX)).as_deref(), Some(cells), "{input:?}");
+    }
 }
 
 #[test]

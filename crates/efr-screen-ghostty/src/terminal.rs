@@ -3,7 +3,9 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use efr_screen::{Screen, ScreenSink, ScreenSnapshot, Seq, ShellMark, Size};
+use efr_screen::{
+    Screen, ScreenSink, ScreenSnapshot, ScreenText, Seq, ShellMark, Size, cells_text,
+};
 use libghostty_vt::Terminal;
 use libghostty_vt::color::Rgb;
 use libghostty_vt::screen::Screen as ActiveScreen;
@@ -223,6 +225,31 @@ impl Screen for GhosttyScreen {
             self.compressed = None;
         }
         snapshot::capture(&self.terminal, scrollback_rows)
+    }
+
+    /// The text from libghostty-vt's formatter, in one call for the whole screen. The
+    /// scrollback is counted first, so a full one costs no text. When libghostty-vt
+    /// cannot count the rows or format them, the slow text of the cells stands in; it
+    /// differs only at the wrap edges that [`Screen::text`] names.
+    fn text(&mut self, scrollback_limit: usize) -> Option<ScreenText> {
+        let Ok(history) = self.terminal.scrollback_rows() else {
+            return cells_text(self, scrollback_limit);
+        };
+        if history >= scrollback_limit {
+            return None;
+        }
+        // NOTE: the formatter decompresses the pages that it reads, as a snapshot
+        // does; see `snapshot`.
+        if history > 0 {
+            self.compressed = None;
+        }
+        match snapshot::text(&self.terminal) {
+            Ok(text) => Some(text),
+            Err(error) => {
+                tracing::debug!(%error, "the formatter failed; the text is read from the cells");
+                cells_text(self, scrollback_limit)
+            }
+        }
     }
 
     /// libghostty-vt keeps the count of its rows, so this reads no row. A count that

@@ -36,6 +36,30 @@ pub(super) fn row(
     RowCells { cells, wrapped }
 }
 
+/// True when no cell of the row that `point(x)` addresses shows text other than a
+/// space, the rule of `efr_screen::row_text` for an empty line. It stops at the
+/// first cell with text.
+pub(super) fn blank(terminal: &Terminal<'_, '_>, cols: u16, point: impl Fn(u16) -> Point) -> bool {
+    (0..cols).all(|x| {
+        let Ok(grid) = terminal.grid_ref(point(x)) else {
+            return true;
+        };
+        let wide = grid.cell().and_then(|raw| raw.wide()).unwrap_or(CellWide::Narrow);
+        let shows = matches!(wide, CellWide::Narrow | CellWide::Wide)
+            && grid.cell().and_then(|raw| raw.has_text()).unwrap_or(false);
+        !shows || text(&grid) == " "
+    })
+}
+
+/// True when the row that `point(x)` addresses is soft-wrapped into the next row.
+pub(super) fn wraps(terminal: &Terminal<'_, '_>, point: impl Fn(u16) -> Point) -> bool {
+    terminal
+        .grid_ref(point(0))
+        .and_then(|grid| grid.row())
+        .and_then(Row::is_wrapped)
+        .unwrap_or(false)
+}
+
 /// One cell: its grapheme and the attributes the wire format carries. The second
 /// cell of a wide character, and the spacer a wide character leaves at the end of
 /// a wrapped row, have no text.

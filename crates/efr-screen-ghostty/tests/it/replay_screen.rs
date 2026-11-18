@@ -7,8 +7,9 @@
 //! ghostty, which keeps 5,000 rows of scrollback. It reads each screen with
 //! `Screen::text`, and, as a baseline for the cost of the text, with a snapshot of the
 //! same 1,000 rows. It reports the time, the screens, and the bytes of text or the
-//! history rows that the snapshots built. A bench, ignored: `just bench-perf` runs it
-//! in release.
+//! history rows that the snapshots built. It fails when the ghostty text of the 5 MiB
+//! replay does not take under [`GHOSTTY_TEXT_BUDGET`] percent of the time of its
+//! baseline. A bench, ignored: `just bench-perf` runs it in release.
 //!
 //! NOTE: the loop copies the split rule of `efr-shell/src/replay.rs` (`replay`,
 //! `rows_for`, `middle_line_end`) and does not join the text of the pieces, so it
@@ -128,8 +129,20 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], read: Read) -> Coun
     counts
 }
 
-/// Runs the cases of one backend.
-fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S) {
+/// The most time that the text of the ghostty screens of the 5 MiB replay may take, in
+/// percent of the snapshot baseline. libghostty-vt's formatter gives the text in one
+/// call: 166 ms against 1138 ms of the baseline (15%). The text from the cells took
+/// 572 ms (50%).
+const GHOSTTY_TEXT_BUDGET: u32 = 30;
+
+/// Runs the cases of one backend. Gives the median times of the text and of the
+/// snapshot baseline of the 5 MiB replay, or `None` when a case stopped the ladder.
+fn backend<S: Screen>(
+    report: &mut Report,
+    name: &str,
+    make: &dyn Fn(Size) -> S,
+) -> Option<(Duration, Duration)> {
+    let mut five_mib = (Duration::ZERO, Duration::ZERO);
     for (size_name, size) in [("512 KiB", 512 * 1024), ("5 MiB", 5 * 1024 * 1024)] {
         let output = status_line_output(size);
         for (read_name, read) in [("text", Read::Text), ("scrollback 1000", Read::Snapshot)] {
@@ -150,10 +163,16 @@ fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S)
             report.bytes(&format!("{label} bytes fed"), counts.bytes_fed);
             if stats.p50 > Duration::from_secs(10) {
                 report.count(&format!("{name} stopped_at_n"), size as u64);
-                return;
+                return None;
+            }
+            match (size_name, read) {
+                ("5 MiB", Read::Text) => five_mib.0 = stats.p50,
+                ("5 MiB", Read::Snapshot) => five_mib.1 = stats.p50,
+                _ => {}
             }
         }
     }
+    Some(five_mib)
 }
 
 #[test]
@@ -161,6 +180,12 @@ fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S)
 fn bench_perf_replay_screen() {
     let mut report = Report::new("bench_perf_replay_screen");
     backend(&mut report, "vt100", &|size| efr_screen::vt100::factory(size)());
-    backend(&mut report, "ghostty", &|size| efr_screen_ghostty::factory(size)());
+    let ghostty = backend(&mut report, "ghostty", &|size| efr_screen_ghostty::factory(size)());
     report.finish();
+    let (text, baseline) = ghostty.expect("the ghostty replay stopped its ladder");
+    assert!(
+        text * 100 < baseline * GHOSTTY_TEXT_BUDGET,
+        "the ghostty text of 5 MiB took {text:?}, not under {GHOSTTY_TEXT_BUDGET}% of the \
+         {baseline:?} of the snapshot baseline"
+    );
 }

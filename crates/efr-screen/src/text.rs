@@ -2,9 +2,11 @@
 //!
 //! A reader that wants words, not cells (the replay of a command's output in
 //! `efr-shell`), asks a screen for [`ScreenText`] through
-//! [`ScreenHandle::text`](crate::ScreenHandle::text). A backend makes it from its
-//! snapshot through [`ScreenText::of`]. A backend counts its scrollback rows without
-//! reading them, so it reads no row when the scrollback is full.
+//! [`ScreenHandle::text`](crate::ScreenHandle::text). The libghostty-vt backend gets it
+//! from the library's formatter in one call. Every other backend gets it from its
+//! snapshot through [`ScreenText::of`], which follows the same rules. A backend counts
+//! its scrollback rows without reading them, so it reads no row when the scrollback is
+//! full.
 
 use efr_protocol::{RowCells, ScreenSnapshot};
 

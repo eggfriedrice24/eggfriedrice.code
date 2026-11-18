@@ -13,7 +13,8 @@
 //! - [`ScreenCapture`] and [`row_text`]: snapshots in the wire form of
 //!   `efr_protocol::ScreenSnapshot`, and the text a row shows.
 //! - [`ScreenText`]: the scrollback and the visible rows of a screen as lines of
-//!   text, for a reader that wants words, not cells.
+//!   text, for a reader that wants words, not cells; [`cells_text`] makes it from a
+//!   snapshot.
 //! - [`vt100`]: the backend over the pure-Rust vt100 crate, which needs no Zig:
 //!   `Vt100Screen` and its `factory`.
 //! - `conformance` (feature `conformance`, for test targets only): the suite every
@@ -47,7 +48,7 @@ pub mod vt100;
 pub use actor::{SCREEN_STACK_SIZE, ScreenActor, ScreenEvent, ScreenEvents, ScreenHandle};
 pub use efr_protocol::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Seq, Size};
 pub use error::ScreenError;
-pub use screen::Screen;
+pub use screen::{Screen, cells_text};
 pub use shell_marks::{
     ClickMode, PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, ShellMarkScanner,
 };

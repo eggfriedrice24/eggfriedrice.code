@@ -59,13 +59,15 @@ pub trait Screen {
     /// no rows when the scrollback is full. Otherwise it reads a
     /// [`snapshot`](Screen::snapshot) with up to `scrollback_limit` rows and gives
     /// [`ScreenText::of`] its normalised form. A backend that can format its text
-    /// more cheaply overrides it, and must give the same text.
+    /// more cheaply overrides it, and must give the same text, except at these rare
+    /// wrap edges, where the text of the cells is mostly the worse one: a soft-wrapped
+    /// row that an erase emptied, a row that only a tab moved over before a wide
+    /// character wrapped, the empty last cell that a wide character left (with or
+    /// without a colour), and a space that the program printed in the last column
+    /// before a wide character. The libghostty-vt backend tests each edge
+    /// (`the_formatter_and_the_cells_differ_only_at_these_edges`).
     fn text(&mut self, scrollback_limit: usize) -> Option<ScreenText> {
-        if self.scrollback_rows() >= scrollback_limit {
-            return None;
-        }
-        let snapshot = self.snapshot(scrollback_limit);
-        Some(ScreenText::of(&normalize(snapshot, scrollback_limit)))
+        cells_text(self, scrollback_limit)
     }
 
     /// The rows of scrollback that a [`snapshot`](Screen::snapshot) with all of it
@@ -96,4 +98,19 @@ pub trait Screen {
     fn idle(&mut self) -> Option<Duration> {
         None
     }
+}
+
+/// The text of `screen` from its cells: the default of [`Screen::text`], which a
+/// backend that formats its text itself keeps for when that fails. It asks
+/// [`Screen::scrollback_rows`] first and reads no rows when the scrollback holds
+/// `scrollback_limit` rows or more.
+pub fn cells_text<S: Screen + ?Sized>(
+    screen: &mut S,
+    scrollback_limit: usize,
+) -> Option<ScreenText> {
+    if screen.scrollback_rows() >= scrollback_limit {
+        return None;
+    }
+    let snapshot = screen.snapshot(scrollback_limit);
+    Some(ScreenText::of(&normalize(snapshot, scrollback_limit)))
 }
