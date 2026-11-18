@@ -195,9 +195,8 @@ There is no tool of its own for it: a monitor is a background `shell` call with
   into the notice of the job's end, so a burst of lines and the exit start one wake
   turn.
 - After the last notice, efr no longer checks the lines against the pattern. The job
-  runs on until it
-  ends, its time limit passes, or you or the agent stop it. The notice of its end
-  always comes.
+  runs on until it ends, its time limit passes, or you or the agent stop it. The notice
+  of its end always comes.
 
 While you follow the turn, a notice shows as one muted row:
 

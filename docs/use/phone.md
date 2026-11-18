@@ -179,10 +179,10 @@ Settings and New (`+`) at the right. New goes back to the blank root.
   "Needs you" (they wait for you) and "Running" come first, then Today, Yesterday,
   This week and Older. Each row shows the title, the status, the machine, the last
   folder of the directory and the time of the last activity. The times move once a
-  minute while the sheet is open. Pull the sheet up to
-  see more. The search bar at the bottom finds a conversation by its title, its machine
-  or its directory, and then asks efrd. The words that you search for are bold in the
-  titles. The button next to it (a pencil) starts a new conversation.
+  minute while the sheet is open. Pull the sheet up to see more. The search bar at the
+  bottom finds a conversation by its title, its machine or its directory, and then asks
+  efrd. The words that you search for are bold in the titles. The button next to it (a
+  pencil) starts a new conversation.
 - Tap a row to open the conversation. The sheet closes.
 - Touch and hold a row of the sheet for Open and Copy ID.
 - The status of a row tells who must act:
@@ -193,7 +193,7 @@ Settings and New (`+`) at the right. New goes back to the blank root.
   | needs an answer | A question of the model waits. You can answer it here. |
   | answer in the terminal | Only your computer can answer: a command that needs a password, a question that only the terminal answers, or a question of the model on an efrd that the app cannot answer. |
   | running | A turn runs. |
-  | ✗ failed | The last turn failed. The row is red and stays in its day. |
+  | ✗ failed | The last turn failed. Its status is red, and the row stays in its day. |
 
   The first three have the yolk "!" mark and stand in "Needs you". The phone shows
   "needs an answer" only on an efrd that sends the model's questions (0.0.12 or
@@ -357,10 +357,10 @@ for: "Approval waiting", "Question waiting" (a question of the model) or "Answer
 terminal" (a wait that only your computer can answer, such as a password). Tap it to
 open that conversation at the question. When two or more wait, the strip says "2
 approvals waiting", "2 questions waiting" or, for a mix, "3 conversations need you",
-and opens the sheet with them on top. A yolk dot on the title of the bar tells you too. efrd sends
-each change of its list of conversations to the app, so the strip and the dot show a
-new question at once. With an older efrd, the app asks every 10 seconds, so they can
-come up to 10 seconds late.
+and opens the sheet with them on top. A yolk dot on the title of the bar tells you too.
+efrd sends each change of its list of conversations to the app, so the strip and the
+dot show a new question at once. With an older efrd, the app asks every 10 seconds, so
+they can come up to 10 seconds late.
 
 ### Answer a question of the model
 

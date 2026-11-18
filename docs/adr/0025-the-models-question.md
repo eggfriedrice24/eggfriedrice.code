@@ -46,10 +46,11 @@ credential agent socket). That rule reads only the user's own messages.
    action with a message, as ADR 0023 says for each refusal.
 
 4. **One wait rule.** The question waits as an approval
-   (`conversation.approval_timeout_secs`, no end by default) while a client that can answer it follows the conversation. When
-   no such client follows, or the user is away, it waits `presence.away_wait_secs`
-   (300 s) from that moment, with one `presence.push` that names the call. Then it ends
-   as unanswered, and the model goes on with a choice that is safe and easy to undo.
+   (`conversation.approval_timeout_secs`, no end by default) while a client that can
+   answer it follows the conversation. When no such client follows, or the user is
+   away, it waits `presence.away_wait_secs` (300 s) from that moment, with one
+   `presence.push` that names the call. Then it ends as unanswered, and the model goes
+   on with a choice that is safe and easy to undo.
    An answer wins during the whole wait. After one unanswered question, each later
    `ask_user` of the same turn gets the unanswered result at once. The same loop
    (`turn/wait.rs`) serves the approvals, the quarantine question and this question.

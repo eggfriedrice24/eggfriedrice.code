@@ -33,7 +33,8 @@ into the GitHub release notes, and it stops when the section is missing.
   wake limit, also sends a desktop notice through the same `notify.terminal` rule.
 - The model can ask you a question with 2 to 4 options (the tool `ask_user`). Press a
   digit to pick an option, `t` to type an answer of your own, or Esc to skip. The
-  phone app can answer too, from the strip or the action sheet. An answer is
+  phone app can answer too: tap the strip or the row of the question, then pick an
+  option in the action sheet, skip, or type an answer in the composer. An answer is
   information for the model: it approves nothing, and efr never reads it as your
   message for its own rules. While nobody who can answer follows the conversation, the
   question waits `presence.away_wait_secs` (300 s), and then the model goes on with a
@@ -64,8 +65,7 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Fixed
 
 - A quarantine question no longer waits without end while you are away. It waits
-  `presence.away_wait_secs`, the change stays in quarantine, and the question goes to
-  `presence.push` once.
+  `presence.away_wait_secs`, and the change stays in quarantine.
 - The quarantine sheet of the phone app shows Next after its question closed while
   another question waits, as the approval sheet does. Before, it showed only Close.
 
