@@ -445,7 +445,7 @@ The live tail (`live_tail.rs`), the `tail` of each `OutputUpdate` while a comman
 - Bytes that move the cursor are replayed on a screen from the session's own
   `ScreenFactory`, named `tail-<last eight hex digits>`, of the shell's current size,
   and read without its scrollback: the tail is the rows that the screen shows, as
-  `screen_text` reads them. So a multi-line progress display redrawn with cursor-up
+  `ScreenText::of` reads them. So a multi-line progress display redrawn with cursor-up
   shows its current frame, where the cleaner would show every old frame after it. When
   the 4 KiB start inside the output, the screen reads them from after their first
   line feed, so it never starts inside an escape sequence. A full-screen program

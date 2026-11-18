@@ -4,7 +4,7 @@
 //! default (`grapheme-width-method = unicode`), so the screen here turns it on as well.
 
 use efr_render::{WidthMethod, text_width};
-use efr_screen::{Cursor, Screen as _, ScreenSink, Size};
+use efr_screen::{Cursor, Screen as _, ScreenSink, Seq, ShellMarkScanner, Size};
 use efr_screen_ghostty::GhosttyScreen;
 use pretty_assertions::assert_eq;
 
@@ -30,26 +30,24 @@ const SAMPLES: &[&str] = &[
     "\u{1f44d}\u{1f3fd}",
 ];
 
-/// A screen `cols` wide that clusters graphemes, as Ghostty does by default.
-fn ghostty(cols: u16) -> GhosttyScreen {
+/// The cursor of a new screen `cols` wide after `text`, with mode 2027 on as Ghostty
+/// has it by default, or off. The bytes go in as the actor feeds them: with the marks
+/// of one scan.
+fn cursor_after(cols: u16, clustering: bool, text: &str) -> Cursor {
     let mut screen =
         GhosttyScreen::new(Size { cols, rows: 10 }).expect("libghostty-vt creates a terminal");
-    screen.feed(b"\x1b[?2027h", &mut Quiet);
-    screen
-}
-
-/// The cursor of `screen`, as a snapshot shows it.
-fn cursor(screen: &mut GhosttyScreen) -> Cursor {
+    let mode: &[u8] = if clustering { b"\x1b[?2027h" } else { b"\x1b[?2027l" };
+    let bytes = [mode, text.as_bytes()].concat();
+    let marks = ShellMarkScanner::new().scan(&bytes, Seq::ZERO);
+    screen.feed_marked(&bytes, Seq::ZERO, &marks, &mut Quiet);
     screen.snapshot(0).cursor
 }
 
 #[test]
 fn the_width_of_each_cluster_is_the_one_ghostty_gives_it() {
     for sample in SAMPLES {
-        let mut screen = ghostty(80);
-        screen.feed(sample.as_bytes(), &mut Quiet);
         let counted = text_width(sample, WidthMethod::Grapheme);
-        assert_eq!(usize::from(cursor(&mut screen).col), counted, "{sample:?}");
+        assert_eq!(usize::from(cursor_after(80, true, sample).col), counted, "{sample:?}");
     }
 }
 
@@ -79,23 +77,14 @@ fn the_glyphs_of_the_look_take_one_column() {
     one.extend(glyphs.spinner.iter().copied());
     for glyph in one {
         for clustering in [true, false] {
-            let mut screen = ghostty(80);
-            if !clustering {
-                screen.feed(b"\x1b[?2027l", &mut Quiet);
-            }
-            screen.feed(glyph.as_bytes(), &mut Quiet);
-            assert_eq!(cursor(&mut screen).col, 1, "{glyph:?}, mode 2027 on: {clustering}");
+            let col = cursor_after(80, clustering, glyph).col;
+            assert_eq!(col, 1, "{glyph:?}, mode 2027 on: {clustering}");
         }
         assert_eq!(text_width(glyph, WidthMethod::Grapheme), 1, "{glyph:?}");
     }
-    let robot = "\u{1f916} ";
     for clustering in [true, false] {
-        let mut screen = ghostty(80);
-        if !clustering {
-            screen.feed(b"\x1b[?2027l", &mut Quiet);
-        }
-        screen.feed(robot.as_bytes(), &mut Quiet);
-        assert_eq!(cursor(&mut screen).col, 3, "mode 2027 on: {clustering}");
+        let col = cursor_after(80, clustering, "\u{1f916} ").col;
+        assert_eq!(col, 3, "mode 2027 on: {clustering}");
     }
 }
 
@@ -103,11 +92,9 @@ fn the_glyphs_of_the_look_take_one_column() {
 fn a_line_of_clusters_wraps_onto_the_rows_that_efr_counts() {
     for sample in SAMPLES {
         let line = sample.repeat(7);
-        let mut screen = ghostty(10);
-        screen.feed(line.as_bytes(), &mut Quiet);
-        screen.feed(b"\r\n", &mut Quiet);
         let width = text_width(&line, WidthMethod::Grapheme);
         let rows = width.div_ceil(10).max(1);
-        assert_eq!(usize::from(cursor(&mut screen).row), rows, "{sample:?} is {width} columns");
+        let row = cursor_after(10, true, &format!("{line}\r\n")).row;
+        assert_eq!(usize::from(row), rows, "{sample:?} is {width} columns");
     }
 }

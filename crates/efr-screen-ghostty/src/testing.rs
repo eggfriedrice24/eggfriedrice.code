@@ -1,11 +1,66 @@
 //! Helpers for this crate's unit tests.
 
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use efr_screen::{RowCells, ScreenSink, row_text};
+use efr_screen::{RowCells, Screen, ScreenSink, Seq, ShellMark, ShellMarkScanner, row_text};
 use libghostty_vt::Terminal;
 
+use crate::GhosttyScreen;
 use crate::effects::Effects;
+
+/// The actor's part of a feed: it scans each chunk once for shell marks, at the
+/// recording offset after the last chunk.
+#[derive(Debug, Default)]
+pub(crate) struct Scan {
+    scanner: ShellMarkScanner,
+    next: u64,
+}
+
+impl Scan {
+    /// The recording offset of `chunk`, the next chunk of the stream, and its marks.
+    pub(crate) fn next(&mut self, chunk: &[u8]) -> (Seq, Vec<ShellMark>) {
+        let base = Seq::new(self.next);
+        self.next += chunk.len() as u64;
+        (base, self.scanner.scan(chunk, base))
+    }
+}
+
+/// A ghostty screen that a test feeds as its actor does: each chunk goes through
+/// [`Scan`] and then to `Screen::feed_marked` with its marks, the path that efrd runs.
+#[derive(Debug)]
+pub(crate) struct Fed {
+    screen: GhosttyScreen,
+    scan: Scan,
+}
+
+impl Fed {
+    pub(crate) fn new(screen: GhosttyScreen) -> Self {
+        Fed { screen, scan: Scan::default() }
+    }
+
+    /// Feeds `chunk` and returns what the screen gave its sink.
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Recorder {
+        let (base, marks) = self.scan.next(chunk);
+        let mut sink = Recorder::default();
+        self.screen.feed_marked(chunk, base, &marks, &mut sink);
+        sink
+    }
+}
+
+impl Deref for Fed {
+    type Target = GhosttyScreen;
+
+    fn deref(&self) -> &GhosttyScreen {
+        &self.screen
+    }
+}
+
+impl DerefMut for Fed {
+    fn deref_mut(&mut self) -> &mut GhosttyScreen {
+        &mut self.screen
+    }
+}
 
 /// One call a screen made on its sink.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -4,14 +4,18 @@ use pretty_assertions::assert_eq;
 
 use super::{GhosttyScreen, SCROLLBACK_LINES, factory, restore_factory};
 use crate::GhosttyError;
-use crate::testing::{Call, Recorder, texts};
+use crate::testing::{Call, Fed, Recorder, texts};
 
 fn size(cols: u16, rows: u16) -> Size {
     Size { cols, rows }
 }
 
-fn screen(cols: u16, rows: u16) -> GhosttyScreen {
-    GhosttyScreen::new(size(cols, rows)).unwrap()
+fn screen(cols: u16, rows: u16) -> Fed {
+    Fed::new(GhosttyScreen::new(size(cols, rows)).unwrap())
+}
+
+fn restore(snapshot: &[u8]) -> Fed {
+    Fed::new(GhosttyScreen::restore(snapshot).unwrap())
 }
 
 /// libghostty-vt's working directory: the raw OSC 7 URL as the program sent it.
@@ -31,12 +35,6 @@ fn title(screen: &mut GhosttyScreen) -> Option<String> {
 /// Visible row `index`, as the backend reads it.
 fn row(screen: &mut GhosttyScreen, index: usize) -> RowCells {
     screen.snapshot(0).rows.swap_remove(index)
-}
-
-fn feed(screen: &mut GhosttyScreen, bytes: &[u8]) -> Recorder {
-    let mut sink = Recorder::default();
-    screen.feed(bytes, &mut sink);
-    sink
 }
 
 #[test]
@@ -62,7 +60,7 @@ fn a_zero_size_becomes_one_cell() {
 #[test]
 fn feed_renders_text_and_moves_the_cursor() {
     let mut screen = screen(10, 3);
-    let sink = feed(&mut screen, b"hello\r\nworld");
+    let sink = screen.feed(b"hello\r\nworld");
     assert_eq!(sink.calls, Vec::new());
     assert_eq!(texts(&screen.snapshot(0).rows), vec!["hello", "world", ""]);
     assert_eq!(cursor(&mut screen), Cursor { row: 1, col: 5, hidden: false });
@@ -71,15 +69,15 @@ fn feed_renders_text_and_moves_the_cursor() {
 #[test]
 fn terminal_queries_are_answered_through_the_sink() {
     let mut screen = screen(10, 2);
-    assert_eq!(feed(&mut screen, b"\x1b[c").replies(), b"\x1b[?62;22c".to_vec());
-    assert_eq!(feed(&mut screen, b"ab\x1b[6n").replies(), b"\x1b[1;3R".to_vec());
-    assert_eq!(feed(&mut screen, b"\x1b[?7$p").replies(), b"\x1b[?7;1$y".to_vec());
+    assert_eq!(screen.feed(b"\x1b[c").replies(), b"\x1b[?62;22c".to_vec());
+    assert_eq!(screen.feed(b"ab\x1b[6n").replies(), b"\x1b[1;3R".to_vec());
+    assert_eq!(screen.feed(b"\x1b[?7$p").replies(), b"\x1b[?7;1$y".to_vec());
 }
 
 #[test]
 fn osc_10_and_11_are_answered_with_ghosttys_colours() {
     let mut screen = screen(10, 2);
-    let sink = feed(&mut screen, b"\x1b]10;?\x07\x1b]11;?\x1b\\");
+    let sink = screen.feed(b"\x1b]10;?\x07\x1b]11;?\x1b\\");
     assert_eq!(
         sink.replies(),
         b"\x1b]10;rgb:ffff/ffff/ffff\x07\x1b]11;rgb:2828/2c2c/3434\x1b\\".to_vec()
@@ -89,7 +87,7 @@ fn osc_10_and_11_are_answered_with_ghosttys_colours() {
 #[test]
 fn bells_and_titles_reach_the_sink_in_order() {
     let mut screen = screen(10, 2);
-    let sink = feed(&mut screen, b"\x07\x1b]2;make\x07\x07");
+    let sink = screen.feed(b"\x07\x1b]2;make\x07\x07");
     assert_eq!(sink.calls, vec![Call::Bell, Call::Title("make".to_owned()), Call::Bell]);
     assert_eq!(title(&mut screen).as_deref(), Some("make"));
 }
@@ -97,9 +95,9 @@ fn bells_and_titles_reach_the_sink_in_order() {
 #[test]
 fn pwd_is_the_raw_osc_7_url() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"\x1b]7;file://arch/home/egg/My%20Docs\x07");
+    screen.feed(b"\x1b]7;file://arch/home/egg/My%20Docs\x07");
     assert_eq!(pwd(&screen).as_deref(), Some("file://arch/home/egg/My%20Docs"));
-    feed(&mut screen, b"\x1b]7;kitty-shell-cwd://arch/tmp/x y\x07");
+    screen.feed(b"\x1b]7;kitty-shell-cwd://arch/tmp/x y\x07");
     assert_eq!(pwd(&screen).as_deref(), Some("kitty-shell-cwd://arch/tmp/x y"));
 }
 
@@ -107,10 +105,7 @@ fn pwd_is_the_raw_osc_7_url() {
 fn a_disagreement_with_the_scanner_never_fails_a_feed() {
     let mut screen = screen(10, 2);
     // ghostty takes an http:// OSC 7 that the scanner refuses: a disagreement.
-    let bytes = b"\x1b]7;http://arch/tmp\x07ok\x1b[c";
-    let marks = efr_screen::ShellMarkScanner::new().scan(bytes, Seq::ZERO);
-    let mut sink = Recorder::default();
-    screen.feed_marked(bytes, Seq::ZERO, &marks, &mut sink);
+    let sink = screen.feed(b"\x1b]7;http://arch/tmp\x07ok\x1b[c");
     assert_eq!(sink.replies(), b"\x1b[?62;22c".to_vec());
     assert_eq!(texts(&[row(&mut screen, 0)]), vec!["ok"]);
     assert_eq!(pwd(&screen).as_deref(), Some("http://arch/tmp"));
@@ -134,22 +129,22 @@ fn kitty_image(id: u32, width: u32, height: u32) -> Vec<u8> {
 #[test]
 fn the_kitty_graphics_query_gets_no_answer_on_either_screen() {
     let mut screen = screen(10, 2);
-    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), Vec::<u8>::new());
+    assert_eq!(screen.feed(KITTY_QUERY).replies(), Vec::<u8>::new());
     // The alternate screen starts later, with the limit of the primary screen.
-    feed(&mut screen, b"\x1b[?1049h");
-    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), Vec::<u8>::new());
+    screen.feed(b"\x1b[?1049h");
+    assert_eq!(screen.feed(KITTY_QUERY).replies(), Vec::<u8>::new());
     // With an image store, the same query gets an answer: the setting is what stops it.
     screen.terminal.set_kitty_image_storage_limit(10_000_000).unwrap();
-    assert_eq!(feed(&mut screen, KITTY_QUERY).replies(), b"\x1b_Gi=31;OK\x1b\\".to_vec());
+    assert_eq!(screen.feed(KITTY_QUERY).replies(), b"\x1b_Gi=31;OK\x1b\\".to_vec());
 }
 
 #[test]
 fn the_glyph_protocol_query_gets_no_answer() {
     let query = b"\x1b_25a1;s\x1b\\";
     let mut screen = screen(10, 2);
-    assert_eq!(feed(&mut screen, query).replies(), Vec::<u8>::new());
+    assert_eq!(screen.feed(query).replies(), Vec::<u8>::new());
     screen.terminal.set_glyph_protocol_enabled(true).unwrap();
-    assert!(!feed(&mut screen, query).replies().is_empty());
+    assert!(!screen.feed(query).replies().is_empty());
 }
 
 #[test]
@@ -157,25 +152,22 @@ fn an_apc_longer_than_the_limit_is_dropped() {
     let mut screen = screen(10, 2);
     // An image store for this test only, so that a stored image is answered with OK.
     screen.terminal.set_kitty_image_storage_limit(10_000_000).unwrap();
-    assert_eq!(feed(&mut screen, &kitty_image(7, 1, 1)).replies(), b"\x1b_Gi=7;OK\x1b\\".to_vec());
+    assert_eq!(screen.feed(&kitty_image(7, 1, 1)).replies(), b"\x1b_Gi=7;OK\x1b\\".to_vec());
     let long = kitty_image(8, 64, 64);
     assert!(long.len() > super::APC_LIMIT);
-    assert_eq!(feed(&mut screen, &long).replies(), Vec::<u8>::new());
+    assert_eq!(screen.feed(&long).replies(), Vec::<u8>::new());
     // The terminal reads on after the dropped APC.
-    feed(&mut screen, b"ok");
+    screen.feed(b"ok");
     assert_eq!(texts(&[row(&mut screen, 0)]), vec!["ok"]);
     // With the library default, the same image is stored: the limit is what drops it.
     screen.terminal.set_apc_max_bytes(None).unwrap();
-    assert_eq!(
-        feed(&mut screen, &kitty_image(9, 64, 64)).replies(),
-        b"\x1b_Gi=9;OK\x1b\\".to_vec()
-    );
+    assert_eq!(screen.feed(&kitty_image(9, 64, 64)).replies(), b"\x1b_Gi=9;OK\x1b\\".to_vec());
 }
 
 #[test]
 fn resize_changes_the_grid_and_keeps_the_text() {
     let mut screen = screen(5, 2);
-    feed(&mut screen, b"hey");
+    screen.feed(b"hey");
     let mut sink = Recorder::default();
     screen.resize(10, 3, &mut sink);
     assert_eq!(sink.calls, Vec::new());
@@ -187,7 +179,7 @@ fn resize_changes_the_grid_and_keeps_the_text() {
 #[test]
 fn resize_reports_in_band_when_the_program_asked_for_it() {
     let mut screen = screen(10, 3);
-    feed(&mut screen, b"\x1b[?2048h");
+    screen.feed(b"\x1b[?2048h");
     let mut sink = Recorder::default();
     screen.resize(31, 6, &mut sink);
     assert_eq!(sink.replies(), b"\x1b[48;6;31;96;248t".to_vec());
@@ -195,14 +187,16 @@ fn resize_reports_in_band_when_the_program_asked_for_it() {
 
 #[test]
 fn the_scrollback_limit_drops_old_rows() {
+    const LINES: usize = 12_000;
     let mut screen = screen(20, 2);
-    let lines: Vec<u8> = (0..12_000).flat_map(|line| format!("{line}\r\n").into_bytes()).collect();
-    feed(&mut screen, &lines);
+    let lines: Vec<u8> = (0..LINES).flat_map(|line| format!("{line}\r\n").into_bytes()).collect();
+    screen.feed(&lines);
     let kept = screen.snapshot(usize::MAX).scrollback.len();
     // libghostty-vt prunes whole pages, and a page holds thousands of rows this
-    // narrow, so it keeps a page or so less than the limit, but far fewer than twelve
-    // thousand.
-    assert!((SCROLLBACK_LINES / 5..12_000 / 2).contains(&kept), "{kept} rows kept");
+    // narrow, so it can keep a page less than the limit: the bounds leave room for
+    // that, and the upper one is still far below the lines fed.
+    let (fewest, most) = (SCROLLBACK_LINES / 5, LINES / 2);
+    assert!((fewest..most).contains(&kept), "{kept} rows kept");
 }
 
 #[test]
@@ -213,7 +207,7 @@ fn the_default_scrollback_keeps_its_lines_whatever_their_bytes() {
     let mut screen = screen(160, 48);
     let lines: Vec<u8> =
         (0..8000).flat_map(|line| format!("line {line}\r\n").into_bytes()).collect();
-    feed(&mut screen, &lines);
+    screen.feed(&lines);
     let kept = screen.snapshot(usize::MAX).scrollback.len();
     // libghostty-vt prunes whole pages, so it can keep one page less than the limit.
     assert!(kept >= SCROLLBACK_LINES * 4 / 5, "{kept} rows of scrollback kept");
@@ -222,34 +216,32 @@ fn the_default_scrollback_keeps_its_lines_whatever_their_bytes() {
 #[test]
 fn a_snapshot_round_trip_restores_the_same_screen() {
     let mut screen = screen(10, 3);
-    feed(
-        &mut screen,
-        b"1\r\n2\r\n3\r\n\x1b[1;31mred\x1b[0m\r\nlast\x1b]2;title\x07\x1b]7;file:///tmp\x07",
-    );
+    screen
+        .feed(b"1\r\n2\r\n3\r\n\x1b[1;31mred\x1b[0m\r\nlast\x1b]2;title\x07\x1b]7;file:///tmp\x07");
     let bytes = screen.encode_snapshot().unwrap();
-    let mut restored = GhosttyScreen::restore(&bytes).unwrap();
+    let mut restored = restore(&bytes);
     assert_eq!(restored.snapshot(100), screen.snapshot(100));
     assert_eq!(pwd(&restored).as_deref(), Some("file:///tmp"));
     assert_eq!(cursor(&mut restored), cursor(&mut screen));
     // The callbacks are installed again, so the restored screen answers queries.
-    assert_eq!(feed(&mut restored, b"\x1b[5n").replies(), b"\x1b[0n".to_vec());
+    assert_eq!(restored.feed(b"\x1b[5n").replies(), b"\x1b[0n".to_vec());
 }
 
 #[test]
 fn a_full_reset_of_a_restored_screen_reports_its_cleared_title() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"\x1b]2;old\x07");
-    let mut restored = GhosttyScreen::restore(&screen.encode_snapshot().unwrap()).unwrap();
-    assert_eq!(feed(&mut restored, b"\x1bc").calls, vec![Call::Title(String::new())]);
+    screen.feed(b"\x1b]2;old\x07");
+    let mut restored = restore(&screen.encode_snapshot().unwrap());
+    assert_eq!(restored.feed(b"\x1bc").calls, vec![Call::Title(String::new())]);
 }
 
 #[test]
 fn a_sequence_cut_by_a_snapshot_completes_after_the_restore() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"hello\x1b[3");
+    screen.feed(b"hello\x1b[3");
     let bytes = screen.encode_snapshot().unwrap();
-    let mut restored = GhosttyScreen::restore(&bytes).unwrap();
-    feed(&mut restored, b"1mX");
+    let mut restored = restore(&bytes);
+    restored.feed(b"1mX");
     let row = row(&mut restored, 0);
     assert_eq!(texts(std::slice::from_ref(&row)), vec!["helloX"]);
     assert_eq!(row.cells[5].fg, Some(Color::Indexed(1)));
@@ -258,11 +250,11 @@ fn a_sequence_cut_by_a_snapshot_completes_after_the_restore() {
 #[test]
 fn a_screen_restored_inside_a_sequence_can_make_a_snapshot_at_once() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"hello\x1b[3");
-    let mut restored = GhosttyScreen::restore(&screen.encode_snapshot().unwrap()).unwrap();
+    screen.feed(b"hello\x1b[3");
+    let mut restored = restore(&screen.encode_snapshot().unwrap());
     // Still inside the sequence: the restored terminal kept its continuation.
-    let mut again = GhosttyScreen::restore(&restored.encode_snapshot().unwrap()).unwrap();
-    feed(&mut again, b"1mX");
+    let mut again = restore(&restored.encode_snapshot().unwrap());
+    again.feed(b"1mX");
     let row = row(&mut again, 0);
     assert_eq!(texts(std::slice::from_ref(&row)), vec!["helloX"]);
     assert_eq!(row.cells[5].fg, Some(Color::Indexed(1)));
@@ -333,9 +325,7 @@ fn the_marks_and_the_cwd_arrive_once_with_their_offsets() {
 #[test]
 fn a_feed_of_the_actor_reaches_the_terminal_in_full_with_its_marks() {
     let mut screen = screen(20, 3);
-    let bytes = b"\x1b]133;A\x07$ \x1b]7;file://arch/srv\x07ok";
-    let marks = efr_screen::ShellMarkScanner::new().scan(bytes, Seq::new(100));
-    screen.feed_marked(bytes, Seq::new(100), &marks, &mut Recorder::default());
+    screen.feed(b"\x1b]133;A\x07$ \x1b]7;file://arch/srv\x07ok");
     assert_eq!(texts(&screen.snapshot(0).rows), vec!["$ ok", "", ""]);
     assert_eq!(pwd(&screen).as_deref(), Some("file://arch/srv"));
 }
@@ -343,7 +333,7 @@ fn a_feed_of_the_actor_reaches_the_terminal_in_full_with_its_marks() {
 #[test]
 fn restore_factory_restores_on_the_actor_thread() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"kept\x1b]2;old\x07");
+    screen.feed(b"kept\x1b]2;old\x07");
     let snapshot = screen.encode_snapshot().unwrap();
     let factory = restore_factory(snapshot, size(10, 2));
     let (handle, _events) =
@@ -363,7 +353,7 @@ fn restore_factory_starts_blank_when_the_snapshot_is_broken() {
 }
 
 /// A 160x48 screen whose scrollback of 5000 lines is full of build output.
-fn full_screen() -> GhosttyScreen {
+fn full_screen() -> Fed {
     let mut screen = screen(160, 48);
     let lines: Vec<u8> = (0..6000)
         .flat_map(|line| {
@@ -371,7 +361,7 @@ fn full_screen() -> GhosttyScreen {
                 .into_bytes()
         })
         .collect();
-    feed(&mut screen, &lines);
+    screen.feed(&lines);
     screen
 }
 
@@ -416,7 +406,7 @@ fn new_output_gives_the_idle_steps_work_again() {
     idle_until_done(&mut screen);
     assert_eq!(screen.idle(), None);
     let done = screen.compressed;
-    feed(&mut screen, &b"more\r\n".repeat(500));
+    screen.feed(&b"more\r\n".repeat(500));
     // The output changed the activity, so a new pass runs and ends at the new value.
     assert_ne!(screen.terminal.compression_activity().ok(), done);
     let before = resident_bytes(&screen);
@@ -450,7 +440,7 @@ fn bench_perf_idle_compression() {
 #[test]
 fn a_full_scrollback_gives_no_text() {
     let mut screen = screen(10, 2);
-    feed(&mut screen, b"1\r\n2\r\n3\r\n4\r\n5");
+    screen.feed(b"1\r\n2\r\n3\r\n4\r\n5");
     assert_eq!(screen.scrollback_rows(), 3);
     assert_eq!(screen.text(3), None);
     assert_eq!(screen.text(4).map(|text| text.text), Some("1\n2\n3\n4\n5".to_owned()));
@@ -469,8 +459,8 @@ fn a_text_read_of_the_scrollback_gives_the_idle_steps_work_again() {
 fn the_alternate_screen_follows_the_mode() {
     let mut screen = screen(10, 2);
     assert!(!screen.alternate_screen());
-    feed(&mut screen, b"\x1b[?1049h");
+    screen.feed(b"\x1b[?1049h");
     assert!(screen.alternate_screen());
-    feed(&mut screen, b"\x1b[?1049l");
+    screen.feed(b"\x1b[?1049l");
     assert!(!screen.alternate_screen());
 }

@@ -120,7 +120,9 @@ or `just test-ghostty`. Unit tests drive libghostty-vt directly: the effect buff
 the wire conversion of cells (styles, wide characters, grapheme clusters, erased
 backgrounds), scrollback, GHOSTSNP round trips (including a snapshot cut inside an
 escape sequence), the factories on a real `ScreenActor`, and the cross-check with
-agreeing streams and with states libghostty-vt did not reach. `tests/it/conformance.rs`
+agreeing streams and with states libghostty-vt did not reach. A screen test feeds
+through `testing::Fed`, which scans each chunk as the actor does and calls
+`Screen::feed_marked`, so it runs the checked path of efrd. `tests/it/conformance.rs`
 runs the efr-screen conformance suite with the `ghostty` backend name; its rendered
 screens are the `*__ghostty.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`.
 `tests/it/widths.rs` checks the width that `efr` counts in Ghostty
@@ -145,10 +147,10 @@ through `efr_test_support::bench`, a dev-dependency.
 
 - `bench_perf_replay_screen` (`tests/it/replay_screen.rs`): the capture screens of a
   replay of 512 KiB and 5 MiB of output that moves the cursor, on vt100 and on ghostty.
-  It uses the split rule of efr-shell's replay, and reads each screen in three ways: a
-  snapshot with all its scrollback, a snapshot with 1,000 rows, and `Screen::text`
-  with the limit of 1,000 rows, as efr-shell does. It reports the time, the screens,
-  and the history rows or the bytes of text.
+  It uses the split rule of efr-shell's replay, and reads each screen with
+  `Screen::text` and the limit of 1,000 rows, as efr-shell does, and with a snapshot
+  of 1,000 rows as a baseline. It reports the time, the screens, and the bytes of
+  text or the history rows.
 - `bench_perf_idle_compression` (`src/terminal/tests.rs`): a 160x48 screen with 5000
   lines of build output, then its idle steps until they are done. It reports the
   resident bytes that libghostty-vt counts and the RSS of the process before and

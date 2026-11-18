@@ -192,8 +192,8 @@ larger without a resize:
 - A wide character on a grid of one column, and printing over the first half of a
   wide character that a narrower resize cut at the right edge, index past the row.
   `feed` catches the panic, logs a warning and starts over with a blank grid of the
-  same size, keeping the title; the rest of that chunk is lost. Without the guard the panic would end the screen actor and the shell would
-  lose its screen for good.
+  same size, keeping the title; the rest of that chunk is lost. Without the guard
+  the panic would end the screen actor and the shell would lose its screen for good.
 
 A dimension of 0 becomes 1, because vt100 subtracts 1 from both when it builds or
 resizes a grid.

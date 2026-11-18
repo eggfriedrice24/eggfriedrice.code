@@ -1,53 +1,28 @@
 use std::path::PathBuf;
 
-use efr_screen::{
-    PromptKind, SemanticPromptEvent, Seq, ShellMark, ShellMarkKind, ShellMarkScanner,
-};
-use libghostty_vt::Terminal;
+use efr_screen::{PromptKind, SemanticPromptEvent, Seq, ShellMark, ShellMarkKind};
 use libghostty_vt::screen::RowSemanticPrompt;
 use pretty_assertions::assert_eq;
 
 use super::{CrossCheck, Disagreement, LIBRARY_OSC_BYTES, ReportedStep, Step};
-use crate::effects::Effects;
-use crate::testing::terminal;
+use crate::testing::{Scan, terminal};
 
 /// The zsh sequence set of one command, as the hidden shell emits it.
 const PROMPT_CYCLE: &[u8] = b"\x1b]133;A;cl=line\x07\x1b]7;kitty-shell-cwd://arch/home/egg\x07$ \
     \x1b]133;B\x07ls\r\n\x1b]133;C\x07a  b\r\n\x1b]133;D;0\x07";
 
-/// The actor's part: scans each chunk once and hands the bytes and the marks over.
-struct Actor {
-    scanner: ShellMarkScanner,
-    next: u64,
-}
-
-impl Actor {
-    fn new() -> Self {
-        Actor { scanner: ShellMarkScanner::new(), next: 0 }
-    }
-
-    fn write(
-        &mut self,
-        check: &mut CrossCheck,
-        terminal: &mut Terminal<'static, 'static>,
-        effects: &Effects,
-        chunk: &[u8],
-    ) -> Vec<Disagreement> {
-        let base = Seq::new(self.next);
-        self.next += chunk.len() as u64;
-        let marks = self.scanner.scan(chunk, base);
-        check.write(terminal, effects, chunk, base, &marks)
-    }
-}
-
-/// Feeds `chunks` in order through one cross-check and returns every disagreement.
+/// Feeds `chunks` in order through one cross-check, each with the marks of one scan,
+/// and returns every disagreement.
 fn run(chunks: &[&[u8]]) -> Vec<Disagreement> {
     let (mut terminal, effects) = terminal(40, 6);
     let mut check = CrossCheck::new(&terminal);
-    let mut actor = Actor::new();
+    let mut scan = Scan::default();
     chunks
         .iter()
-        .flat_map(|chunk| actor.write(&mut check, &mut terminal, &effects, chunk))
+        .flat_map(|chunk| {
+            let (base, marks) = scan.next(chunk);
+            check.write(&mut terminal, &effects, chunk, base, &marks)
+        })
         .collect()
 }
 
@@ -188,7 +163,7 @@ fn a_continuation_mark_on_a_prompt_row_is_reported() {
 
 /// The marks of `bytes` from one scan, as the actor gives them.
 fn marks(bytes: &[u8]) -> Vec<ShellMark> {
-    ShellMarkScanner::new().scan(bytes, Seq::ZERO)
+    Scan::default().next(bytes).1
 }
 
 #[test]
@@ -303,7 +278,7 @@ fn a_feed_without_marks_checks_nothing_and_keeps_the_directory() {
     check.write_unchecked(&mut terminal, &effects, b"\x1b]7;http://arch/tmp\x07\x1b]133;A\x07");
     assert_eq!(check.pwd.as_deref(), Some("http://arch/tmp"));
     // The next checked feed starts from that directory and those flags.
-    let found = Actor::new().write(&mut check, &mut terminal, &effects, b"$ ");
+    let found = check.write(&mut terminal, &effects, b"$ ", Seq::ZERO, &[]);
     assert_eq!(found, Vec::new());
 }
 
@@ -344,8 +319,8 @@ fn a_restored_directory_is_not_taken_for_a_change() {
     // A screen restored from a snapshot starts with the directory already set.
     let _ = effects.take_pwd_changed();
     let mut check = CrossCheck::new(&terminal);
-    let found =
-        Actor::new().write(&mut check, &mut terminal, &effects, b"\x1b]7;http://arch/tmp\x07");
+    let bytes = b"\x1b]7;http://arch/tmp\x07";
+    let found = check.write(&mut terminal, &effects, bytes, Seq::ZERO, &marks(bytes));
     assert_eq!(found, Vec::new());
 }
 

@@ -12,7 +12,7 @@ and all three parts move together.
 In `Cargo.toml`:
 
 ```toml
-libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", default-features = false }
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", default-features = false, features = ["kitty-graphics"] }
 ```
 
 `deny.toml` allows this one git source. CI installs Zig with `mlugg/setup-zig` at

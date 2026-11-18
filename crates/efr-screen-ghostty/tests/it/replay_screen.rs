@@ -1,16 +1,17 @@
 //! The bench of the capture screens of a replay on both backends. efr-shell replays
-//! output that moves the cursor on a new screen per piece and reads it back with all
-//! its scrollback; a piece whose scrollback holds 1,000 rows or more is replayed again
-//! in two halves (`efr-shell/src/replay.rs`). efr-shell names no backend, so its own
-//! bench (`bench_perf_replay`) runs only vt100; this one runs the same loop on vt100
-//! and on ghostty, which keeps 5,000 rows of scrollback, and reads each screen in three
-//! ways: a snapshot with all its scrollback, a snapshot with 1,000 rows (plan slice
-//! W1-J), and `Screen::text` with the limit of 1,000 rows, which efr-shell uses now. It
-//! reports the time, the screens, and the history rows that the snapshots built or the
-//! bytes of text. A bench, ignored: `just bench-perf` runs it in release.
+//! output that moves the cursor on a new screen per piece and reads its text with
+//! `Screen::text` and the limit of 1,000 rows of scrollback; a piece whose scrollback
+//! holds 1,000 rows or more is replayed again in two halves
+//! (`efr-shell/src/replay.rs`). efr-shell names no backend, so its own bench
+//! (`bench_perf_replay`) runs only vt100; this one runs the same loop on vt100 and on
+//! ghostty, which keeps 5,000 rows of scrollback. It reads each screen with
+//! `Screen::text`, and, as a baseline for the cost of the text, with a snapshot of the
+//! same 1,000 rows. It reports the time, the screens, and the bytes of text or the
+//! history rows that the snapshots built. A bench, ignored: `just bench-perf` runs it
+//! in release.
 //!
 //! NOTE: the loop copies the split rule of `efr-shell/src/replay.rs` (`replay`,
-//! `rows_for`, `middle_line_end`) and leaves out the text of the snapshot rows, so it
+//! `rows_for`, `middle_line_end`) and does not join the text of the pieces, so it
 //! measures the screens alone. The rows of a capture screen are approximated by the
 //! line feeds.
 
@@ -83,11 +84,10 @@ struct Counts {
 /// How a replay reads each screen.
 #[derive(Debug, Clone, Copy)]
 enum Read {
-    /// A snapshot with up to this many rows of scrollback, as efr-shell did before
-    /// `Screen::text`.
-    Snapshot(usize),
-    /// `Screen::text` with the trusted limit, as efr-shell does now.
+    /// `Screen::text` with the trusted limit, as efr-shell reads it.
     Text,
+    /// A snapshot with the trusted limit of scrollback rows: the baseline.
+    Snapshot,
 }
 
 /// Replays `bytes` as efr-shell does, on screens from `make`, reading each with `read`.
@@ -104,8 +104,8 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], read: Read) -> Coun
         counts.screens += 1;
         counts.bytes_fed += piece.len() as u64;
         let full = match read {
-            Read::Snapshot(ask) => {
-                let snapshot = screen.snapshot(ask);
+            Read::Snapshot => {
+                let snapshot = screen.snapshot(TRUSTED_SCROLLBACK);
                 counts.history += snapshot.scrollback.len() as u64;
                 snapshot.scrollback.len() >= TRUSTED_SCROLLBACK
             }
@@ -132,11 +132,7 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], read: Read) -> Coun
 fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S) {
     for (size_name, size) in [("512 KiB", 512 * 1024), ("5 MiB", 5 * 1024 * 1024)] {
         let output = status_line_output(size);
-        for (read_name, read) in [
-            ("scrollback all", Read::Snapshot(usize::MAX)),
-            ("scrollback 1000", Read::Snapshot(TRUSTED_SCROLLBACK)),
-            ("text", Read::Text),
-        ] {
+        for (read_name, read) in [("text", Read::Text), ("scrollback 1000", Read::Snapshot)] {
             let label = format!("{name} {size_name} {read_name}");
             let mut samples = Vec::new();
             let mut counts = Counts::default();
@@ -148,8 +144,8 @@ fn backend<S: Screen>(report: &mut Report, name: &str, make: &dyn Fn(Size) -> S)
             let stats = report.time(&label, &samples);
             report.count(&format!("{label} screens"), counts.screens);
             match read {
-                Read::Snapshot(_) => report.count(&format!("{label} history rows"), counts.history),
                 Read::Text => report.bytes(&format!("{label} text"), counts.text_bytes),
+                Read::Snapshot => report.count(&format!("{label} history rows"), counts.history),
             }
             report.bytes(&format!("{label} bytes fed"), counts.bytes_fed);
             if stats.p50 > Duration::from_secs(10) {

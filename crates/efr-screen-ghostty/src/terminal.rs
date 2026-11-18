@@ -182,7 +182,8 @@ impl GhosttyScreen {
 
 impl Screen for GhosttyScreen {
     /// Writes the bytes without the cross-check, because there are no marks to
-    /// check. The actor calls [`feed_marked`](Screen::feed_marked).
+    /// check. The trait needs it, but the actor and the tests of this crate call
+    /// [`feed_marked`](Screen::feed_marked).
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
         self.cross_check.write_unchecked(&mut self.terminal, &self.effects, bytes);
         self.log_failure();
