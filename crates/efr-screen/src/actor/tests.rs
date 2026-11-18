@@ -348,12 +348,16 @@ async fn a_parked_sender_is_woken_when_the_backend_panics() {
 enum Step {
     Feed,
     Idle,
+    /// The last idle step of a quiet moment returned.
+    Done,
 }
 
-/// A screen that writes down its feeds and idle steps. Each quiet moment gives it
-/// `steps` idle steps: all but the last ask for one more.
+/// A screen that writes down its feeds and idle steps. It asks for its first idle step
+/// `delay` after the last command, and each quiet moment gives it `steps` idle steps:
+/// all but the last ask for one more, and the last writes [`Step::Done`] after it.
 struct IdleScreen {
     log: std_mpsc::Sender<Step>,
+    delay: Option<Duration>,
     steps: usize,
     left: usize,
     _not_send: Rc<()>,
@@ -376,40 +380,56 @@ impl Screen for IdleScreen {
     }
 
     fn idle_delay(&self) -> Option<Duration> {
-        Some(Duration::from_millis(1))
+        self.delay
     }
 
     fn idle(&mut self) -> Option<Duration> {
         self.log.send(Step::Idle).unwrap();
         self.left = self.left.saturating_sub(1);
-        (self.left > 0).then_some(Duration::from_millis(1))
+        if self.left > 0 {
+            return Some(Duration::from_millis(1));
+        }
+        self.log.send(Step::Done).unwrap();
+        None
     }
 }
 
-fn spawn_idle(steps: usize) -> (ScreenHandle, ScreenEvents, std_mpsc::Receiver<Step>) {
+fn spawn_idle(
+    delay: Option<Duration>,
+    steps: usize,
+) -> (ScreenHandle, ScreenEvents, std_mpsc::Receiver<Step>) {
     let (log, steps_rx) = std_mpsc::channel();
-    let factory = move || IdleScreen { log, steps, left: steps, _not_send: Rc::new(()) };
+    let factory = move || IdleScreen { log, delay, steps, left: steps, _not_send: Rc::new(()) };
     let (handle, events) = ScreenActor::spawn("screen-idle", factory, size(4, 1)).unwrap();
     (handle, events, steps_rx)
 }
 
-/// The steps that `log` gets until it is quiet for 200 ms.
-fn steps_until_quiet(log: &std_mpsc::Receiver<Step>) -> Vec<Step> {
-    std::iter::from_fn(|| log.recv_timeout(Duration::from_millis(200)).ok()).collect()
+/// The steps that `log` gets up to the next [`Step::Done`], with it.
+fn steps_until_done(log: &std_mpsc::Receiver<Step>) -> Vec<Step> {
+    let mut steps = Vec::new();
+    for step in log {
+        steps.push(step);
+        if step == Step::Done {
+            break;
+        }
+    }
+    steps
 }
 
 #[test]
 fn a_quiet_screen_gets_its_idle_steps_and_then_waits() {
-    let (handle, _events, log) = spawn_idle(3);
-    assert_eq!(steps_until_quiet(&log), vec![Step::Idle; 3]);
+    let (handle, _events, log) = spawn_idle(Some(Duration::from_millis(1)), 3);
+    assert_eq!(steps_until_done(&log), [Step::Idle, Step::Idle, Step::Idle, Step::Done]);
     handle.feed_blocking(bytes(b"x"), Seq::ZERO).unwrap();
-    assert_eq!(steps_until_quiet(&log), vec![Step::Feed, Step::Idle, Step::Idle, Step::Idle]);
+    // After the last step the actor waits for a command, so the feed comes next.
+    let after_feed = [Step::Feed, Step::Idle, Step::Idle, Step::Idle, Step::Done];
+    assert_eq!(steps_until_done(&log), after_feed);
 }
 
 #[test]
 fn a_command_during_the_idle_steps_is_served_first() {
     // Steps for far longer than the test runs, one each millisecond.
-    let (handle, _events, log) = spawn_idle(usize::MAX);
+    let (handle, _events, log) = spawn_idle(Some(Duration::from_millis(1)), usize::MAX);
     assert_eq!(log.recv().unwrap(), Step::Idle);
     handle.feed_blocking(bytes(b"x"), Seq::ZERO).unwrap();
     assert!(log.iter().any(|step| step == Step::Feed));
@@ -418,6 +438,11 @@ fn a_command_during_the_idle_steps_is_served_first() {
 
 #[test]
 fn a_screen_without_an_idle_delay_gets_no_idle_step() {
-    // The fake screen keeps the default: `idle_delay` is `None`.
-    assert_eq!(FakeScreen::new(size(4, 1)).idle_delay(), None);
+    let (handle, mut events, log) = spawn_idle(None, 3);
+    handle.feed_blocking(bytes(b"x"), Seq::ZERO).unwrap();
+    handle.snapshot_blocking(0).unwrap();
+    handle.shutdown_blocking().unwrap();
+    // The event stream ends when the actor drops its screen, and with it the log.
+    assert_eq!(events.blocking_recv(), None);
+    assert_eq!(log.iter().collect::<Vec<_>>(), [Step::Feed]);
 }

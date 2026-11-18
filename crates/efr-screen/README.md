@@ -224,7 +224,9 @@ snapshot per vt fixture per backend).
   checks them needs no scan of its own. The conformance
   suite compares marks for every backend, even for fixtures that list the backend in
   their `differs` list.
-- Nothing in the actor waits on real time; backpressure is the bounded queues.
+- The actor waits on real time only for the idle delay of its screen
+  (`Screen::idle_delay`), and only when no command waits. Backpressure is the bounded
+  queues.
 - A `Vt100Screen` reports exactly what vt100 renders, normalised by the actor like
   every backend. It never answers a query, so PTY replies come only from the ghostty
   backend.
@@ -274,7 +276,8 @@ A fixture is one JSON object per line: a `case` header with the grid size and th
 size, title, bell and reply checks of that fixture, never the mark checks. The first
 run of a new backend writes its snapshots as `fixtures/vt/snapshots/*.snap.new`;
 review them and accept them with `just bless`. No test sleeps on real time, needs the
-network or needs Zig.
+network or needs Zig. The idle tests give the actor a delay of 1 ms, and they wait
+for the messages of the screen, not for a quiet time.
 
 ## Benches
 

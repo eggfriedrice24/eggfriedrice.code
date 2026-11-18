@@ -97,8 +97,9 @@ impl ScreenHandle {
 
     /// The text of the scrollback and the visible rows, taken after every command
     /// queued before it, or `None` when the scrollback holds `scrollback_limit` rows or
-    /// more (see [`Screen::text`](crate::Screen::text)). It costs no cells: a backend
-    /// counts its scrollback first and builds the text only when it is used.
+    /// more (see [`Screen::text`](crate::Screen::text)). A backend counts its
+    /// scrollback first, so a full scrollback costs no row read; below the limit, the
+    /// text reads every row.
     ///
     /// NOTE: the task that reads this screen's events must not await this, for the
     /// reason that [`snapshot`](Self::snapshot) gives.
