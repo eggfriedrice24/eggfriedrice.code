@@ -19,7 +19,7 @@
 
 import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
-import { useRef } from "react";
+import { type ReactNode, type Ref, useRef } from "react";
 import { Pressable, Text, View, type HostInstance } from "react-native";
 
 import { BodyText } from "@/components/ui/body-text";
@@ -164,24 +164,67 @@ export interface ApprovalStripViewProps {
   readonly onAnswer: (decision: PhoneDecision) => void;
 }
 
+interface StripRowProps {
+  readonly testID: string;
+  /** The VoiceOver label and hint of the row. */
+  readonly label: string;
+  readonly hint: string;
+  /** The one line after the yolk dot: a command in mono, or a question in SF Pro. */
+  readonly line: ReactNode;
+  readonly meta: readonly ApprovalMeta[];
+  /** True while the row takes no tap. */
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+  /** The view that an action sheet opens out of. */
+  readonly ref?: Ref<HostInstance>;
+  /** What stands at the right of the row: the buttons, or the words of the terminal. */
+  readonly children: ReactNode;
+}
+
+/**
+ * The shell of a strip (round 8 "minimal"): the yolk dot, one line and the small texts
+ * take the tap, and the buttons stand at the right, on the thumb side.
+ */
+function StripRow({ ref, ...props }: StripRowProps) {
+  return (
+    <View
+      ref={ref}
+      testID={props.testID}
+      className="min-h-44 flex-row items-center gap-4 pr-6 pl-16"
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={props.label}
+        accessibilityHint={props.hint}
+        disabled={props.disabled === true}
+        onPress={props.onPress}
+        className="min-h-44 flex-1 flex-row items-center gap-8 active:opacity-60"
+      >
+        <Dot size="large" />
+        {props.line}
+        <MetaTexts meta={props.meta} />
+      </Pressable>
+      {props.children}
+    </View>
+  );
+}
+
 /** The strip of a model. */
 export function ApprovalStripView(props: ApprovalStripViewProps) {
   const { model } = props;
   return (
-    <View testID="approval-strip" className="min-h-44 flex-row items-center gap-4 pr-6 pl-16">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={model.label}
-        accessibilityHint="Opens the approval."
-        onPress={props.onOpen}
-        className="min-h-44 flex-1 flex-row items-center gap-8 active:opacity-60"
-      >
-        <Dot size="large" />
+    <StripRow
+      testID="approval-strip"
+      label={model.label}
+      hint="Opens the approval."
+      line={
         <Text numberOfLines={1} className="flex-1 text-mono-sm text-text-bright">
           {model.line}
         </Text>
-        <MetaTexts meta={model.meta} />
-      </Pressable>
+      }
+      meta={model.meta}
+      onPress={props.onOpen}
+    >
       {model.terminal === undefined ? null : (
         <MonoText tone="accent_ui" className="pr-6">
           {model.terminal}
@@ -190,7 +233,7 @@ export function ApprovalStripView(props: ApprovalStripViewProps) {
       {model.buttons === undefined ? null : (
         <AnswerButtons buttons={model.buttons} onAnswer={props.onAnswer} />
       )}
-    </View>
+    </StripRow>
   );
 }
 
@@ -210,25 +253,20 @@ export function QuestionStripView(props: QuestionStripViewProps) {
   const anchor = useRef<HostInstance>(null);
   const open = (): void => props.onOpen(anchor.current);
   return (
-    <View
+    <StripRow
       ref={anchor}
       testID="question-strip"
-      className="min-h-44 flex-row items-center gap-4 pr-6 pl-16"
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={model.label}
-        accessibilityHint="Opens the choices."
-        disabled={!model.enabled}
-        onPress={open}
-        className="min-h-44 flex-1 flex-row items-center gap-8 active:opacity-60"
-      >
-        <Dot size="large" />
+      label={model.label}
+      hint="Opens the choices."
+      line={
         <BodyText size="rowDetail" tone="text_primary" numberOfLines={1} className="flex-1">
           {model.line}
         </BodyText>
-        <MetaTexts meta={model.meta} />
-      </Pressable>
+      }
+      meta={model.meta}
+      disabled={!model.enabled}
+      onPress={open}
+    >
       <SmallFilledButton
         label="Answer"
         pending={model.sending}
@@ -236,7 +274,7 @@ export function QuestionStripView(props: QuestionStripViewProps) {
         disabled={!model.enabled && !model.sending}
         onPress={open}
       />
-    </View>
+    </StripRow>
   );
 }
 
