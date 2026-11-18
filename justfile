@@ -143,9 +143,10 @@ bench-perf filter="":
     export EFR_BENCH_OUT="$out" EFR_TEST_SBX_BIN="$private/efr-sbx" EFR_TEST_ZSH=1
     filter='test(/bench_perf_.*{{filter}}/)'
     status=0
+    # A filter can match benches of one half only, so a half without a match passes.
     nice -n 19 cargo nextest run --release --workspace --exclude efr-screen-ghostty \
         --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
-        -E "$filter" || status=$?
+        --no-tests pass -E "$filter" || status=$?
     if command -v zig >/dev/null; then
         nice -n 19 cargo nextest run --release -p efr-screen-ghostty \
             --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
