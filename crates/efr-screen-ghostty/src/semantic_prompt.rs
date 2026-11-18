@@ -19,8 +19,9 @@
 //!   prompt and `Continuation` for a continuation or secondary prompt, and after `A`
 //!   the cursor is in column 0, because `A` asks for a fresh line.
 //!
-//! A disagreement is logged as a warning by the screen and never fails a feed. When a
-//! libghostty-rs pin exposes ghostty's semantic prompt effect (ghostty 7bb45ba), it is
+//! A disagreement is logged as a warning by the screen and never fails a feed. The
+//! pinned libghostty-vt also has ghostty's semantic prompt effect
+//! (`Terminal::on_semantic_prompt`), which efr does not use yet. When it does, it is
 //! wired here, as one more comparison, and nowhere else.
 
 use std::fmt;

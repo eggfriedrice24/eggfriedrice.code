@@ -1,10 +1,11 @@
 //! The backend-independent tap for OSC 133 and OSC 7.
 //!
-//! Neither screen backend reports semantic prompt marks with an exit code and a
-//! stream offset: libghostty-vt keeps only per-row prompt state, and vt100 handles
-//! only OSC 0, 1, 2 and 52. So the actor runs a [`ShellMarkScanner`] over every chunk
-//! before the backend sees it, and every backend gets the same marks with the same
-//! recording offsets. Four small parts: `osc_frames` finds complete OSC sequences,
+//! The marks must be the same for every backend, with recording offsets. vt100
+//! handles only OSC 0, 1, 2 and 52. libghostty-vt reports OSC 133 and OSC 7 through
+//! its own callbacks, but efr does not use them, and vt100 has no such callbacks. So
+//! the actor runs a [`ShellMarkScanner`] over every chunk before the backend sees it,
+//! and every backend gets the same marks with the same recording offsets. Four small
+//! parts: `osc_frames` finds complete OSC sequences,
 //! `semantic_prompt` reads OSC 133, `sandbox_end` reads efr's own OSC 133 end mark of a
 //! sandboxed call, and `cwd_report` reads OSC 7.
 

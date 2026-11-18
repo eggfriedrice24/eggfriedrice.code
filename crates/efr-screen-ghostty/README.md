@@ -33,8 +33,9 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   screen is fed; the bytes go to libghostty-vt in pieces that end at each mark, and
   after each piece libghostty-vt's working directory (`Terminal::pwd`) and the cursor
   row's prompt state must agree with the mark. A disagreement is a `warn` log line;
-  a feed never fails. When a libghostty-rs pin exposes ghostty's semantic prompt
-  effect (ghostty 7bb45ba), it is wired here only.
+  a feed never fails. The pinned libghostty-vt also has ghostty's semantic prompt
+  effect (`Terminal::on_semantic_prompt`), which efr does not use yet. When it does,
+  it is wired here only.
 
 The marks themselves never come from here: the actor's scanner in `efr-screen` is
 the source of truth for every backend.
