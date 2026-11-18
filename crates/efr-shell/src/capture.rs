@@ -8,11 +8,13 @@ use bytes::Bytes;
 
 mod stream;
 
+use stream::OpenSequence;
 pub(crate) use stream::StreamClean;
 
 /// The raw output of one run, kept within `limit` bytes: the first half of the limit
 /// from the start of the output and the second half from its end. The full output
-/// stays in the recording.
+/// stays in the recording. A kept tail starts outside of any escape sequence, so the
+/// body of a long control string (an image, a clipboard copy) never reads as text.
 #[derive(Debug)]
 pub(crate) struct Capture {
     head: Vec<u8>,
@@ -21,6 +23,9 @@ pub(crate) struct Capture {
     tail_cap: usize,
     /// Every byte pushed, kept or not.
     total: u64,
+    /// The grammar state at the start of the tail: it reads the head and each byte
+    /// that leaves the tail, from the first byte dropped on.
+    before_tail: OpenSequence,
 }
 
 /// The bytes a capture kept: the start of the output and, when bytes were dropped
@@ -60,28 +65,43 @@ impl Capture {
             head_cap,
             tail_cap: limit - head_cap,
             total: 0,
+            before_tail: OpenSequence::default(),
         }
     }
 
     pub(crate) fn push(&mut self, mut bytes: &[u8]) {
+        let contiguous = self.total == self.kept();
         self.total = self.total.saturating_add(bytes.len() as u64);
         if self.head.len() < self.head_cap {
             let take = bytes.len().min(self.head_cap - self.head.len());
             self.head.extend_from_slice(&bytes[..take]);
             bytes = &bytes[take..];
         }
-        if bytes.len() >= self.tail_cap {
-            self.tail.clear();
-            self.tail.extend(&bytes[bytes.len() - self.tail_cap..]);
+        let overflow = (self.tail.len() + bytes.len()).saturating_sub(self.tail_cap);
+        if overflow == 0 {
+            self.tail.extend(bytes);
             return;
         }
-        let overflow = (self.tail.len() + bytes.len()).saturating_sub(self.tail_cap);
-        self.tail.drain(..overflow);
-        self.tail.extend(bytes);
+        // The head is full once the tail overflows, and it is read only then, so a
+        // capture that drops nothing reads no byte twice.
+        if contiguous {
+            self.before_tail.feed(&self.head);
+        }
+        let from_tail = overflow.min(self.tail.len());
+        let (front, back) = self.tail.as_slices();
+        let from_front = from_tail.min(front.len());
+        self.before_tail.feed(&front[..from_front]);
+        self.before_tail.feed(&back[..from_tail - from_front]);
+        self.tail.drain(..from_tail);
+        let (left, kept) = bytes.split_at(overflow - from_tail);
+        self.before_tail.feed(left);
+        self.tail.extend(kept);
     }
 
     /// Takes back the last `n` bytes pushed, such as the start of an OSC 133 `D`
-    /// sequence that arrived before the scanner could tell it was one.
+    /// sequence that arrived before the scanner could tell it was one. A run trims only
+    /// at its end, so the bytes taken back are in the tail, or in a head that dropped
+    /// nothing and was not read yet.
     pub(crate) fn trim_end(&mut self, n: usize) {
         let contiguous = self.total == self.kept();
         let from_tail = n.min(self.tail.len());
@@ -116,7 +136,8 @@ impl Capture {
     }
 
     /// The bytes kept so far. The capture goes on, so a run left running can be read
-    /// again later.
+    /// again later. When the bytes before the tail end inside an escape sequence, the
+    /// tail starts after its end, and the bytes of the sequence count as dropped.
     pub(crate) fn finish(&self) -> Kept {
         let dropped = self.total.saturating_sub(self.kept());
         let mut head = self.head.clone();
@@ -130,7 +151,13 @@ impl Capture {
             };
         }
         let tail: Vec<u8> = self.tail.iter().copied().collect();
-        Kept { head: Bytes::from(head), tail: Bytes::from(tail), dropped, bytes: self.total }
+        let open = self.before_tail.rest_in(&tail);
+        Kept {
+            head: Bytes::from(head),
+            tail: Bytes::from(tail).slice(open..),
+            dropped: dropped + open as u64,
+            bytes: self.total,
+        }
     }
 
     fn kept(&self) -> u64 {

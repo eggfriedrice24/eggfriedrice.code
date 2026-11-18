@@ -146,3 +146,80 @@ proptest! {
         prop_assert_eq!(whole.finish(), split.finish());
     }
 }
+
+#[test]
+fn a_tail_that_starts_inside_a_long_apc_skips_its_body() {
+    const MIB: usize = 1024 * 1024;
+    let mut output = b"before\r\n\x1b_Ga=T,f=100,q=2;".to_vec();
+    output.resize(output.len() + 2 * MIB, b'Q');
+    output.extend_from_slice(b"\x1b\\after\r\n");
+    let mut capture = Capture::new(MIB);
+    for chunk in output.chunks(4096) {
+        capture.push(chunk);
+    }
+    let kept = capture.finish();
+    assert_eq!(&kept.tail[..], b"after\r\n");
+    assert_eq!(kept.dropped, output.len() as u64 - kept.head.len() as u64 - 7);
+    let text = kept.clean().text;
+    assert_eq!(text, format!("before\n\n[... {} bytes omitted ...]\nafter\n", kept.dropped));
+}
+
+#[test]
+fn a_tail_that_starts_inside_a_colour_skips_the_rest_of_it() {
+    let mut capture = Capture::new(12);
+    capture.push(b"abcdef\x1b[1;31mred");
+    let kept = capture.finish();
+    assert_eq!((&kept.tail[..], kept.dropped), (&b"red"[..], 7));
+    assert_eq!(kept.clean().text, "abcdef\n[... 7 bytes omitted ...]\nred");
+}
+
+#[test]
+fn a_tail_inside_a_sequence_that_never_ends_is_dropped() {
+    let mut capture = Capture::new(8);
+    capture.push(b"abcd\x1b]52;c;");
+    capture.push(b"QQQQQQQQ");
+    let kept = capture.finish();
+    assert_eq!((&kept.head[..], &kept.tail[..], kept.dropped), (&b"abcd"[..], &b""[..], 15));
+}
+
+/// A piece of terminal output: plain text and control characters, or one escape
+/// sequence. The bodies of sequences are `Q` and text never is, so a body that reads as
+/// text shows.
+fn piece() -> impl Strategy<Value = Vec<u8>> {
+    let text = proptest::collection::vec(
+        prop_oneof![b'a'..=b'z', Just(b'\r'), Just(b'\n'), Just(0x08_u8), Just(b'\t')],
+        1..12,
+    );
+    prop_oneof![
+        4 => text,
+        1 => (0usize..8).prop_map(|n| [b"\x1b[".as_slice(), &vec![b'1'; n], b"m"].concat()),
+        1 => (0usize..40).prop_map(|n| [b"\x1b]2;".as_slice(), &vec![b'Q'; n], b"\x07"].concat()),
+        1 => (0usize..6000)
+            .prop_map(|n| [b"\x1b_G;".as_slice(), &vec![b'Q'; n], b"\x1b\\"].concat()),
+        1 => (0usize..40).prop_map(|n| [b"\x1bP".as_slice(), &vec![b'Q'; n], b"\x1b\\"].concat()),
+        1 => Just(b"\x1b(B".to_vec()),
+        1 => Just(b"\x1b=".to_vec()),
+    ]
+}
+
+proptest! {
+    /// However long its sequences and however small the limit, the text of a kept tail
+    /// is the end of the text of the whole output.
+    #[test]
+    fn the_text_of_a_tail_is_a_suffix_of_the_whole_text(
+        pieces in proptest::collection::vec(piece(), 0..24),
+        chunk in 1usize..700,
+        limit in 2usize..256,
+    ) {
+        let output = pieces.concat();
+        let mut capture = Capture::new(limit);
+        for part in output.chunks(chunk) {
+            capture.push(part);
+        }
+        let kept = capture.finish();
+        let whole = clean(&output);
+        let tail = clean(&kept.tail);
+        prop_assert!(whole.ends_with(&tail), "{tail:?} is not the end of {whole:?}");
+        prop_assert_eq!(kept.head.len() as u64 + kept.dropped + kept.tail.len() as u64, kept.bytes);
+    }
+}

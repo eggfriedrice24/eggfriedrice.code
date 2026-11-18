@@ -1,4 +1,7 @@
-//! The byte cleaner of [`clean`](super::clean) over output that comes in chunks.
+//! The byte cleaner of [`clean`](super::clean) over output that comes in chunks, and
+//! its grammar alone, which tells whether a stream ends inside an escape sequence.
+
+use std::borrow::Cow;
 
 use super::{escape_end, push_text};
 
@@ -35,21 +38,13 @@ pub(crate) struct StreamClean {
 impl StreamClean {
     /// Takes the next chunk of the output and returns the text that it completes.
     pub(crate) fn push(&mut self, chunk: &[u8]) -> String {
-        let joined;
-        let bytes: &[u8] = if self.carry.is_empty() {
-            chunk
-        } else {
-            let mut carry = std::mem::take(&mut self.carry);
-            carry.extend_from_slice(chunk);
-            joined = carry;
-            &joined
-        };
+        let bytes = after_carry(&mut self.carry, chunk);
         let mut out = Vec::new();
         let mut at = 0;
         while at < bytes.len() {
             let byte = bytes[at];
             match byte {
-                0x1b => match escape_end(bytes, at) {
+                0x1b => match escape_end(&bytes, at) {
                     Some(end) => {
                         at = end;
                         continue;
@@ -116,9 +111,61 @@ impl StreamClean {
     }
 }
 
-/// What [`StreamClean`] keeps of `sequence`, an escape sequence that has not ended yet:
-/// all of it, or, past [`STREAM_CARRY_LIMIT`], its `ESC` and kind and a last `ESC`,
-/// which may start its `ST`. The body of a sequence never reaches the text.
+/// Where the bytes of a stream stand in the grammar of [`clean`](super::clean): outside
+/// of any escape sequence, or inside one. It reads the bytes as `clean` does, but makes
+/// no text.
+#[derive(Debug, Default)]
+pub(crate) struct OpenSequence {
+    /// What [`carry_of`] keeps of the escape sequence that the bytes so far end inside;
+    /// empty when they end outside of any sequence.
+    carry: Vec<u8>,
+}
+
+impl OpenSequence {
+    /// Reads the next bytes of the stream.
+    pub(crate) fn feed(&mut self, chunk: &[u8]) {
+        let bytes = after_carry(&mut self.carry, chunk);
+        let mut at = 0;
+        while let Some(found) = bytes[at..].iter().position(|&byte| byte == 0x1b) {
+            let start = at + found;
+            match escape_end(&bytes, start) {
+                Some(end) => at = end,
+                None => {
+                    self.carry = carry_of(&bytes[start..]);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// How many bytes at the start of `next`, the bytes that come after the bytes fed,
+    /// are still a part of the open sequence: none when no sequence is open, all of
+    /// `next` when the sequence does not end in it.
+    pub(crate) fn rest_in(&self, next: &[u8]) -> usize {
+        if self.carry.is_empty() {
+            return 0;
+        }
+        let mut joined = self.carry.clone();
+        joined.extend_from_slice(next);
+        escape_end(&joined, 0).map_or(next.len(), |end| end - self.carry.len())
+    }
+}
+
+/// `carry`, the start of an escape sequence that the last chunk ended inside, and then
+/// `chunk`, as one slice; `carry` is empty after it. Only a pending carry costs a copy.
+fn after_carry<'a>(carry: &mut Vec<u8>, chunk: &'a [u8]) -> Cow<'a, [u8]> {
+    if carry.is_empty() {
+        return Cow::Borrowed(chunk);
+    }
+    let mut joined = std::mem::take(carry);
+    joined.extend_from_slice(chunk);
+    Cow::Owned(joined)
+}
+
+/// What [`StreamClean`] and [`OpenSequence`] keep of `sequence`, an escape sequence that
+/// has not ended yet: all of it, or, past [`STREAM_CARRY_LIMIT`], its `ESC` and kind and
+/// a last `ESC`, which may start its `ST`. The body of a sequence never reaches the
+/// text.
 fn carry_of(sequence: &[u8]) -> Vec<u8> {
     if sequence.len() <= STREAM_CARRY_LIMIT {
         return sequence.to_vec();
