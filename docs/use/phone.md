@@ -464,6 +464,60 @@ leave the app. Nothing changes on the machine: to take the access of the phone a
 also revoke it there (see [Revoke a device](#revoke-a-device)). After you forget the
 last machine, the app goes back to the first step of the pairing.
 
+## Push notifications
+
+efrd sends a push to a paired phone when all of these are true:
+
+- Something needs you: an approval, a question of the model, a command in the hidden
+  shell that waits for input, the end of a job notice turn or job notices at the wake
+  limit. The end of a turn that the phone started also pushes when the turn took
+  `notify.after_secs` or longer.
+- `presence.push` is on in `config.toml`. It is on by default.
+- You are not at the terminal of that conversation: efr counts you away
+  (`presence.away_after_minutes`, `efr away`), or your newest input in the
+  conversation came from the phone.
+- The app is not in front on that phone.
+- The phone has push on, and it connected to efrd in the last 30 days.
+
+One question pushes once. A question that waits at the terminal pushes when you turn
+away from it. While the app is in front, it shows no banner and plays no sound: the
+conversation shows the question.
+
+A push shows the title `efr` and one short line, such as `app: a question waits` or
+`app: done in 4m 12s`. `app` is the name of the project of the conversation, or the
+name of its directory. A push never holds a prompt, a command, a title of a
+conversation or text of the model. A tap opens the conversation.
+
+The push goes from efrd to the Expo push service, then to Apple, then to the phone.
+efrd keeps no push key: the push key of the app is at Expo. The servers of Expo and of
+Apple get the title, the place name and two ids: the id of the machine and the id of
+the conversation, which a tap needs. Your prompts, your output and your approvals stay
+inside your tailnet. While the Expo push service is down, no push comes.
+
+`efr device list` shows `push on` after the name of each phone that has push on. To
+check push, send a test notice to each such phone:
+
+```sh
+efr push test
+```
+
+After about 14 seconds, efr shows one line for each phone: its name, then the result.
+
+| Result | What it means |
+|---|---|
+| `sent` | Apple took the notice. |
+| `sent to Expo, no receipt yet` | Expo took the notice, and Apple did not answer yet. |
+| `not sent: DeviceNotRegistered. Push is off for this phone now. Open the app.` | The token of the phone is no longer good. efrd deleted it. Open the app to send a new one. |
+| `not sent: InvalidCredentials. Expo has no valid push key for this app. Run eas credentials.` | The Expo project of the app has no push key. |
+| `not sent: UNAUTHORIZED. The Expo account asks for an access token. efr sends none.` | The Expo account has "enhanced push security" on. efr does not support it. |
+| `not sent: <code>. Try again later.` | Expo has too many requests now (`MessageRateExceeded`, `TOO_MANY_REQUESTS`). |
+| `not sent: <code>.` | Expo refused the notice with another code. |
+| `not sent: no answer from exp.host.` | efrd got no answer from the Expo push service. |
+| `no paired phone has push on` | No phone sent its token. |
+
+A revoke deletes the token of the phone at once, so the phone gets no push after
+`efr device revoke`.
+
 ## What the phone cannot do
 
 A phone has fewer rights than your terminal. efrd checks each of these rules itself,
@@ -489,7 +543,6 @@ so a changed app cannot get past them:
 Limits of this version:
 
 - iPhone only. No Android, no iPad layout.
-- No push notifications. A question waits until you open the app.
 - No attachments, such as images.
 - No terminal view of the hidden shell.
 - A dark theme only.
@@ -504,8 +557,9 @@ List the paired devices:
 efr device list
 ```
 
-Each row shows the start of the device id, its name, its Tailscale node, when it was
-paired and when it was last seen. The list also shows the revoked devices.
+Each row shows the start of the device id, its name, `push on` when the phone has push
+on, its Tailscale node, when it was paired and when it was last seen. The list also
+shows the revoked devices.
 `--json` prints the answer of efrd, for scripts.
 
 Revoke a device when you lose the phone, or when you do not use it any more:

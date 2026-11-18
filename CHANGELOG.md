@@ -28,6 +28,9 @@ into the GitHub release notes, and it stops when the section is missing.
   file with its kind and its size, and its name links to the copy of the file; `efr
   history` shows the row too. A row tells you when efr stops to send a file as content. A prompt that names a
   file that cannot attach does not go, and a note tells you why.
+- Push notifications on the phone when a question waits and you are away (the
+  Notifications switch, `efr push test`). The notices go through the Expo push
+  service. `efr device list` shows `push on` for a phone that has push on.
 
 ### Changed
 
