@@ -53,8 +53,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache, WriteProjects};
 use efr_conversation::{
-    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
-    Toolbox, TurnChanges, UndoRequest,
+    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolImage,
+    ToolOutcome, Toolbox, TurnChanges, UndoRequest,
 };
 use efr_permissions::{CoverAsk, Coverage, Engine, Requirements};
 use efr_protocol::{
@@ -1157,6 +1157,14 @@ impl DaemonToolbox {
             return outcome;
         }
         let mut outcome = match invoked {
+            // NOTE: with attachments off, `read_file` refuses an image as it refuses
+            // any other binary file.
+            Ok(ref result)
+                if !self.settings.borrow().attachments.enabled
+                    && let Some(media) = result.media.first() =>
+            {
+                ToolOutcome::error(for_model(&ToolError::NotText { path: media.path.clone() }))
+            }
             Ok(result) => {
                 let written = result.written.clone();
                 let mut outcome = outcome(result);
@@ -2102,10 +2110,13 @@ pub(crate) fn outcome(result: ToolResult) -> ToolOutcome {
     } else {
         ToolOutcome::ok(result.output)
     };
+    let media =
+        result.media.into_iter().map(|media| ToolImage { path: media.path, bytes: media.bytes });
     base.with_truncated(result.truncated)
         .with_exit_code(result.exit_code)
         .with_sandbox(result.sandbox)
         .with_left_running(result.left_running)
+        .with_media(media.collect())
 }
 
 /// A tool error with its causes, for the model: the reason a file could not be read

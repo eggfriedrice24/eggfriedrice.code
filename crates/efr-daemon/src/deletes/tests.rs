@@ -28,6 +28,7 @@ fn the_paths_of_a_conversation_are_its_own_dirs_by_id() {
         roots.state().join("sandbox").join(CONVERSATION),
         roots.runtime().join("sbx").join(CONVERSATION),
         roots.data().join("file-backups").join(CONVERSATION),
+        roots.data().join("attachments").join(CONVERSATION),
         roots.data().join("undo-trash").join(UNDO),
     ];
     expected.sort();

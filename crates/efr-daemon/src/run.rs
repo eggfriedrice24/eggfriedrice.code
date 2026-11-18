@@ -818,7 +818,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let conversation_deps = ConversationDeps {
         providers: routes,
         toolbox: Arc::new(toolbox),
-        attachments: crate::attachments::store(&dirs),
+        attachments: crate::attachments::store(&dirs, settings_receiver.clone()),
         engine: engine_receiver,
         scope: Arc::new(resolver),
         writer: writer.clone(),

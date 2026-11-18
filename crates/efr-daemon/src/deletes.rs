@@ -40,6 +40,7 @@ use efr_store::deletes::DeleteStep;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
+use crate::attachments::ATTACHMENTS_DIR;
 use crate::backups::FILE_BACKUPS_DIR;
 use crate::home::UNDO_TRASH_DIR;
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
@@ -204,6 +205,7 @@ fn paths(
     paths.push(dirs.state().join(SANDBOX_DIR).join(&id));
     paths.push(dirs.runtime().join(SHELL_DIR).join(&id));
     paths.push(dirs.data().join(FILE_BACKUPS_DIR).join(&id));
+    paths.push(dirs.data().join(ATTACHMENTS_DIR).join(&id));
     let trash = dirs.data().join(UNDO_TRASH_DIR);
     paths.extend(undos.iter().map(|undo| trash.join(undo.to_string())));
     paths.sort();
