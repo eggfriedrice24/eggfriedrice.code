@@ -69,7 +69,7 @@ pub use shell_tool::{
     job_request, job_started_text, not_ready_text,
 };
 pub use tool::{
-    AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,
+    AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolMedia, ToolOutputSink,
     ToolRequirements, ToolResult, ToolSpec, WrittenFile, WrittenKind, freeform_text,
 };
 pub use write_file::WriteFileTool;

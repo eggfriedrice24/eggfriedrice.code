@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::{ReadFileTool, select_lines};
 use crate::testing::Fixture;
-use crate::{AccessMode, NoOutput, PathAccess, Tool as _, ToolError};
+use crate::{AccessMode, NoOutput, PathAccess, Tool as _, ToolError, ToolMedia};
 
 #[test]
 fn it_declares_the_resolved_path_for_reading() {
@@ -62,6 +62,51 @@ async fn long_files_are_cut_in_the_middle() {
         .unwrap();
     assert!(result.truncated);
     assert!(result.output.len() <= 200);
+}
+
+#[rstest::rstest]
+#[case::png(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".as_slice(), "shot.png: PNG image, 16 B")]
+#[case::jpeg(b"\xff\xd8\xff\xe0\0\x10JFIF\0\x01\x01\0\0\x01".as_slice(), "shot.png: JPEG image, 16 B")]
+#[case::gif(b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0".as_slice(), "shot.png: GIF image, 16 B")]
+#[case::webp(b"RIFF\x08\0\0\0WEBPVP8L".as_slice(), "shot.png: WebP image, 16 B")]
+#[tokio::test]
+async fn an_image_comes_back_as_its_bytes_with_one_line(#[case] bytes: &[u8], #[case] text: &str) {
+    let fixture = Fixture::new();
+    let path = fixture.cwd().join("shot.png");
+    std::fs::write(&path, bytes).unwrap();
+    let result = ReadFileTool::new()
+        .invoke(fixture.context(), json!({"path": "shot.png", "offset": 3}), &mut NoOutput)
+        .await
+        .unwrap();
+    assert_eq!(result.output, text, "offset and limit do not apply to an image");
+    assert_eq!(result.media, [ToolMedia { path, bytes: bytes.to_vec() }]);
+}
+
+#[tokio::test]
+async fn a_text_file_has_no_media() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.cwd().join("notes.txt"), "one\n").unwrap();
+    let result = ReadFileTool::new()
+        .invoke(fixture.context(), json!({"path": "notes.txt"}), &mut NoOutput)
+        .await
+        .unwrap();
+    assert!(result.media.is_empty());
+}
+
+#[tokio::test]
+async fn an_image_over_16_mib_is_too_large() {
+    let fixture = Fixture::new();
+    let path = fixture.cwd().join("huge.png");
+    let file = std::fs::File::create(&path).unwrap();
+    std::io::Write::write_all(&mut &file, b"\x89PNG\r\n\x1a\n").unwrap();
+    file.set_len(17 * 1024 * 1024).unwrap();
+    let result = ReadFileTool::new()
+        .invoke(fixture.context(), json!({"path": "huge.png"}), &mut NoOutput)
+        .await;
+    assert!(
+        matches!(result, Err(ToolError::TooLarge { bytes, .. }) if bytes == 17 * 1024 * 1024),
+        "{result:?}"
+    );
 }
 
 #[tokio::test]

@@ -448,6 +448,28 @@ pub struct ToolResult {
     /// The files that a file tool changed and what it changed in each, in the order
     /// it changed them; empty for other tools and for a call that changed nothing.
     pub written: Vec<WrittenFile>,
+    /// The image files that the call read, which the model sees as images: the file of
+    /// a `read_file` call on a PNG, JPEG, GIF or WebP image. Empty for other calls.
+    pub media: Vec<ToolMedia>,
+}
+
+/// An image file that a call read, with its bytes, for the daemon's intake of an
+/// attachment. `Debug` shows only the length of the bytes.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ToolMedia {
+    /// The file, absolute.
+    pub path: PathBuf,
+    /// Its bytes, at most the read limit of the tool.
+    pub bytes: Vec<u8>,
+}
+
+impl fmt::Debug for ToolMedia {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToolMedia")
+            .field("path", &self.path)
+            .field("bytes", &CommandLength(self.bytes.len()))
+            .finish()
+    }
 }
 
 /// A file that a file tool changed, and what it changed in it.
@@ -495,6 +517,7 @@ impl ToolResult {
             shell_tainted: false,
             left_running: false,
             written: Vec::new(),
+            media: Vec::new(),
         }
     }
 
@@ -557,6 +580,13 @@ impl ToolResult {
     #[must_use]
     pub fn with_written(mut self, written: Vec<WrittenFile>) -> Self {
         self.written = written;
+        self
+    }
+
+    /// Sets the image files that the call read.
+    #[must_use]
+    pub fn with_media(mut self, media: Vec<ToolMedia>) -> Self {
+        self.media = media;
         self
     }
 }
