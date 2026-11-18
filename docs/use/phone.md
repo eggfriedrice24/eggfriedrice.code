@@ -352,17 +352,22 @@ seconds left. When nobody answers in time, the card says "expired". The call did
 run. When a question closes while its sheet is open, the sheet tells how it ended and
 how many more wait, and Next shows the next one.
 
-When another conversation waits for an answer, a strip under the bar tells you. Tap it
-to open that conversation at the question. When two or more wait, the strip opens the
-sheet with them on top. A yolk dot on the title of the bar tells you too. efrd sends
+When another conversation waits for you, a strip under the bar tells you what it waits
+for: "Approval waiting", "Question waiting" (a question of the model) or "Answer in the
+terminal" (a wait that only your computer can answer, such as a password). Tap it to
+open that conversation at the question. When two or more wait, the strip says "2
+approvals waiting", "2 questions waiting" or, for a mix, "3 conversations need you",
+and opens the sheet with them on top. A yolk dot on the title of the bar tells you too. efrd sends
 each change of its list of conversations to the app, so the strip and the dot show a
 new question at once. With an older efrd, the app asks every 10 seconds, so they can
 come up to 10 seconds late.
 
 ### Answer a question of the model
 
-The model can ask you a question with 2 to 4 options. The strip in the composer then
-shows the yolk dot, the question and "Answer". When an approval waits too, the older
+The model can ask you a question with 2 to 4 options. While the app shows the
+conversation, the question waits for your answer, as an approval does. The strip in the
+composer shows the yolk dot, the question and "Answer", and VoiceOver says "Question"
+and the question. When an approval waits too, the older
 of the two goes first, and "1 of 2" counts both. Tap the strip: the native action
 sheet opens, with the question as its title, each option with its description, then
 "Type an answer", "Skip" and Cancel.
@@ -372,9 +377,11 @@ sheet opens, with the question as its title, each option with its description, t
   <question>` with an xmark stands where the strip was, the field says "Your answer",
   and the hint `Do not type a password or a token here.` stands under it. Send sends
   the answer (VoiceOver reads "Send the answer"). Line breaks become spaces. An answer
-  has at most 1024 bytes; past that, Send is dimmed. The xmark leaves the answer field,
-  and your text stays as a draft message. When the question ends elsewhere, the field
-  goes back by itself.
+  has at most 1024 bytes; past that, Send is dimmed. The text stays in the field until
+  efrd takes the answer; when the answer does not arrive, the row says "not sent". The
+  xmark leaves the answer field, and your text stays as a draft message. When the
+  question ends elsewhere, the field goes back by itself, and the text of the answer
+  goes: it never becomes a message.
 - "Skip" skips the question. Cancel closes the sheet, and the question stays open.
 
 The row of the question in the conversation says "waiting for you" (a tap opens the
@@ -483,10 +490,6 @@ Limits of this version:
 
 - iPhone only. No Android, no iPad layout.
 - No push notifications. A question waits until you open the app.
-- The app does not yet tell efrd that it can answer the model's question. So a
-  question that only the phone follows ends after `presence.away_wait_secs` (300 s),
-  and you can answer it only in that time. The strip for another conversation counts
-  only approvals and says "Approval waiting".
 - No attachments, such as images.
 - No terminal view of the hidden shell.
 - A dark theme only.

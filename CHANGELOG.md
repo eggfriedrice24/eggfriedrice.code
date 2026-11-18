@@ -43,7 +43,9 @@ into the GitHub release notes, and it stops when the section is missing.
   "needs approval", "needs an answer", "answer in the terminal", "running" and
   "failed". The sheet shows a banner when a machine is offline, with the age of the
   rows that the phone keeps, such as `homelab offline · rows from 2h ago`, and its
-  times move once a minute.
+  times move once a minute. The strip of the phone for another conversation says what
+  it waits for: "Approval waiting", "Question waiting", "Answer in the terminal", or a
+  count such as "3 conversations need you".
 
 ### Changed
 

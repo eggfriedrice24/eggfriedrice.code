@@ -621,6 +621,20 @@ one shared minute timer for every reader. These checks need the iPhone:
 53. The 0.0.11 app from TestFlight against an efrd of 0.0.12: the lists load, and a
     conversation with a waiting question of the model opens with no error, and its
     row says "running".
+54. With only the phone on a conversation (no terminal follows it), a question of the
+    model still waits after 6 minutes, and the phone answers it.
+55. C-Waiting 0.0.12: with a question of the model in another conversation, the strip
+    under the bar says "Question waiting · <machine> · <title>" and the title has the
+    yolk dot; a password wait says "Answer in the terminal"; an approval and a
+    question say "2 conversations need you". VoiceOver reads the title with the same
+    words.
+56. VoiceOver says "Question." and the question when a question of the model comes,
+    and reads an ended question row with no "dimmed".
+57. Type an answer, then let the question end in the terminal: the field shows the
+    message draft again, and the typed answer is gone. Turn on flight mode and send an
+    answer: the row says "not sent", and the text stays in the field.
+58. Open the conversations sheet right after a cold start and after a return from the
+    background: no offline banner flashes while a machine only connects.
 
 ## Rules of the app
 
