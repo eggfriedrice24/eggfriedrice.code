@@ -4,47 +4,27 @@
 // reads it here, never `Date.now()` in render, so a render stays pure and the words
 // change once a minute.
 //
-// All readers share one timer: the first reader starts it and the last one stops it, as
-// the second clock of the transcript does (`features/conversation/components/use-now.ts`).
-// So a screen needs no effect for its times.
+// All readers share one timer (`lib/store/ticker.ts`), as the second clock of the
+// transcript does. So a screen needs no effect for its times.
 
 import { useSyncExternalStore } from "react";
 
+import { createTicker } from "@/lib/store/ticker";
+
 /** How often the minute is checked. */
-export const TICK_MS = 15_000;
+const TICK_MS = 15_000;
 
 const MINUTE_MS = 60_000;
 
-const listeners = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | undefined;
+/**
+ * The timer of the minute clock. Each reader hears every tick and reads its own clock
+ * again; React renders it only when its minute changed.
+ */
+const minuteTicker = createTicker(TICK_MS);
 
 /** `ms` rounded down to the minute. */
 export function minuteOf(ms: number): number {
   return Math.floor(ms / MINUTE_MS) * MINUTE_MS;
-}
-
-function tick(): void {
-  for (const listener of listeners) {
-    listener();
-  }
-}
-
-/**
- * Adds a reader of the minute clock. Each reader hears every tick and reads its own
- * clock again; React renders it only when its minute changed.
- */
-export function subscribeMinute(listener: () => void): () => void {
-  listeners.add(listener);
-  if (timer === undefined) {
-    timer = setInterval(tick, TICK_MS);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0 && timer !== undefined) {
-      clearInterval(timer);
-      timer = undefined;
-    }
-  };
 }
 
 /**
@@ -52,7 +32,7 @@ export function subscribeMinute(listener: () => void): () => void {
  * a test gives a fake one.
  */
 export function useNow(clock: () => number = Date.now): number {
-  return useSyncExternalStore(subscribeMinute, () => minuteOf(clock()));
+  return useSyncExternalStore(minuteTicker.subscribe, () => minuteOf(clock()));
 }
 
 /**
