@@ -11,6 +11,7 @@ import { Stack, useRouter } from "expo-router";
 
 import type { Machine } from "@/features/machines/model/machine";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
+import { showsApprovalDot, waitingWords } from "@/features/conversations/model/waiting";
 import { conversationsSheetHref } from "../model/routes";
 import { titleLabel } from "../model/title-label";
 import { useApprovalsElsewhere } from "../use-approvals-elsewhere";
@@ -30,12 +31,6 @@ export function HeaderTitle(props: HeaderTitleProps) {
   const { machine, current } = props;
   const elsewhere = useApprovalsElsewhere(current);
   const router = useRouter();
-  let waiting = 0;
-  if (elsewhere.kind === "one") {
-    waiting = 1;
-  } else if (elsewhere.kind === "many") {
-    waiting = elsewhere.count;
-  }
   return (
     <>
       <Stack.Screen options={{ title: props.title }} />
@@ -43,8 +38,8 @@ export function HeaderTitle(props: HeaderTitleProps) {
         <TitleButton
           title={props.title}
           mono={current === undefined}
-          dot={waiting > 0}
-          label={titleLabel(props.title, waiting)}
+          dot={showsApprovalDot(elsewhere)}
+          label={titleLabel(props.title, waitingWords(elsewhere))}
           onPress={() => router.push(conversationsSheetHref(machine.id))}
         />
       </Stack.Title>

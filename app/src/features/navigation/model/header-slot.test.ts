@@ -39,6 +39,31 @@ function input(overrides: Partial<SlotInput> = {}): SlotInput {
   };
 }
 
+/** The slot while one conversation elsewhere waits in `state`. */
+function one(state: "answer" | "terminal") {
+  return slotContent(
+    input({
+      elsewhere: { kind: "one", conversation: { machine: DESKTOP, id: "a", title: "x", state } },
+    }),
+  );
+}
+
+/** The slot while an approval and a wait in `second` wait elsewhere. */
+function many(second: "approval" | "answer" | "terminal") {
+  return slotContent(
+    input({
+      elsewhere: {
+        kind: "many",
+        count: 2,
+        conversations: [
+          { machine: DESKTOP, id: "a", state: "approval" },
+          { machine: LAPTOP, id: "b", state: second },
+        ],
+      },
+    }),
+  );
+}
+
 describe("slotContent", () => {
   it("is empty while the machine is connected and nothing waits", () => {
     expect(slotContent(input())).toEqual({ kind: "none" });
@@ -49,12 +74,13 @@ describe("slotContent", () => {
       input({
         elsewhere: {
           kind: "one",
-          conversation: { machine: DESKTOP, id: "a", title: "Fix steer race" },
+          conversation: { machine: DESKTOP, id: "a", title: "Fix steer race", state: "approval" },
         },
       }),
     );
     expect(content).toEqual({
       kind: "approval",
+      word: "Approval waiting",
       conversation: { machine: DESKTOP, id: "a" },
       machineName: "desktop",
       title: "Fix steer race",
@@ -62,27 +88,29 @@ describe("slotContent", () => {
     expect(slotLabel(content)).toBe("Approval waiting, desktop, Fix steer race");
   });
 
+  it("names the wait of one conversation in the words of the board", () => {
+    expect(one("answer")).toMatchObject({ kind: "approval", word: "Question waiting" });
+    expect(slotLabel(one("answer"))).toBe("Question waiting, desktop, x");
+    expect(one("terminal")).toMatchObject({ kind: "approval", word: "Answer in the terminal" });
+  });
+
   it("names a conversation without a title Untitled", () => {
     const content = slotContent(
-      input({ elsewhere: { kind: "one", conversation: { machine: DESKTOP, id: "a" } } }),
+      input({
+        elsewhere: { kind: "one", conversation: { machine: DESKTOP, id: "a", state: "approval" } },
+      }),
     );
     expect(content).toMatchObject({ kind: "approval", title: "Untitled" });
   });
 
-  it("counts two or more approvals", () => {
-    const content = slotContent(
-      input({
-        elsewhere: {
-          kind: "many",
-          count: 2,
-          conversations: [
-            { machine: DESKTOP, id: "a" },
-            { machine: LAPTOP, id: "b" },
-          ],
-        },
-      }),
-    );
-    expect(content).toEqual({ kind: "approvals", count: 2, text: "2 approvals waiting" });
+  it("counts two or more waits, with a mixed count as conversations that need you", () => {
+    expect(many("approval")).toEqual({ kind: "approvals", count: 2, text: "2 approvals waiting" });
+    expect(many("answer")).toEqual({
+      kind: "approvals",
+      count: 2,
+      text: "2 conversations need you",
+    });
+    expect(slotLabel(many("terminal"))).toBe("2 conversations need you");
   });
 
   it("shows the offline line when the machine does not answer", () => {
@@ -106,7 +134,10 @@ describe("slotContent", () => {
   it("gives the slot to an approval over the offline line", () => {
     const content = slotContent(
       input({
-        elsewhere: { kind: "one", conversation: { machine: DESKTOP, id: "a", title: "x" } },
+        elsewhere: {
+          kind: "one",
+          conversation: { machine: DESKTOP, id: "a", title: "x", state: "approval" },
+        },
         machine: {
           name: "laptop",
           connection: connection({ kind: "unreachable", endpoint: ENDPOINT }),

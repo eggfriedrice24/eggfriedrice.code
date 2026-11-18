@@ -243,7 +243,7 @@ describe("the services and the screens outside the stream", () => {
     socket.receive({ id, item: { kind: "changed", conversation: row("awaiting_approval") } });
     expect(approvalsElsewhere({ current: undefined, live: [], listed: listed() })).toEqual({
       kind: "one",
-      conversation: { machine: DESKTOP, id: CONVERSATION, title: "Fan" },
+      conversation: { machine: DESKTOP, id: CONVERSATION, title: "Fan", state: "approval" },
     });
 
     // In the background the watch stops; back in the foreground the app watches again.

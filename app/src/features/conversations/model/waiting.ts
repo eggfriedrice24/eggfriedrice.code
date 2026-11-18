@@ -1,6 +1,7 @@
-// Approvals elsewhere: the conversations other than the one on screen that wait for an
-// answer (plan section 2.2, design-spec section 2). They feed the yolk dot on the title
-// chevron and the strip under the header. Pure.
+// Approvals elsewhere: the conversations other than the one on screen that wait for the
+// user (plan section 2.2, design-spec section 2): an approval, a question of the model or
+// a wait that only the terminal can answer (C-Waiting 0.0.12). They feed the yolk dot on
+// the title chevron and the strip under the header. Pure.
 //
 // Two sources join:
 //
@@ -13,6 +14,7 @@
 // The conversation on screen never counts: its approval is in its transcript.
 
 import type { ConversationAddress } from "@/lib/query/keys";
+import { rowState, waitsForUser, type WaitState } from "@/lib/protocol/status";
 import { newestFirst, sameConversation, type ConversationItem } from "./conversation-item";
 
 /** A conversation in the stack, as its stream sees it now. */
@@ -22,19 +24,24 @@ export interface LiveConversation {
   readonly title?: string;
   /** The approvals of the stream that wait for an answer. */
   readonly pendingApprovals: number;
+  /** The questions of the model in the stream that wait for an answer. */
+  readonly pendingQuestions?: number;
 }
 
-/** One conversation that waits for an answer. */
+/** One conversation that waits for the user, and what it waits for. */
 export interface WaitingConversation {
   readonly machine: string;
   readonly id: string;
   readonly title?: string;
+  readonly state: WaitState;
 }
 
 /**
- * What the strip shows. `one`: "Approval waiting · machine · title", and a tap opens
- * that conversation at its approval. `many`: "N approvals waiting", and a tap opens the
- * sheet with its Needs you section on top. `count` counts conversations.
+ * What the strip shows (C-Waiting 0.0.12). `one`: the word of its wait, such as
+ * "Question waiting · machine · title", and a tap opens that conversation at its wait.
+ * `many`: "N approvals waiting", "N questions waiting" or "N conversations need you",
+ * and a tap opens the sheet with its Needs you section on top. `count` counts
+ * conversations.
  */
 export type ApprovalsElsewhere =
   | { readonly kind: "none" }
@@ -55,14 +62,14 @@ export interface WaitingInput {
   readonly listed: readonly ConversationItem[];
 }
 
-function waitingOf(item: {
-  readonly machine: string;
-  readonly id: string;
-  readonly title?: string;
-}) {
-  const waiting: { machine: string; id: string; title?: string } = {
+function waitingOf(
+  item: { readonly machine: string; readonly id: string; readonly title?: string },
+  state: WaitState,
+) {
+  const waiting: { machine: string; id: string; title?: string; state: WaitState } = {
     machine: item.machine,
     id: item.id,
+    state,
   };
   if (item.title !== undefined) {
     waiting.title = item.title;
@@ -70,7 +77,25 @@ function waitingOf(item: {
   return waiting;
 }
 
-/** The approvals elsewhere: newest first by the lists, then the live ones they lack. */
+/** The wait of a live stream: an approval first, then a question of the model. */
+function liveWait(stream: LiveConversation): WaitState | undefined {
+  if (stream.pendingApprovals > 0) {
+    return "approval";
+  }
+  return (stream.pendingQuestions ?? 0) > 0 ? "answer" : undefined;
+}
+
+/**
+ * The wait of a listed conversation, by the row state of the sheet. The phone answers a
+ * question of the model on each machine (see the conversations sheet), so a question
+ * reads as one that the phone can answer.
+ */
+function listedWait(item: ConversationItem): WaitState | undefined {
+  const state = rowState(item.status, item.attention, true);
+  return waitsForUser(state) ? state : undefined;
+}
+
+/** The waits elsewhere: newest first by the lists, then the live ones they lack. */
 export function approvalsElsewhere(input: WaitingInput): ApprovalsElsewhere {
   const isCurrent = (ref: ConversationAddress): boolean =>
     input.current !== undefined && sameConversation(ref, input.current);
@@ -83,18 +108,18 @@ export function approvalsElsewhere(input: WaitingInput): ApprovalsElsewhere {
   for (const item of [...input.listed].sort(newestFirst)) {
     const key = `${item.machine}:${item.id}`;
     const stream = live.get(key);
-    const waits =
-      stream === undefined ? item.status === "awaiting_approval" : stream.pendingApprovals > 0;
-    if (waits && !seen.has(key) && !isCurrent(item)) {
+    const state = stream === undefined ? listedWait(item) : liveWait(stream);
+    if (state !== undefined && !seen.has(key) && !isCurrent(item)) {
       seen.add(key);
-      found.push(waitingOf(stream?.title === undefined ? item : stream));
+      found.push(waitingOf(stream?.title === undefined ? item : stream, state));
     }
   }
   for (const stream of input.live) {
     const key = `${stream.machine}:${stream.id}`;
-    if (stream.pendingApprovals > 0 && !seen.has(key) && !isCurrent(stream)) {
+    const state = liveWait(stream);
+    if (state !== undefined && !seen.has(key) && !isCurrent(stream)) {
       seen.add(key);
-      found.push(waitingOf(stream));
+      found.push(waitingOf(stream, state));
     }
   }
   const first = found[0];
@@ -112,7 +137,45 @@ export function showsApprovalDot(elsewhere: ApprovalsElsewhere): boolean {
   return elsewhere.kind !== "none";
 }
 
-/** The text of the plural strip: `2 approvals waiting`. */
-export function manyApprovalsText(count: number): string {
-  return `${count} approvals waiting`;
+/** The word of the strip for one conversation that waits in `state`. */
+export function waitWord(state: WaitState): string {
+  switch (state) {
+    case "approval":
+      return "Approval waiting";
+    case "answer":
+      return "Question waiting";
+    default:
+      return "Answer in the terminal";
+  }
+}
+
+/**
+ * The text of the plural strip: `2 approvals waiting` or `2 questions waiting` when all
+ * the waits are of one kind, else `3 conversations need you`. A wait that only the
+ * terminal can answer counts as mixed, so a password wait never reads as an approval.
+ */
+export function manyWaitingText(conversations: readonly WaitingConversation[]): string {
+  const count = conversations.length;
+  if (conversations.every((conversation) => conversation.state === "approval")) {
+    return `${count} approvals waiting`;
+  }
+  if (conversations.every((conversation) => conversation.state === "answer")) {
+    return `${count} questions waiting`;
+  }
+  return `${count} conversations need you`;
+}
+
+/**
+ * The words of the waits elsewhere for VoiceOver, after the title of the bar, such as
+ * "question waiting" or "3 conversations need you"; undefined when none waits.
+ */
+export function waitingWords(elsewhere: ApprovalsElsewhere): string | undefined {
+  switch (elsewhere.kind) {
+    case "one":
+      return waitWord(elsewhere.conversation.state).toLowerCase();
+    case "many":
+      return manyWaitingText(elsewhere.conversations);
+    default:
+      return undefined;
+  }
 }

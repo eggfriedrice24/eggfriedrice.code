@@ -58,7 +58,7 @@ export function HeaderStrip(props: HeaderStripProps) {
           <Dot size="small" />
           {content.kind === "approval" ? (
             <MonoText numberOfLines={1} tone="text_muted" className="flex-1">
-              <MonoText tone="accent_primary">Approval waiting</MonoText>
+              <MonoText tone="accent_primary">{content.word}</MonoText>
               {" · "}
               <MonoText tone="text_primary">{content.machineName}</MonoText>
               {" · "}

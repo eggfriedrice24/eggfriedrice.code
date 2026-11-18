@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { item } from "./testing";
-import { approvalsElsewhere, manyApprovalsText, showsApprovalDot } from "./waiting";
+import {
+  approvalsElsewhere,
+  manyWaitingText,
+  showsApprovalDot,
+  waitingWords,
+  waitWord,
+} from "./waiting";
+
+/** A conversation `id` that waits in `state`. */
+function wait(id: string, state: "approval" | "answer" | "terminal") {
+  return { machine: "d", id, state };
+}
 
 describe("approvalsElsewhere", () => {
   it("is none when nothing waits", () => {
@@ -25,7 +36,7 @@ describe("approvalsElsewhere", () => {
     });
     expect(result).toEqual({
       kind: "one",
-      conversation: { machine: "l", id: "steer", title: "Fix steer race" },
+      conversation: { machine: "l", id: "steer", title: "Fix steer race", state: "approval" },
     });
     expect(showsApprovalDot(result)).toBe(true);
   });
@@ -62,7 +73,7 @@ describe("approvalsElsewhere", () => {
     });
     expect(asked).toEqual({
       kind: "one",
-      conversation: { machine: "d", id: "a", title: "Live title" },
+      conversation: { machine: "d", id: "a", title: "Live title", state: "approval" },
     });
   });
 
@@ -83,11 +94,71 @@ describe("approvalsElsewhere", () => {
       kind: "many",
       count: 3,
       conversations: [
-        { machine: "l", id: "new" },
-        { machine: "d", id: "old" },
-        { machine: "d", id: "stacked" },
+        { machine: "l", id: "new", state: "approval" },
+        { machine: "d", id: "old", state: "approval" },
+        { machine: "d", id: "stacked", state: "approval" },
       ],
     });
-    expect(manyApprovalsText(3)).toBe("3 approvals waiting");
+    expect(waitingWords(result)).toBe("3 approvals waiting");
+  });
+
+  it("counts a question of the model and a wait for the terminal, with their words", () => {
+    const listed = [
+      item("d", "ask", 3, { status: "running", attention: "answer" }),
+      item("d", "pw", 2, { status: "running", attention: "terminal" }),
+      item("l", "local", 1, { status: "awaiting_approval", attention: "terminal" }),
+      item("l", "ran", 4, { status: "running" }),
+      item("l", "failed", 5, { status: "idle", attention: "failed" }),
+    ];
+    const one = (state: "answer" | "terminal") =>
+      approvalsElsewhere({
+        current: undefined,
+        live: [],
+        listed: listed.filter((row) => row.attention === state),
+      });
+    const question = one("answer");
+    expect(question).toEqual({
+      kind: "one",
+      conversation: { machine: "d", id: "ask", state: "answer" },
+    });
+    expect(waitWord("answer")).toBe("Question waiting");
+    expect(waitingWords(question)).toBe("question waiting");
+    const terminal = approvalsElsewhere({
+      current: undefined,
+      live: [],
+      listed: listed.slice(1, 2),
+    });
+    expect(waitingWords(terminal)).toBe("answer in the terminal");
+    expect(one("terminal")).toMatchObject({ kind: "many", count: 2 });
+
+    const all = approvalsElsewhere({ current: undefined, live: [], listed });
+    expect(all).toMatchObject({ kind: "many", count: 3 });
+    expect(waitingWords(all)).toBe("3 conversations need you");
+  });
+
+  it("gives the text of a count of one kind and of a mixed count", () => {
+    expect(manyWaitingText([wait("a", "approval"), wait("b", "approval")])).toBe(
+      "2 approvals waiting",
+    );
+    expect(manyWaitingText([wait("a", "answer"), wait("b", "answer")])).toBe("2 questions waiting");
+    expect(manyWaitingText([wait("a", "approval"), wait("b", "answer")])).toBe(
+      "2 conversations need you",
+    );
+    // A wait for the terminal counts as mixed: a password wait is no approval.
+    expect(manyWaitingText([wait("a", "terminal"), wait("b", "terminal")])).toBe(
+      "2 conversations need you",
+    );
+  });
+
+  it("counts a live question when no approval waits in the stream", () => {
+    const result = approvalsElsewhere({
+      current: undefined,
+      live: [{ machine: "d", id: "a", pendingApprovals: 0, pendingQuestions: 1 }],
+      listed: [],
+    });
+    expect(result).toEqual({
+      kind: "one",
+      conversation: { machine: "d", id: "a", state: "answer" },
+    });
   });
 });

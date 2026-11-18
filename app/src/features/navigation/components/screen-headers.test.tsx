@@ -185,7 +185,7 @@ describe("the header of the blank root", () => {
     });
     expect(screen.getByTestId("title-dot")).toBeOnTheScreen();
     expect(screen.getByTestId("title-button").props.accessibilityLabel).toBe(
-      "desktop, all conversations, 1 approval waiting",
+      "desktop, all conversations, approval waiting",
     );
   });
 

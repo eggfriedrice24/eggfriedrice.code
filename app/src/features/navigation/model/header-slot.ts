@@ -1,10 +1,11 @@
 // What the 34 pt slot under the header of a conversation shows (design section 2, items
 // 8.6 and 8.19, plan section 2.5). Pure.
 //
-// - One approval in another conversation: "Approval waiting · machine · title", and a tap
-//   opens that conversation at its approval.
-// - Two or more: "2 approvals waiting", and a tap opens the sheet with its Needs you
-//   section on top (iOS cannot open a menu from code).
+// - One wait in another conversation: "Approval waiting · machine · title" (or "Question
+//   waiting", "Answer in the terminal"), and a tap opens that conversation at its wait.
+// - Two or more: "2 approvals waiting", "2 questions waiting" or "3 conversations need
+//   you", and a tap opens the sheet with its Needs you section on top (iOS cannot open a
+//   menu from code).
 // - Else, when the machine of the screen has no connection: the offline line, such as
 //   "laptop offline · seen 13:58 · retrying". It is quiet and takes no tap.
 // - An approval strip wins the slot over the offline line.
@@ -18,13 +19,19 @@ import { machineStateWords, type ZoneOffset } from "@/features/machines/model/ma
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef, MachineId } from "@/features/machines/model/machine-ref";
 import { rowTitle } from "@/features/conversations/model/list-format";
-import { manyApprovalsText, type ApprovalsElsewhere } from "@/features/conversations/model/waiting";
+import {
+  manyWaitingText,
+  waitWord,
+  type ApprovalsElsewhere,
+} from "@/features/conversations/model/waiting";
 
 /** What the slot shows. */
 export type SlotContent =
   | { readonly kind: "none" }
   | {
       readonly kind: "approval";
+      /** What the conversation waits for: "Approval waiting", "Question waiting", ... */
+      readonly word: string;
       readonly conversation: ConversationRef;
       readonly machineName: string;
       readonly title: string;
@@ -61,16 +68,18 @@ export interface SlotInput {
 export function slotContent(input: SlotInput): SlotContent {
   const { elsewhere } = input;
   if (elsewhere.kind === "one") {
-    const { machine, id, title } = elsewhere.conversation;
+    const { machine, id, title, state } = elsewhere.conversation;
     return {
       kind: "approval",
+      word: waitWord(state),
       conversation: { machine, id },
       machineName: input.machineName(machine),
       title: rowTitle(title),
     };
   }
   if (elsewhere.kind === "many") {
-    return { kind: "approvals", count: elsewhere.count, text: manyApprovalsText(elsewhere.count) };
+    const text = manyWaitingText(elsewhere.conversations);
+    return { kind: "approvals", count: elsewhere.count, text };
   }
   const machine = input.machine;
   if (machine?.connection === undefined || !machine.graceOver) {
@@ -123,7 +132,7 @@ export function offlineFrom(connection: MachineConnection | undefined): number |
 export function slotLabel(content: SlotContent): string | undefined {
   switch (content.kind) {
     case "approval":
-      return `Approval waiting, ${content.machineName}, ${content.title}`;
+      return `${content.word}, ${content.machineName}, ${content.title}`;
     case "approvals":
       return content.text;
     case "offline":
