@@ -274,8 +274,9 @@ impl WriterHandle {
     }
 
     /// Sets the push token of the device `device_id` to `token`, or deletes it for
-    /// `None` ([`device_push::set`]); false, with no change, for a device that is
-    /// unknown or revoked.
+    /// `None`; false, with no change, for a device that is unknown or revoked. Fails
+    /// with [`StoreError::DeviceFieldInvalid`] for a token that is not an Expo push
+    /// token.
     pub async fn device_push_set(
         &self,
         device_id: DeviceId,
