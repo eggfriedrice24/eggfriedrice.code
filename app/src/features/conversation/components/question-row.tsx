@@ -3,7 +3,8 @@
 //
 // - Waiting: the yolk dot, a border_accent edge, the question in text_primary, and
 //   "waiting for you" (or "sending…") in accent_primary. A tap opens the action sheet,
-//   as a tap on the strip does.
+//   as a tap on the strip does. Offline, or while its answer is in flight, it takes no
+//   tap, as the strip does.
 // - After its end: questionmark.circle in text_subtle, the question and the end, such as
 //   "answered · Postgres 16" or "nobody answered", in text_muted.
 
@@ -40,7 +41,7 @@ export function QuestionRowView(props: QuestionRowViewProps) {
     >
       <Pressable
         accessibilityRole={tappable ? "button" : "text"}
-        accessibilityLabel={`${row.question} ${row.state}.`}
+        accessibilityLabel={`${row.question}, ${row.state}.`}
         accessibilityHint={tappable ? "Opens the choices." : undefined}
         // NOTE: no `disabled`: VoiceOver reads a disabled view as "dimmed", and a row
         // that tells a past answer is no control. With no `onPress` it takes no tap.

@@ -61,7 +61,7 @@ import type { TranscriptActions, TranscriptScope } from "../components/use-trans
 import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversation-queries";
 import { composerDraftKey, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
-import { questionLine } from "../model/question";
+import { canAnswer, questionLine } from "../model/question";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
 import { selectWaitingQuestion } from "../model/selectors";
 import { sendPrompt } from "../model/send-prompt";
@@ -168,7 +168,8 @@ function ConversationView(props: ConversationViewProps) {
     setTyping(question.questionId);
   });
   const answered = useSelector(held.store, selectWaitingQuestion(typing));
-  const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
+  // Only `mutate` is stable: the whole result of useMutation is new on each render.
+  const { mutate: withdraw } = useMutation(withdrawPromptMutationOptions(runtime, ref));
   const models = useQuery(modelsQueryOptions(runtime, machine)).data;
   const router = useRouter();
   // The sheet opens only from a tap on the strip or on the waiting card (round 8).
@@ -198,7 +199,7 @@ function ConversationView(props: ConversationViewProps) {
     router.push(modelSheetHref(sheet));
   };
   const actions: TranscriptActions = {
-    withdraw: (turnId) => withdraw.mutate({ commandId: newCommandId(), turnId }),
+    withdraw: (turnId) => withdraw({ commandId: newCommandId(), turnId }),
     // Decision D8: efrd has no retry of a turn, so the prompt goes again as a new one,
     // by the rule of a send: the model that the sheet chose since, and the mode now.
     retry: (_turnId, text) => {
@@ -218,7 +219,11 @@ function ConversationView(props: ConversationViewProps) {
     machineName,
     actions,
     choice: { store: modelChoices.store, key: composerDraftKey(target) },
-    questions: answers,
+    questions: {
+      open: answers.open,
+      sending: answers.sending,
+      enabled: (questionId) => canAnswer(connected, answers.sending === questionId),
+    },
   };
   if (models !== undefined) {
     scope.catalog = { models: models.models, catalogs: models.catalogs ?? [] };

@@ -80,10 +80,15 @@ export function ToolRow(props: ToolRowProps) {
   const question = call.question;
   if (question !== undefined) {
     const questions = scope.questions;
+    const questionId = question.questionId;
     return (
       <QuestionRowView
-        row={questionRow(question, scope.machineName, questions?.sending === question.questionId)}
-        onOpen={questions === undefined ? undefined : (anchor) => questions.open(question, anchor)}
+        row={questionRow(question, scope.machineName, questions?.sending === questionId)}
+        onOpen={
+          questions?.enabled(questionId) === true
+            ? (anchor) => questions.open(question, anchor)
+            : undefined
+        }
       />
     );
   }

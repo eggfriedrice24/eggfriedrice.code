@@ -26,8 +26,14 @@ import {
 import { useAnswerQuestion } from "../use-answer-question";
 import { ApprovalStrip } from "./approval-strip";
 import { QuestionRowView } from "./question-row";
+import { ToolRow } from "./tool-row";
+import { InScope, testScope } from "./transcript-testing";
+import type { ScopeQuestions } from "./use-transcript-scope";
 
 jest.mock("expo-crypto", () => ({ randomUUID: jest.fn() }));
+jest.mock("./fade-in", () => ({
+  FadeIn: (props: { children: unknown }) => props.children,
+}));
 jest.mock("@/components/ui/native/show-action-sheet", () => ({
   showActionSheet: jest.fn(() => Promise.resolve(undefined)),
 }));
@@ -172,8 +178,33 @@ describe("the row of a question (S-Ask 4)", () => {
     const onOpen = jest.fn<(anchor: unknown) => void>();
     const waiting = { question: "Which database?", state: "waiting for you", waiting: true };
     await render(<QuestionRowView row={waiting} onOpen={onOpen} />);
-    await fireEvent.press(screen.getByRole("button", { name: "Which database? waiting for you." }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Which database?, waiting for you." }),
+    );
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a tap only while the phone can answer, as the strip does", async () => {
+    const { scope } = testScope(streamOf(...ASKED).state);
+    const open = jest.fn<ScopeQuestions["open"]>();
+    const row = (enabled: boolean) => (
+      <InScope
+        scope={{ ...scope, questions: { open, sending: undefined, enabled: () => enabled } }}
+      >
+        <ToolRow rowKey="t1:k1" turnId="t1" callId="k1" />
+      </InScope>
+    );
+    // Offline, or with its answer in flight: the row waits but takes no tap.
+    const view = await render(row(false));
+    expect(screen.getByTestId("question-row")).toBeOnTheScreen();
+    expect(screen.queryByRole("button")).toBeNull();
+    await view.rerender(row(true));
+    await fireEvent.press(
+      screen.getByRole("button", {
+        name: "Which database should the tests use?, waiting for you.",
+      }),
+    );
+    expect(open).toHaveBeenCalledTimes(1);
   });
 
   it("takes no tap after its end", async () => {
@@ -182,7 +213,7 @@ describe("the row of a question (S-Ask 4)", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText("skipped")).toBeOnTheScreen();
     // A past answer is no control: VoiceOver reads no "dimmed".
-    const row = screen.getByLabelText("Which database? skipped.");
+    const row = screen.getByLabelText("Which database?, skipped.");
     expect(row.props.accessibilityState?.disabled).not.toBe(true);
   });
 });

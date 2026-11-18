@@ -67,6 +67,11 @@ export interface ScopeQuestions {
   readonly open: (question: UserQuestionView, anchor: HostInstance | null) => void;
   /** The question whose answer efrd has not taken yet. */
   readonly sending: string | undefined;
+  /**
+   * True while the phone can answer question `questionId` (`canAnswer`). Else the row
+   * takes no tap, as the strip does: offline, or with its answer in flight.
+   */
+  readonly enabled: (questionId: string) => boolean;
 }
 
 /** The context of the rows. Transcript gives it. */

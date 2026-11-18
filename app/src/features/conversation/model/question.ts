@@ -60,6 +60,14 @@ export interface QuestionStripModel {
   readonly enabled: boolean;
 }
 
+/**
+ * True while the phone can answer a question: it is online, and no answer of that
+ * question is in flight. The strip and the row of the call read the same rule.
+ */
+export function canAnswer(connected: boolean, sending: boolean): boolean {
+  return connected && !sending;
+}
+
 /** The strip of `question` at `queue`, or `undefined` when it does not wait. */
 export function questionStrip(
   question: UserQuestionView,
@@ -77,7 +85,7 @@ export function questionStrip(
     label: `Question: ${line}`,
     meta: metaOf(context.failed, undefined, queue, context.connected),
     sending: context.sending,
-    enabled: context.connected && !context.sending,
+    enabled: canAnswer(context.connected, context.sending),
   };
 }
 

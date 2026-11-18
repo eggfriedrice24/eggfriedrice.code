@@ -21,12 +21,12 @@ export interface AnswerQuestion {
    * Answers question `questionId` with `reply`. `onSuccess` runs once efrd took it, so a
    * typed answer stays in the field until then.
    */
-  answer(questionId: string, reply: QuestionReply, onSuccess?: () => void): void;
+  readonly answer: (questionId: string, reply: QuestionReply, onSuccess?: () => void) => void;
   /**
    * Opens the action sheet of `question` out of `anchor`: a pick of an option or Skip
    * answers at once, and "Type an answer" calls `onType` of the hook. Cancel does nothing.
    */
-  open(question: UserQuestionView, anchor: HostInstance | null): void;
+  readonly open: (question: UserQuestionView, anchor: HostInstance | null) => void;
   /** The question whose answer efrd has not taken yet. */
   readonly sending: string | undefined;
   /**
@@ -45,14 +45,18 @@ export function useAnswerQuestion(
   conversation: ConversationRef,
   onType: (question: UserQuestionView) => void,
 ): AnswerQuestion {
-  const mutation = useMutation(answerQuestionMutationOptions(caller, conversation));
-  const asked = mutation.variables?.questionId;
+  // The result of useMutation is new on each render, and only `mutate` is stable: a
+  // closure over the whole result would make the answers new on each render too.
+  const { mutate, isPending, isError, variables } = useMutation(
+    answerQuestionMutationOptions(caller, conversation),
+  );
+  const asked = variables?.questionId;
   const answer = (questionId: string, reply: QuestionReply, onSuccess?: () => void): void => {
-    const variables = { questionId, answer: reply, commandId: newCommandId() };
+    const input = { questionId, answer: reply, commandId: newCommandId() };
     if (onSuccess === undefined) {
-      mutation.mutate(variables);
+      mutate(input);
     } else {
-      mutation.mutate(variables, { onSuccess });
+      mutate(input, { onSuccess });
     }
   };
   const ask = async (question: UserQuestionView, anchor: HostInstance | null): Promise<void> => {
@@ -65,10 +69,10 @@ export function useAnswerQuestion(
   };
   return {
     answer,
-    open(question: UserQuestionView, anchor: HostInstance | null): void {
+    open: (question, anchor) => {
       void ask(question, anchor).catch(() => undefined);
     },
-    sending: mutation.isPending ? asked : undefined,
-    failed: mutation.isError ? asked : undefined,
+    sending: isPending ? asked : undefined,
+    failed: isError ? asked : undefined,
   };
 }
