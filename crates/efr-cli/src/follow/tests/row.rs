@@ -9,9 +9,10 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationHistoryResult, ErrorBody,
     ErrorCode, Event, InputRespondResult, InputWait, JobId, JobState, JobStopBy, JobsListResult,
     JobsStopResult, LateSteer, Method, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, RecentCommand, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
-    WithdrawnPrompt, WithdrawnSteer,
+    PromptWithdrawResult, QuestionId, QuestionOption, QuestionReply, QuestionRespondResult,
+    RecentCommand, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
 use efr_test_support::{TestClock, Wait};
@@ -889,6 +890,48 @@ async fn keys_typed_before_a_question_go_to_the_row_and_never_answer_it() {
     .await;
     result.unwrap();
     assert_eq!(setup.handed_back().as_deref(), Some("draft no!"));
+}
+
+/// The same rule for the model's question: a digit typed before its card goes to the
+/// row as text and never picks an option.
+#[tokio::test]
+async fn a_digit_typed_before_the_model_s_question_never_answers_it() {
+    let mut setup = Setup::new();
+    setup.keys = Arc::new(ScriptedKeys::threaded());
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let question_id: QuestionId = "019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap();
+    let option = |label: &str| QuestionOption { label: label.to_owned(), description: None };
+    let asked = Event::UserQuestionRequested {
+        turn_id: turn(),
+        call_id: call(),
+        question_id,
+        question: "Which database?".to_owned(),
+        options: vec![option("Postgres"), option("SQLite")],
+    };
+    let (result, _, _) = Box::pin(run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "draft").await;
+        conn.item(sub, &item(11, asked)).await;
+        shows(&seen, "t type an answer").await;
+        // Typed before the question appeared: the row's.
+        keys.type_bytes(b" 2\r").await;
+        keys.marked().await;
+        keys.press(b'1').await;
+        let (id, method) = conn.request().await;
+        let Method::QuestionRespond(params) = method else {
+            panic!("expected question.respond, got {}", method.name());
+        };
+        assert_eq!(params.question_id, question_id);
+        assert_eq!(params.answer, QuestionReply::Option { index: 0 }, "the digit typed later");
+        conn.reply(id, &QuestionRespondResult { seq: Seq::new(12) }).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    }))
+    .await;
+    result.unwrap();
+    assert_eq!(setup.handed_back().as_deref(), Some("draft 2"));
 }
 
 /// The review finding: a question that came in the middle of a paste took the rest of
