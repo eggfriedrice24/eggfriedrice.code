@@ -23,9 +23,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `$SCRATCH/attachments`, which a contained call can read but not write.
   `[attachments]` sets the limits.
 - Attach files to a prompt with `@path` in a `,` line, such as `, why is the header cut
-  off in @docs/shot.png`. A row at the start of the turn names each file with its kind
-  and its size, and its name links to the copy of the file; `efr history` shows the row
-  too. A row tells you when efr stops to send a file as content. A prompt that names a
+  off in @docs/shot.png`. zsh shows an `@path` that names a file in the accent colour,
+  and Tab after `@` completes a file name. A row at the start of the turn names each
+  file with its kind and its size, and its name links to the copy of the file; `efr
+  history` shows the row too. A row tells you when efr stops to send a file as content. A prompt that names a
   file that cannot attach does not go, and a note tells you why.
 
 ### Changed

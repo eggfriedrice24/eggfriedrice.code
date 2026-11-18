@@ -1,8 +1,9 @@
 //! The bench of the zsh plugin's cost per prompt (`bench_perf_zsh_prompt`), which
 //! `just bench-perf` runs in release: `_efr_preexec` and `_efr_precmd` around each of
 //! 200 prompts, timed by `$EPOCHREALTIME` inside zsh, the `source` of the plugin, and
-//! the redraw hook of the warm-up (`_efr_warm_line`) for each key of a command line
-//! and of a prompt line, which has a budget.
+//! the redraw hooks of the warm-up (`_efr_warm_line`) and of the colours of `@path`
+//! words (`_efr_attach_colour`) for each key of a command line and of a prompt line,
+//! which have a budget.
 //!
 //! zsh starts as `zsh -f -i` with its stdin on a pseudo-terminal, a cleared
 //! environment, a temp `HOME`, an empty runtime root of its own (`EFR_RUNTIME_DIR`)
@@ -67,6 +68,19 @@ for typed in "$EFR_BENCH_LINE" ", how is the build going after the change of the
     out+=("key $(( (b - a) * 1e6 ))")
   done
 done
+# The redraw hook of the colours of @path words for each key: of a line with no `@`,
+# then of a prompt line with two words that name files of the PWD.
+: > shot.png
+: > notes.md
+for typed in "$EFR_BENCH_LINE" ", compare the header in @shot.png with @notes.md and @alice"; do
+  for (( i = 1; i <= $#typed; i++ )); do
+    BUFFER=${typed[1,i]}
+    a=$EPOCHREALTIME
+    _efr_attach_colour
+    b=$EPOCHREALTIME
+    out+=("attach $(( (b - a) * 1e6 ))")
+  done
+done
 print -rl -- $out > $EFR_BENCH_OUT_FILE
 "#;
 
@@ -105,6 +119,9 @@ struct Run {
     precmd: Vec<Duration>,
     /// The redraw hook of the warm-up, for each key of a command line and a prompt.
     keys: Vec<Duration>,
+    /// The redraw hook of the colours of `@path` words, for each key of a command line
+    /// and a prompt with two of them.
+    attach: Vec<Duration>,
     tty: String,
 }
 
@@ -223,6 +240,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         preexec: Vec::new(),
         precmd: Vec::new(),
         keys: Vec::new(),
+        attach: Vec::new(),
         tty: String::new(),
     };
     for row in text.lines() {
@@ -235,6 +253,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
                 run.precmd.push(micros(post));
             }
             ["key", key] => run.keys.push(micros(key)),
+            ["attach", key] => run.attach.push(micros(key)),
             _ => panic!("an unknown row {row:?}"),
         }
     }
@@ -276,6 +295,7 @@ fn bench_perf_zsh_prompt() {
     let mut var_points = Vec::new();
     let mut tty_set = 0;
     let mut worst_key = Duration::ZERO;
+    let mut worst_attach = Duration::ZERO;
     for case in cases {
         let run = run(zsh, case, PROMPTS);
         tty_set = u64::from(run.tty != "none");
@@ -287,6 +307,8 @@ fn bench_perf_zsh_prompt() {
         report.time(&format!("{label}: source"), &[run.load]);
         let keys = report.time(&format!("{label}: warm-up hook per key"), &run.keys);
         worst_key = worst_key.max(keys.p50);
+        let attach = report.time(&format!("{label}: @path colour hook per key"), &run.attach);
+        worst_attach = worst_attach.max(attach.p50);
         if case.drafts == 0
             && case.depth == 3
             && case.projects == 0
@@ -305,6 +327,7 @@ fn bench_perf_zsh_prompt() {
     // The budget: the redraw hook runs for each key, so it stays a few tests of a
     // variable with no fork (about 10 to 30 µs in zsh on a desktop machine).
     assert!(worst_key < KEY_BUDGET, "warm-up hook per key: p50 {worst_key:?}");
+    assert!(worst_attach < KEY_BUDGET, "@path colour hook per key: p50 {worst_attach:?}");
 }
 
 /// The budget of the warm-up's redraw hook for one key (p50 of each case).

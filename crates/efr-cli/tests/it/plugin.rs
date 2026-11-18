@@ -3550,3 +3550,97 @@ fn e2e_efr_warm_0_turns_the_warm_up_off_from_the_next_line() {
 
 mod look;
 mod wake;
+
+/// The colours of the `@path` words that [`RECORD_LINES`] recorded in `home`: for each
+/// line, where each word starts and its style.
+fn attach_colours(home: &Home) -> Vec<(String, Vec<(usize, String)>)> {
+    let typed = std::fs::read_to_string(home.path().join("typed.txt")).unwrap();
+    typed
+        .lines()
+        .map(|line| {
+            let (shown, highlights) = line.rsplit_once('|').unwrap();
+            let words = highlights
+                .split(';')
+                .filter(|entry| entry.ends_with(" memo=efr-attach"))
+                .map(|entry| {
+                    let words: Vec<&str> = entry.split(' ').collect();
+                    (words[0].parse().unwrap(), words[2].to_owned())
+                })
+                .collect();
+            (shown.to_owned(), words)
+        })
+        .collect()
+}
+
+/// TM-Attach 1: while a prompt line is typed, each `@path` word that names a regular
+/// file takes the accent colour: a path below the directory, in quotes, with an escaped
+/// blank as a drop writes it, and before the `?` of a sentence. Words that name nothing,
+/// and a line that is no prompt, stay plain.
+#[test]
+fn e2e_an_at_path_word_that_names_a_file_takes_the_accent_colour() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::create_dir(home.path().join("docs")).unwrap();
+    for file in ["docs/shot.png", "my file.png", "new logo.png"] {
+        std::fs::write(home.path().join(file), "x").unwrap();
+    }
+    let env = [("EFR_TEST_TERM", "xterm-256color")];
+    type_lines_with(
+        &home,
+        &env,
+        &[
+            RECORD_LINES[0],
+            ", why is @docs/shot.png? cut off\u{18}\u{12}\u{15}",
+            ", compare @\"my file.png\" with @new\\ logo.png\u{18}\u{12}\u{15}",
+            ", ask @alice why @types/node pins @src\u{18}\u{12}\u{15}",
+            "ls @docs/shot.png\u{18}\u{12}\u{15}",
+            "<C-Space>",
+            "what is @docs/shot.png\u{18}\u{12}\u{15}",
+            "<C-Space>",
+        ],
+    );
+    let accent = || "fg=yellow".to_owned();
+    assert_eq!(
+        attach_colours(&home),
+        [
+            (", why is @docs/shot.png? cut off".to_owned(), vec![(9, accent())]),
+            (
+                r#", compare @"my file.png" with @new\ logo.png"#.to_owned(),
+                vec![(10, accent()), (30, accent())]
+            ),
+            (", ask @alice why @types/node pins @src".to_owned(), vec![]),
+            ("ls @docs/shot.png".to_owned(), vec![]),
+            ("* what is @docs/shot.png".to_owned(), vec![(8, accent())]),
+        ]
+    );
+}
+
+/// After `@` on a `,`, `,new` or `,!` line, Tab completes a file name; each other word
+/// completes as before.
+#[test]
+fn e2e_tab_after_an_at_sign_completes_a_file_name() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::write(home.path().join("shot.png"), "x").unwrap();
+    std::fs::write(home.path().join("notes.md"), "x").unwrap();
+    type_lines(
+        &home,
+        &[
+            "autoload -Uz compinit; compinit -u -D",
+            RECORD_LINES[0],
+            ", why @sh\t\u{18}\u{12}\u{15}",
+            ",new see @no\t\u{18}\u{12}\u{15}",
+            ",! look at @sh\t\u{18}\u{12}\u{15}",
+            ", plain no\t\u{18}\u{12}\u{15}",
+        ],
+    );
+    let shown: Vec<String> = attach_colours(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(
+        shown,
+        [", why @shot.png ", ",new see @notes.md ", ",! look at @shot.png ", ", plain notes.md "]
+    );
+}

@@ -142,6 +142,11 @@
 # as they were typed or pasted. History keeps the whole text, and Enter on it sends the
 # same prompts again.
 #
+# An `@path` word of a prompt attaches that file (`, why is @docs/shot.png cut off`):
+# efr reads the words, so the plugin only helps to type them. Tab after `@` on a `,`,
+# `,new` or `,!` line completes a file name, and each `@path` word of a prompt line that
+# names a regular file shows in the accent colour while you type (_efr_attach_colour).
+#
 # The plugin only observes and relays. The daemon derives git root, scope and
 # permissions, so nothing here runs git. The one fork is the warm-up of a prompt line
 # (`efr warm` in the background, at most once for each line, see _efr_warm_line).
@@ -979,8 +984,10 @@ _efr_said_setting() {
 # line is accepted.
 _efr_show_indicator() {
   # NOTE: zle gives region_highlight back with other offsets than it was given, so the
-  # plugin's own entries are found by their memo, not by their text.
+  # plugin's own entries are found by their memo, not by their text. The colours of the
+  # @path words go too, and come back at the next redraw.
   region_highlight=(${region_highlight:#*memo=efr*})
+  _efr_attach_seen=
   if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
     local REPLY start
     local -a mine
@@ -2056,6 +2063,91 @@ _efr_probe_background() {
   return 0
 }
 
+# --- the @path words of a prompt line ---------------------------------------------
+
+# 0 when BUFFER is a prompt line: its first word is `,`, `,new` or `,!` and a blank or
+# the end of the line follows it, or sticky mode is on and the line does not start with
+# `!` or `,`.
+_efr_prompt_line() {
+  [[ $BUFFER == ,(new|!|)([[:space:]]*|) ]] && return 0
+  (( _efr_sticky )) && [[ -n $BUFFER && $BUFFER != [,!]* ]]
+}
+
+# The BUFFER that the colours of its @path words were made for; empty after a change
+# of the line's highlights that removed them (_efr_show_indicator).
+typeset -g _efr_attach_seen
+
+# Colours each @path word of a prompt line that names a regular file in the accent
+# colour, by the rule of efr's own `attach.rs`: `@` at the start or after a blank, then
+# a path in quotes, or up to the next blank that no backslash escapes; a path that names
+# nothing is tried once more without the marks of a sentence at its end (`@shot.png?`).
+# `~/` starts at $HOME, a relative path at $PWD. It runs before each redraw, but it acts
+# only when BUFFER changed and holds an `@`: one `[[ -f ]]` test for each word, with no
+# fork. ZLE cannot hold an OSC 8 link, so the line has no link.
+_efr_attach_colour() {
+  [[ $BUFFER == "$_efr_attach_seen" ]] && return 0
+  _efr_attach_seen=$BUFFER
+  region_highlight=(${region_highlight:#*memo=efr-attach})
+  [[ $CONTEXT == start && $BUFFER == *@* ]] || return 0
+  _efr_prompt_line || return 0
+  emulate -L zsh -o extended_glob
+  local REPLY file quote
+  local -a ends
+  integer at=1 end last n=${#BUFFER} marks
+  while (( at <= n )); do
+    at=${BUFFER[(ib:at:)@]}
+    (( at > n )) && break
+    if (( at > 1 )) && [[ ${BUFFER[at-1]} != [[:space:]] ]]; then
+      (( at++ ))
+      continue
+    fi
+    file= end=at+1 quote=${BUFFER[at+1]}
+    if [[ $quote == [\"\'] ]]; then
+      (( end++ ))
+      while (( end <= n )) && [[ ${BUFFER[end]} != "$quote" ]]; do
+        file+=${BUFFER[end]}
+        (( end++ ))
+      done
+      (( end > n )) && break
+      last=end
+    else
+      quote=
+      while (( end <= n )) && [[ ${BUFFER[end]} != [[:space:]] ]]; do
+        [[ ${BUFFER[end]} == '\' ]] && (( end < n )) && (( end++ ))
+        file+=${BUFFER[end]}
+        (( end++ ))
+      done
+      last=end-1
+    fi
+    if [[ -z $file ]]; then
+      :
+    elif _efr_attach_file $file; then
+      ends+=("$(( at - 1 )) $last")
+    elif [[ -z $quote ]]; then
+      marks=$(( ${#file} - ${#${file%%[.,;:!?]##}} ))
+      if (( marks && marks < ${#file} )) &&
+        [[ ${BUFFER[last-marks+1,last]} == "${file[-marks,-1]}" ]] &&
+        _efr_attach_file ${file[1,-marks-1]}; then
+        ends+=("$(( at - 1 )) $(( last - marks ))")
+      fi
+    fi
+    at=last+1
+  done
+  (( ${#ends} )) || return 0
+  _efr_zle_style accent
+  [[ -n $REPLY ]] || return 0
+  region_highlight+=(${^ends}" $REPLY memo=efr-attach")
+}
+
+# 0 when the path $1 of an @path word names a regular file.
+_efr_attach_file() {
+  if [[ $1 == '~/'* ]]; then
+    [[ -f $HOME/${1#\~/} ]]
+  else
+    [[ -f $1 ]]
+  fi
+}
+
 # --- completion -------------------------------------------------------------------
 
 # The arguments of `,mode`, `,model` and `,effort`: `default` and the names that efr
@@ -2082,6 +2174,16 @@ _efr_complete_effort() {
   compadd -- default $efforts
 }
 
+# The words of a `,`, `,new` or `,!` line: after `@` a file name, which attaches the
+# file; each other word as zsh completes it with no rule of its own.
+_efr_complete_prompt() {
+  if compset -P '@'; then
+    _files
+  else
+    _default
+  fi
+}
+
 # Reads what `,model` takes with `efr models --names`, at most once a minute: the model
 # ids, and with more than one account each model as account/model, such as b/gpt-6.1-sol.
 _efr_load_model_names() {
@@ -2097,6 +2199,7 @@ _efr_register_completion() {
   compdef _efr_complete_mode ,mode
   compdef _efr_complete_model ,model
   compdef _efr_complete_effort ,effort
+  compdef _efr_complete_prompt , ,new ,!
   _efr_completion_ready=1
 }
 
@@ -2132,6 +2235,7 @@ zle -N _efr_notice_wake
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
 add-zle-hook-widget line-pre-redraw _efr_warm_line
+add-zle-hook-widget line-pre-redraw _efr_attach_colour
 # Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
 # not expand an alias again inside its own expansion, so `,` reaches the function.
 alias ,=', #' ,new=',new #' ,compact=',compact #'
