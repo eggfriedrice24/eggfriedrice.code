@@ -298,6 +298,84 @@ fn restore_factory_starts_blank_when_the_snapshot_is_broken() {
     assert_eq!(texts(&capture.snapshot.rows), vec!["", ""]);
 }
 
+/// A 160x48 screen whose scrollback of 5000 lines is full of build output.
+fn full_screen() -> GhosttyScreen {
+    let mut screen = screen(160, 48);
+    let lines: Vec<u8> = (0..6000)
+        .flat_map(|line| {
+            format!("\x1b[32m   Compiling\x1b[0m crate-{line} v0.{line}.0 (/src/crates/crate-{line})\r\n")
+                .into_bytes()
+        })
+        .collect();
+    feed(&mut screen, &lines);
+    screen
+}
+
+/// The resident bytes of both screens of `screen`, as libghostty-vt counts them.
+fn resident_bytes(screen: &GhosttyScreen) -> u64 {
+    let usage = screen.terminal.memory_usage().unwrap();
+    usage.primary_resident_bytes + usage.alternate_resident_bytes
+}
+
+/// Runs the idle steps of `screen` until it has no work left, and counts them.
+fn idle_until_done(screen: &mut GhosttyScreen) -> usize {
+    std::iter::from_fn(|| screen.idle()).count() + 1
+}
+
+#[test]
+fn the_idle_steps_compress_the_scrollback_and_keep_its_text() {
+    let mut screen = full_screen();
+    assert_eq!(screen.idle_delay(), Some(super::COMPRESS_AFTER));
+    assert!(screen.terminal.memory_usage().unwrap().compression_supported);
+    let before = resident_bytes(&screen);
+    let text = texts(&screen.snapshot(usize::MAX).scrollback);
+    // The snapshot read the whole history, so the steps start from the start.
+    idle_until_done(&mut screen);
+    let after = resident_bytes(&screen);
+    assert!(after < before / 2, "{before} bytes before the steps, {after} after");
+    assert!(screen.terminal.memory_usage().unwrap().primary_compressed_pages > 0);
+    // Nothing changed since the last pass, so there is no work.
+    assert_eq!(screen.idle(), None);
+    assert_eq!(texts(&screen.snapshot(usize::MAX).scrollback), text);
+}
+
+#[test]
+fn new_output_gives_the_idle_steps_work_again() {
+    let mut screen = full_screen();
+    idle_until_done(&mut screen);
+    assert_eq!(screen.idle(), None);
+    let done = screen.compressed;
+    feed(&mut screen, &b"more\r\n".repeat(500));
+    // The output changed the activity, so a new pass runs and ends at the new value.
+    assert_ne!(screen.terminal.compression_activity().ok(), done);
+    let before = resident_bytes(&screen);
+    idle_until_done(&mut screen);
+    assert_eq!(screen.compressed, screen.terminal.compression_activity().ok());
+    assert!(resident_bytes(&screen) <= before);
+    assert_eq!(screen.idle(), None);
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_idle_compression() {
+    let mut report = efr_test_support::bench::Report::new("bench_perf_idle_compression");
+    let mut screen = full_screen();
+    let rss = || efr_test_support::bench::Memory::of_self().map_or(0, |memory| memory.rss);
+    report.bytes("160x48 5000 lines library resident before", resident_bytes(&screen));
+    report.bytes("160x48 5000 lines process rss before", rss());
+    let started = std::time::Instant::now();
+    let steps = idle_until_done(&mut screen);
+    let took = started.elapsed();
+    report.bytes("160x48 5000 lines library resident after", resident_bytes(&screen));
+    report.bytes("160x48 5000 lines process rss after", rss());
+    report.count("160x48 5000 lines idle steps", steps as u64);
+    report.time("160x48 5000 lines all steps", &[took]);
+    let usage = screen.terminal.memory_usage().unwrap();
+    report.count("160x48 5000 lines pages", usage.primary_pages);
+    report.count("160x48 5000 lines compressed pages", usage.primary_compressed_pages);
+    report.finish();
+}
+
 #[test]
 fn the_default_config_uses_ghosttys_colours() {
     let config = GhosttyConfig::default();

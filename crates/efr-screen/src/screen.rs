@@ -1,5 +1,7 @@
 //! The trait every terminal backend implements.
 
+use std::time::Duration;
+
 use efr_protocol::{Cursor, RowCells, ScreenSnapshot};
 
 use crate::ScreenSink;
@@ -44,4 +46,21 @@ pub trait Screen {
     /// The backend's own view of the OSC 7 working directory. It is a cross-check
     /// against the scanner's marks only; the marks are the source of truth.
     fn pwd(&self) -> Option<&str>;
+
+    /// How long the screen must get no command before the actor calls
+    /// [`idle`](Screen::idle). The actor reads it once, when the screen starts.
+    /// `None`, the default, means never: the actor then only waits for commands.
+    fn idle_delay(&self) -> Option<Duration> {
+        None
+    }
+
+    /// One short step of work for a quiet moment, such as the compression of old
+    /// scrollback. The actor calls it when no command came for
+    /// [`idle_delay`](Screen::idle_delay) after the last command. It returns how long
+    /// the actor waits for a command before the next step, or `None` when no work is
+    /// left until the next command. A command that comes first is served first. The
+    /// default does nothing.
+    fn idle(&mut self) -> Option<Duration> {
+        None
+    }
 }

@@ -3,6 +3,7 @@ use std::pin::{Pin, pin};
 use std::rc::Rc;
 use std::sync::mpsc as std_mpsc;
 use std::task::Poll;
+use std::time::Duration;
 
 use bytes::Bytes;
 use efr_protocol::{Cursor, RowCells, ScreenSnapshot, Seq, Size};
@@ -352,4 +353,95 @@ async fn a_parked_sender_is_woken_when_the_backend_panics() {
     assert!(matches!(parked.await, Err(ScreenError::Closed { .. })));
     assert_eq!(events.recv().await, None);
     assert!(matches!(handle.snapshot(0).await, Err(ScreenError::Closed { .. })));
+}
+
+/// What [`IdleScreen`] did, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Feed,
+    Idle,
+}
+
+/// A screen that writes down its feeds and idle steps. Each quiet moment gives it
+/// `steps` idle steps: all but the last ask for one more.
+struct IdleScreen {
+    log: std_mpsc::Sender<Step>,
+    steps: usize,
+    left: usize,
+    _not_send: Rc<()>,
+}
+
+impl Screen for IdleScreen {
+    fn feed(&mut self, _bytes: &[u8], _sink: &mut dyn ScreenSink) {
+        self.left = self.steps;
+        self.log.send(Step::Feed).unwrap();
+    }
+
+    fn resize(&mut self, _cols: u16, _rows: u16, _sink: &mut dyn ScreenSink) {}
+
+    fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
+        ScreenSnapshot::default()
+    }
+
+    fn row(&self, _index: usize) -> RowCells {
+        RowCells::default()
+    }
+
+    fn cursor(&self) -> Cursor {
+        Cursor::default()
+    }
+
+    fn title(&self) -> Option<&str> {
+        None
+    }
+
+    fn pwd(&self) -> Option<&str> {
+        None
+    }
+
+    fn idle_delay(&self) -> Option<Duration> {
+        Some(Duration::from_millis(1))
+    }
+
+    fn idle(&mut self) -> Option<Duration> {
+        self.log.send(Step::Idle).unwrap();
+        self.left = self.left.saturating_sub(1);
+        (self.left > 0).then_some(Duration::from_millis(1))
+    }
+}
+
+fn spawn_idle(steps: usize) -> (ScreenHandle, ScreenEvents, std_mpsc::Receiver<Step>) {
+    let (log, steps_rx) = std_mpsc::channel();
+    let factory = move || IdleScreen { log, steps, left: steps, _not_send: Rc::new(()) };
+    let (handle, events) = ScreenActor::spawn("screen-idle", factory, size(4, 1)).unwrap();
+    (handle, events, steps_rx)
+}
+
+/// The steps that `log` gets until it is quiet for 200 ms.
+fn steps_until_quiet(log: &std_mpsc::Receiver<Step>) -> Vec<Step> {
+    std::iter::from_fn(|| log.recv_timeout(Duration::from_millis(200)).ok()).collect()
+}
+
+#[test]
+fn a_quiet_screen_gets_its_idle_steps_and_then_waits() {
+    let (handle, _events, log) = spawn_idle(3);
+    assert_eq!(steps_until_quiet(&log), vec![Step::Idle; 3]);
+    handle.feed_blocking(bytes(b"x"), Seq::ZERO).unwrap();
+    assert_eq!(steps_until_quiet(&log), vec![Step::Feed, Step::Idle, Step::Idle, Step::Idle]);
+}
+
+#[test]
+fn a_command_during_the_idle_steps_is_served_first() {
+    // Steps for far longer than the test runs, one each millisecond.
+    let (handle, _events, log) = spawn_idle(usize::MAX);
+    assert_eq!(log.recv().unwrap(), Step::Idle);
+    handle.feed_blocking(bytes(b"x"), Seq::ZERO).unwrap();
+    assert!(log.iter().any(|step| step == Step::Feed));
+    assert_eq!(handle.snapshot_blocking(0).unwrap().at, Seq::new(1));
+}
+
+#[test]
+fn a_screen_without_an_idle_delay_gets_no_idle_step() {
+    // The fake screen keeps the default: `idle_delay` is `None`.
+    assert_eq!(FakeScreen::new(size(4, 1)).idle_delay(), None);
 }

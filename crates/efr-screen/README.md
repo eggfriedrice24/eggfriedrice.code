@@ -6,8 +6,9 @@ The screen model boundary. Everything that turns PTY output into a terminal scre
 goes through this crate, whichever backend renders it:
 
 - `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`, `row`, `cursor`, `title`,
-  `pwd`), implemented by the `vt100` module of this crate and by
-  `efr-screen-ghostty`. It has no `Send` bound.
+  `pwd`, and `idle_delay` and `idle` with defaults that do nothing), implemented by
+  the `vt100` module of this crate and by `efr-screen-ghostty`. It has no `Send`
+  bound.
 - `sink`: the `ScreenSink` trait through which a backend reports PTY replies (DA, DSR,
   DECRQM, OSC 10 and 11 answers), bells and title changes while it processes bytes.
 - `actor`: `ScreenActor::spawn`, which runs one screen on its own named std thread,
@@ -53,6 +54,12 @@ that will not compile:
   signals after every command it takes, so a full queue never blocks a tokio worker.
   The `_blocking` methods are for plain threads (the PTY proxy, the conformance
   suite).
+- Idle work: when a screen gives an `idle_delay`, the actor waits for the next
+  command with that timeout. When no command comes in time, it calls `idle`, which
+  does one short step and gives the wait before the next step, or `None` when it has
+  no work left. Every command starts the delay again, so the feed path does no idle
+  work and a screen needs no timer thread. The ghostty screen compresses its old
+  scrollback this way 1 s after the last command; vt100 has no idle work.
 - Outbound: the actor's sink buffers PTY replies while the backend runs; after each
   feed the actor drains the buffer into one `ScreenEvent::PtyReply` on a bounded
   `tokio::sync::mpsc` channel to the session's async PTY writer. Only the daemon

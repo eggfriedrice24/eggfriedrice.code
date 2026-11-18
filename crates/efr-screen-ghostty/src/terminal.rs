@@ -1,10 +1,12 @@
 //! [`GhosttyScreen`]: the `Screen` trait over a libghostty-vt terminal.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
 use libghostty_vt::Terminal;
 use libghostty_vt::color::Rgb;
+use libghostty_vt::terminal::{CompressionActivity, CompressionMode, CompressionResult};
 
 use crate::GhosttyError;
 use crate::effects::Effects;
@@ -31,6 +33,14 @@ const CONTINUATION_LIMIT: usize = 1 << 20;
 /// of at most 4096 bytes with short control keys. Raise it together with the image
 /// store if the hidden terminal ever shows images.
 const APC_LIMIT: usize = 8 * 1024;
+
+/// How long a screen must get no command before it compresses its old scrollback.
+/// Ghostty waits 250 ms after its renderer is quiet. A hidden terminal draws
+/// nothing, so it waits longer and does not compress in the short gaps of a build.
+const COMPRESS_AFTER: Duration = Duration::from_secs(1);
+
+/// The wait between two steps of one compression pass, as in Ghostty.
+const COMPRESS_STEP: Duration = Duration::from_millis(1);
 
 /// Settings of a [`GhosttyScreen`] that its owner may change.
 ///
@@ -82,6 +92,10 @@ pub struct GhosttyScreen {
     /// True once a failure inside libghostty-vt was logged. The library flag stays
     /// set for the life of the terminal, so it is logged once.
     failure_logged: bool,
+    /// The compression activity of the terminal when its last compression pass
+    /// ended. While the terminal reports the same value, there is nothing new to
+    /// compress.
+    compressed: Option<CompressionActivity>,
 }
 
 impl GhosttyScreen {
@@ -162,7 +176,13 @@ impl GhosttyScreen {
         terminal.resize(cols, rows, CELL_WIDTH_PX, CELL_HEIGHT_PX).map_err(configure)?;
         let effects = Effects::install(&mut terminal).map_err(configure)?;
         let cross_check = CrossCheck::new(&terminal);
-        Ok(GhosttyScreen { terminal, effects, cross_check, failure_logged: false })
+        Ok(GhosttyScreen {
+            terminal,
+            effects,
+            cross_check,
+            failure_logged: false,
+            compressed: None,
+        })
     }
 
     /// Logs once when libghostty-vt failed inside a feed in a way that it did not
@@ -222,6 +242,30 @@ impl Screen for GhosttyScreen {
             .ok()
             .and_then(|pwd| str::from_utf8(pwd).ok())
             .filter(|pwd| !pwd.is_empty())
+    }
+
+    fn idle_delay(&self) -> Option<Duration> {
+        Some(COMPRESS_AFTER)
+    }
+
+    /// One step of the compression of old scrollback, the work that libghostty-vt
+    /// keeps for an idle moment. A full scrollback of 160 columns holds about 7 MiB
+    /// and less than 1 MiB when it is compressed. libghostty-vt decompresses a page
+    /// again when something reads it, such as a snapshot with scrollback.
+    fn idle(&mut self) -> Option<Duration> {
+        let activity = self.terminal.compression_activity().ok()?;
+        if self.compressed == Some(activity) {
+            return None;
+        }
+        match self.terminal.compress(CompressionMode::Incremental) {
+            Ok(CompressionResult::Pending) => Some(COMPRESS_STEP),
+            // Done, not possible on this system, or failed: nothing to do until the
+            // terminal changes again.
+            Ok(_) | Err(_) => {
+                self.compressed = self.terminal.compression_activity().ok();
+                None
+            }
+        }
     }
 }
 

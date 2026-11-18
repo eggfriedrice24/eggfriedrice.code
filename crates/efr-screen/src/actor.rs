@@ -12,7 +12,8 @@ mod handle;
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
+use std::time::Duration;
 
 use bytes::Bytes;
 use efr_protocol::{Seq, Size};
@@ -107,9 +108,30 @@ impl<S: Screen + 'static> ScreenActor<S> {
 }
 
 impl<S: Screen> ScreenActor<S> {
+    /// Serves commands until a shutdown or until every handle is gone. While no
+    /// command comes, the screen gets its idle steps: the first one
+    /// [`Screen::idle_delay`] after the last command, the next ones after the wait
+    /// that each step returns. Every command starts the delay again, so the feed path
+    /// does no idle work.
     fn run(mut self, inbox: Inbox, size: Size) {
+        let idle_delay = self.screen.idle_delay();
         self.resize(size);
-        while let Some(command) = inbox.recv() {
+        let mut wait = idle_delay;
+        loop {
+            let command = match wait {
+                None => inbox.recv(),
+                Some(wait_for) => match inbox.recv_timeout(wait_for) {
+                    Next::Command(command) => Some(command),
+                    Next::Quiet => {
+                        wait = self.screen.idle();
+                        continue;
+                    }
+                    Next::Closed => None,
+                },
+            };
+            let Some(command) = command else {
+                break;
+            };
             match command {
                 ScreenCommand::Feed { bytes, base_seq } => self.feed(&bytes, base_seq),
                 ScreenCommand::Resize { size } => self.resize(size),
@@ -118,6 +140,7 @@ impl<S: Screen> ScreenActor<S> {
                 }
                 ScreenCommand::Shutdown => break,
             }
+            wait = idle_delay;
         }
     }
 
@@ -186,6 +209,30 @@ impl Inbox {
         self.space.notify_waiters();
         Some(command)
     }
+
+    /// The next command if one comes within `wait`.
+    fn recv_timeout(&self, wait: Duration) -> Next {
+        let Some(commands) = self.commands.as_ref() else {
+            return Next::Closed;
+        };
+        match commands.recv_timeout(wait) {
+            Ok(command) => {
+                self.space.notify_waiters();
+                Next::Command(command)
+            }
+            Err(RecvTimeoutError::Timeout) => Next::Quiet,
+            Err(RecvTimeoutError::Disconnected) => Next::Closed,
+        }
+    }
+}
+
+/// What [`Inbox::recv_timeout`] got.
+enum Next {
+    Command(ScreenCommand),
+    /// No command came in time.
+    Quiet,
+    /// Every handle is gone.
+    Closed,
 }
 
 impl Drop for Inbox {

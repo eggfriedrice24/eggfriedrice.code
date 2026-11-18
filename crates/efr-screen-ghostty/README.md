@@ -19,6 +19,12 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   the title without a title callback, so its own callback reports an empty title.
   libghostty-vt cuts a title at 1024 bytes, also inside a character; such a title
   keeps its whole characters.
+- idle compression: `GhosttyScreen` asks the actor for an idle step 1 s after the last
+  command. Each step is one `Terminal::compress(CompressionMode::Incremental)`, 1 ms
+  apart, until the pass is done; then nothing happens until
+  `Terminal::compression_activity` changes. A full scrollback of 160 columns goes from
+  about 7 MiB to under 1 MiB (see the bench `bench_perf_idle_compression`).
+  libghostty-vt decompresses a page again when a snapshot reads it.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it
@@ -120,3 +126,7 @@ through `efr_test_support::bench`, a dev-dependency.
   It uses the split rule of efr-shell's replay, and reads each screen with all its
   scrollback and with 1,000 rows. It reports the time, the screens and the history
   rows.
+- `bench_perf_idle_compression` (`src/terminal/tests.rs`): a 160x48 screen with 5000
+  lines of build output, then its idle steps until they are done. It reports the
+  resident bytes that libghostty-vt counts and the RSS of the process before and
+  after, the steps, the pages and the time of all steps.

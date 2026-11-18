@@ -21,6 +21,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the
   scrollback after a resize, for prompts after a resize and for a scrollback line
   limit that was slow. A build from source still needs Zig 0.17.0.
+- efrd uses less memory for each conversation with a hidden shell. 1 second after
+  the last output, the screen of the shell compresses its old scrollback: a full
+  scrollback of 5000 lines at 160 columns now takes about 0.5 MiB, not 6.4 MiB.
 
 ### Fixed
 

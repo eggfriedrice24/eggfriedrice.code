@@ -149,7 +149,11 @@ dependencies of its own, or a second binary needs it.
   screen inside it from a `Send` factory. Commands go in over a bounded
   `std::sync::mpsc::sync_channel(64)`; replies to terminal queries (DA, DSR, DECRQM,
   OSC 10/11) and shell marks come out as `ScreenEvent`s on a tokio channel to the
-  shell's async PTY writer. Only the daemon answers terminal queries.
+  shell's async PTY writer. Only the daemon answers terminal queries. A screen can
+  ask for idle steps (`Screen::idle_delay`, `Screen::idle`): the actor then waits for
+  a command with a timeout and gives the step to the screen when none comes, so a
+  ghostty screen compresses its old scrollback without a timer thread and without
+  work on the feed path.
 - vt100 screens run through the same actor, so the conformance suite tests the same
   code for both backends.
 - Cost: N+1 screen threads for N open conversations, each with a 512 KiB stack. A
