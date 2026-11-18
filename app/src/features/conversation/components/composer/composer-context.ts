@@ -2,6 +2,7 @@
 // `use()`. Only the composer renders when its value changes: typing renders the
 // composer, never the screen (t3code PR #21261).
 
+import type { Readable } from "@tanstack/store";
 import { createContext, type RefObject } from "react";
 import type { TextInputInstance } from "react-native";
 
@@ -11,14 +12,23 @@ import type { PhoneMode } from "../../model/model-choices";
 
 /**
  * The question of the model that Send answers (S-Ask 3, "Type an answer"). The text of
- * the field is the answer; the draft stays a draft when the user leaves.
+ * the field is the answer. It is not the message draft: when the question ends while
+ * the user types, the text goes with the answer state, so the next Send never sends it
+ * as a message, which would count as the user's own words for efr's rules (ADR 0025).
+ * Only the xmark keeps it as a message draft.
  */
 export interface ComposerAnswer {
   /** The question on one line, for the answer row. */
   readonly question: string;
+  /** The typed answer. */
+  readonly draft: Readable<string>;
+  /** Changes the typed answer. */
+  readonly setText: (text: string) => void;
   /** True while efrd has not taken the answer yet. */
   readonly sending: boolean;
-  /** Sends `text`, a valid answer (`answerText`). */
+  /** True when the last answer did not arrive: the text stays, and the row says so. */
+  readonly failed: boolean;
+  /** Sends `text`, a valid answer (`answerText`). The field empties once efrd took it. */
   readonly send: (text: string) => void;
   /** Leaves the answer state: the strip and the status line come back. */
   readonly leave: () => void;

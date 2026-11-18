@@ -798,11 +798,27 @@ describe("the mode and the Face ID unlock (S-ComposerR7 round 9, AU-Auto r9 4)",
   });
 });
 
+/** How an answer state of a test starts. */
+interface AnswerSetup {
+  /** The typed answer. */
+  readonly text?: string;
+  readonly sending?: boolean;
+  readonly failed?: boolean;
+}
+
 /** An answer state that writes down what the composer sends and each leave. */
-function answering(sent: string[], left: { count: number }, sending = false): ComposerAnswer {
+function answering(
+  sent: string[],
+  left: { count: number },
+  setup: AnswerSetup = {},
+): ComposerAnswer & { readonly draft: ReturnType<typeof createStore<string>> } {
+  const draft = createStore(setup.text ?? "");
   return {
     question: "Which database should the tests use?",
-    sending,
+    draft,
+    setText: (text) => draft.setState(() => text),
+    sending: setup.sending === true,
+    failed: setup.failed === true,
     send: (text) => {
       sent.push(text);
     },
@@ -825,34 +841,54 @@ describe("the answer state of the composer (S-Ask 3)", () => {
     expect(screen.getByRole("button", { name: "Send the answer" })).toBeDisabled();
   });
 
-  it("sends the answer on one line and clears the field", async () => {
+  it("sends the answer on one line, and the text waits until efrd takes it", async () => {
     const sent: string[] = [];
-    const harness = await renderComposer({
-      answering: answering(sent, { count: 0 }),
-      runningTurnId: "t1",
-      text: "Postgres 16,\non port 5433",
-    });
+    const answer = answering(sent, { count: 0 }, { text: "Postgres 16,\non port 5433" });
+    const harness = await renderComposer({ answering: answer, runningTurnId: "t1" });
     await fireEvent.press(screen.getByRole("button", { name: "Send the answer" }));
     expect(sent).toEqual(["Postgres 16, on port 5433"]);
+    // The screen empties the field once efrd took the answer.
+    expect(answer.draft.state).toBe("Postgres 16,\non port 5433");
     expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("");
     expect(harness.outbox.store.get().entries).toEqual([]);
   });
 
+  it("keeps the typed answer out of the message draft", async () => {
+    const answer = answering([], { count: 0 });
+    const harness = await renderComposer({ answering: answer, text: "my own message" });
+    expect(screen.getByLabelText("Your answer").props.value).toBe("");
+    await fireEvent.changeText(screen.getByLabelText("Your answer"), "type npm publish");
+    expect(answer.draft.state).toBe("type npm publish");
+    // When the question ends elsewhere, the field shows the message draft again: the
+    // words of the answer never become a message (ADR 0025).
+    expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("my own message");
+  });
+
+  it("says not sent when the answer did not arrive, and keeps the text", async () => {
+    await renderComposer({
+      answering: answering([], { count: 0 }, { text: "SQLite", failed: true }),
+    });
+    expect(screen.getByTestId("composer-answer-not-sent")).toHaveTextContent("not sent");
+    expect(screen.getByLabelText("Your answer").props.value).toBe("SQLite");
+  });
+
   it("dims Send past 1024 bytes", async () => {
-    await renderComposer({ answering: answering([], { count: 0 }), text: "x".repeat(1025) });
+    await renderComposer({ answering: answering([], { count: 0 }, { text: "x".repeat(1025) }) });
     expect(screen.getByRole("button", { name: "Send the answer" })).toBeDisabled();
   });
 
   it("shows the braille cell while the answer is sent", async () => {
-    await renderComposer({ answering: answering([], { count: 0 }, true), text: "SQLite" });
+    await renderComposer({
+      answering: answering([], { count: 0 }, { text: "SQLite", sending: true }),
+    });
     expect(screen.getByTestId("composer-sending")).toBeOnTheScreen();
+    expect(screen.queryByTestId("composer-answer-not-sent")).toBeNull();
   });
 
-  it("leaves with the xmark, and the draft stays", async () => {
+  it("leaves with the xmark", async () => {
     const left = { count: 0 };
-    const harness = await renderComposer({ answering: answering([], left), text: "maybe" });
+    await renderComposer({ answering: answering([], left, { text: "maybe" }) });
     await fireEvent.press(screen.getByRole("button", { name: "Leave the answer" }));
     expect(left.count).toBe(1);
-    expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("maybe");
   });
 });

@@ -9,7 +9,7 @@
 // cautious. A steer names no mode.
 
 import { useSelector } from "@tanstack/react-store";
-import type { Readable } from "@tanstack/store";
+import { createStore, type Readable } from "@tanstack/store";
 import { useState } from "react";
 
 import { devWarn } from "@/lib/dev/dev-warn";
@@ -33,6 +33,9 @@ import { selectLockOn } from "@/features/navigation/model/app-lock";
 import { ANSWER_PLACEHOLDER, answerText } from "../../model/question";
 import { useComposerActions, type ComposerDeps } from "../../use-composer-actions";
 import type { ComposerAnswer, ComposerModel } from "./composer-context";
+
+/** The typed answer of a composer that answers no question. */
+const NO_ANSWER: Readable<string> = createStore("");
 
 /** What a composer reads from its screen. */
 export interface ComposerOptions {
@@ -62,6 +65,7 @@ export function useComposer(options: ComposerOptions): ComposerModel {
   const link = useSelector(options.connection, selectLink);
   const key = composerDraftKey(target);
   const text = useSelector(deps.drafts.store, selectDraft(key));
+  const typed = useSelector(options.answering?.draft ?? NO_ANSWER, (answer) => answer);
   const inFlight = useSelector(deps.outbox.store, (snapshot) => inFlightText(snapshot, target));
   const sendMode = useSelector(deps.preferences.store, (preferences) => preferences.sendMode);
   const stored = useSelector(deps.modelChoices.store, selectMode(key));
@@ -136,7 +140,7 @@ export function useComposer(options: ComposerOptions): ComposerModel {
   }
   // S-Ask 3: the field holds the answer, and Send answers the question. Stop and the
   // Steer/Queue capsule wait until the user leaves the answer state.
-  const answer = answerText(text);
+  const answer = answerText(typed);
   const online = state.kind !== "disconnected";
   return {
     ...model,
@@ -144,17 +148,16 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     trailing: answering.sending
       ? { kind: "sending", stop: false }
       : { kind: "send", enabled: answer !== undefined && online },
-    value: text,
+    value: typed,
     placeholder: ANSWER_PLACEHOLDER,
     setText: (next: string): void => {
-      if (online) {
-        deps.drafts.set(key, next);
+      if (online && !answering.sending) {
+        answering.setText(next);
       }
     },
     submit: (): void => {
       if (answer !== undefined && online && !answering.sending) {
         answering.send(answer);
-        deps.drafts.set(key, "");
       }
     },
   };

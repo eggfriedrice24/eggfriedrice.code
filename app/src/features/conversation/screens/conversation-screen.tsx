@@ -158,9 +158,15 @@ function ConversationView(props: ConversationViewProps) {
   const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.float + SPACING.strip);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_HEIGHT);
   // Short local UI state: the question of the model that the composer answers after
-  // "Type an answer" (S-Ask 3). The state ends by itself once the question ends.
+  // "Type an answer" (S-Ask 3). The state ends by itself once the question ends. The
+  // typed answer has a store of its own, not the message draft, so typing renders only
+  // the composer and the text goes when the question ends (ADR 0025).
   const [typing, setTyping] = useState<string | undefined>(undefined);
-  const answers = useAnswerQuestion(runtime, ref, (question) => setTyping(question.questionId));
+  const [answerDraft] = useState(() => createStore(""));
+  const answers = useAnswerQuestion(runtime, ref, (question) => {
+    answerDraft.setState(() => "");
+    setTyping(question.questionId);
+  });
   const answered = useSelector(held.store, selectWaitingQuestion(typing));
   const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
   const models = useQuery(modelsQueryOptions(runtime, machine)).data;
@@ -244,9 +250,23 @@ function ConversationView(props: ConversationViewProps) {
     const questionId = answered.questionId;
     composer.answering = {
       question: questionLine(answered),
+      draft: answerDraft,
+      setText: (text) => answerDraft.setState(() => text),
       sending: answers.sending === questionId,
-      send: (text) => answers.answer(questionId, { kind: "text", text }),
-      leave: () => setTyping(undefined),
+      failed: answers.failed === questionId,
+      send: (text) =>
+        answers.answer(questionId, { kind: "text", text }, () => answerDraft.setState(() => "")),
+      // NOTE: only the xmark, a choice of the user, keeps the typed text as a message.
+      leave: () => {
+        const kept = answerDraft.state;
+        if (kept.length > 0) {
+          const key = composerDraftKey(target);
+          const draft = drafts.text(key);
+          drafts.set(key, draft.length > 0 ? `${draft} ${kept}` : kept);
+        }
+        answerDraft.setState(() => "");
+        setTyping(undefined);
+      },
     };
   }
   return (

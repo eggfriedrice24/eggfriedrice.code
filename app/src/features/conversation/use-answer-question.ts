@@ -17,8 +17,11 @@ import { questionChoice, questionSheet } from "./model/question";
 
 /** The answers of one conversation. */
 export interface AnswerQuestion {
-  /** Answers question `questionId` with `reply`. */
-  answer(questionId: string, reply: QuestionReply): void;
+  /**
+   * Answers question `questionId` with `reply`. `onSuccess` runs once efrd took it, so a
+   * typed answer stays in the field until then.
+   */
+  answer(questionId: string, reply: QuestionReply, onSuccess?: () => void): void;
   /**
    * Opens the action sheet of `question` out of `anchor`: a pick of an option or Skip
    * answers at once, and "Type an answer" calls `onType` of the hook. Cancel does nothing.
@@ -44,8 +47,13 @@ export function useAnswerQuestion(
 ): AnswerQuestion {
   const mutation = useMutation(answerQuestionMutationOptions(caller, conversation));
   const asked = mutation.variables?.questionId;
-  const answer = (questionId: string, reply: QuestionReply): void => {
-    mutation.mutate({ questionId, answer: reply, commandId: newCommandId() });
+  const answer = (questionId: string, reply: QuestionReply, onSuccess?: () => void): void => {
+    const variables = { questionId, answer: reply, commandId: newCommandId() };
+    if (onSuccess === undefined) {
+      mutation.mutate(variables);
+    } else {
+      mutation.mutate(variables, { onSuccess });
+    }
   };
   const ask = async (question: UserQuestionView, anchor: HostInstance | null): Promise<void> => {
     const choice = questionChoice(await showActionSheet(questionSheet(question), anchor));

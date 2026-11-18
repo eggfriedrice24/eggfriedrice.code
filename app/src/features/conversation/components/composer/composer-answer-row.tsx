@@ -1,7 +1,8 @@
 // The answer row of the composer (S-Ask 3): while the user types an answer to a question
 // of the model, it takes the place of the strip and the status line. "Answer" in yolk,
-// the question on one line, and an xmark (44 pt) that leaves the answer state. The fixed
-// hint stands under the field (`ComposerAnswerHint`).
+// the question on one line, "not sent" in state_error when the last answer did not
+// arrive (the text stays in the field), and an xmark (44 pt) that leaves the answer
+// state. The fixed hint stands under the field (`ComposerAnswerHint`).
 //
 // The row takes the focus to the field when it shows, so "Type an answer" opens the
 // keyboard. A ref callback does it, so the row needs no effect.
@@ -10,6 +11,7 @@ import { use } from "react";
 import { Pressable, Text, View, type HostInstance } from "react-native";
 
 import { BodyText } from "@/components/ui/body-text";
+import { MonoText } from "@/components/ui/mono-text";
 import { SymbolIcon } from "@/components/ui/symbol";
 
 import { ANSWER_HINT } from "../../model/question";
@@ -38,6 +40,11 @@ export function ComposerAnswerRow() {
       <BodyText size="rowDetail" tone="text_primary" numberOfLines={1} className="flex-1">
         {answering.question}
       </BodyText>
+      {answering.failed && !answering.sending ? (
+        <MonoText testID="composer-answer-not-sent" tone="state_error" className="text-mono-xs">
+          not sent
+        </MonoText>
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Leave the answer"
