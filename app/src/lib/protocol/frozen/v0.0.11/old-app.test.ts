@@ -2,11 +2,16 @@
 // The app of 0.0.11, which users still run, against the fixtures of this efrd.
 //
 // generated.ts and generated-zod.ts in this folder are the files of tag v0.0.11, as they
-// are: never generate them again. A released app reads a list with closed sets of
-// values, and one bad row fails its whole watch or subscribe snapshot (spec r012,
-// section 2.1). So each change of the protocol must stay additive for these schemas:
-// this test decodes each fixture that such an app can receive, with the rules of its
-// decoder (envelope.ts of v0.0.11), and it must pass with no error.
+// are: never generate them again. The test pins their SHA-256, so a change of either one
+// fails it. A released app reads a list with closed sets of values, and one bad row
+// fails its whole watch or subscribe snapshot (spec r012, section 2.1). So each change
+// of the protocol must stay additive for these schemas: this test decodes each fixture
+// that such an app can receive, with the rules of its decoder (envelope.ts of v0.0.11),
+// and it must pass with no error.
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 
@@ -87,7 +92,25 @@ function watchItemProblem(value: unknown): string | undefined {
     .find((found) => found !== undefined);
 }
 
+/** The SHA-256 of each frozen file, as `git show v0.0.11:app/src/lib/protocol/<file>`. */
+const FROZEN_SHA256: Readonly<Record<string, string>> = {
+  "generated.ts": "8ba297c031cb57db29d404f3775deb06b25bc977794f2d4e7e39b08f5337d1ca",
+  "generated-zod.ts": "7243fe6b446b81ee18abf895c5efe39a0f4ee88fc59829d9977b4b9783990eee",
+};
+
 describe("the app of 0.0.11", () => {
+  it("keeps the files of tag v0.0.11 as they are", () => {
+    const found = Object.fromEntries(
+      Object.keys(FROZEN_SHA256).map((name) => [
+        name,
+        createHash("sha256")
+          .update(readFileSync(join(import.meta.dirname, name)))
+          .digest("hex"),
+      ]),
+    );
+    expect(found).toEqual(FROZEN_SHA256);
+  });
+
   it("reads each summary, list, snapshot and watch item of this efrd with no error", () => {
     const cases: readonly (readonly [string, string | undefined])[] = [
       ["hello_result", problem(METHOD_RESULT_SCHEMAS.hello, fixture("hello_result"))],
