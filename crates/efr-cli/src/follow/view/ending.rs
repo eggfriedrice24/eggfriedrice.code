@@ -8,7 +8,8 @@
 //! then `⇄` when the turn runs on another model, provider or account
 //! (`model_switched`). The `⇄` line waits in the live zone until the next block: when a
 //! compaction of the turn comes first, the line carries its counts and the compaction
-//! has no notice of its own (spec 3.4).
+//! has no notice of its own (spec 3.4). The chip row of a prompt with attachments
+//! (`format::attach`) comes after both, and waits with the `⇄` line (TM-Attach 2h).
 //!
 //! The end: one blank line, then the stop reason, the changes line or the line of
 //! `efr undo`, the lines of the files at home, and the outcome line, with no blank line

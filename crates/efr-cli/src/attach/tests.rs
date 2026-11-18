@@ -69,13 +69,11 @@ impl Tree {
         std::fs::canonicalize(self.dir.path()).unwrap().join(below)
     }
 
-    fn places(&self) -> (PathBuf, PathBuf, PathBuf) {
-        (self.path("project"), self.path("home"), self.path("clips"))
-    }
-
+    /// What the words of `text` name for a shell in `project`, with the tree as the
+    /// state root of `efr`, so that its `clips` dir holds the pastes.
     fn find(&self, text: &str) -> Words {
-        let (pwd, home, clips) = self.places();
-        Words::find(text, &Places { pwd: &pwd, home: Some(&home), clips })
+        let (pwd, home, state) = (self.path("project"), self.path("home"), self.path(""));
+        Words::find(text, &Places { pwd: &pwd, home: Some(&home), state: &state })
     }
 }
 

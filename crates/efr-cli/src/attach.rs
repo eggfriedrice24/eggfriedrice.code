@@ -128,20 +128,21 @@ pub(crate) struct Words {
 }
 
 /// Where the paths of the words of a prompt start.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Places<'a> {
     /// The shell's directory, for a relative path.
     pub(crate) pwd: &'a Path,
     /// The home dir, for `~/`.
     pub(crate) home: Option<&'a Path>,
-    /// The dir of the clip files of pasted images ([`CLIPS_DIR`]).
-    pub(crate) clips: PathBuf,
+    /// The state root of `efr`, whose [`CLIPS_DIR`] holds the clip files of pasted
+    /// images.
+    pub(crate) state: &'a Path,
 }
 
 impl<'a> Places<'a> {
     /// The places of a prompt of `ctx` that the shell in `pwd` sent.
     pub(crate) fn of(ctx: &'a Context, pwd: &'a Path) -> Places<'a> {
-        Places { pwd, home: ctx.home.as_deref(), clips: ctx.dirs.state().join(CLIPS_DIR) }
+        Places { pwd, home: ctx.home.as_deref(), state: ctx.dirs.state() }
     }
 }
 
@@ -153,7 +154,7 @@ impl Words {
         if tokens.is_empty() {
             return words;
         }
-        let clips = std::fs::canonicalize(&places.clips).ok();
+        let clips = std::fs::canonicalize(places.state.join(CLIPS_DIR)).ok();
         for token in tokens {
             let (range, path, named) = match Named::of(&token.path, places) {
                 Named::Nothing => match without_marks(&token, text) {

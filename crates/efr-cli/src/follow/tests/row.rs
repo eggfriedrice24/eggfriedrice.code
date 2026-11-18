@@ -2129,3 +2129,37 @@ async fn the_last_frame_goes_out_before_the_key_reader_stops() {
     result.unwrap();
     assert_eq!(setup.handed_back().as_deref(), Some("x"));
 }
+
+/// Tab on a row whose text names a file that cannot attach queues nothing: the note
+/// says why, and the text stays in the row and goes back to the shell. Enter steers
+/// with the text and says that a steer takes no attachment.
+#[tokio::test]
+async fn a_file_that_cannot_attach_keeps_the_text_of_tab_in_the_row() {
+    let setup = Setup::new();
+    let shot = setup.dir.path().join("shot.png");
+    std::fs::write(&shot, b"png!").unwrap();
+    let text = format!("look at @{}", shot.display());
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let typed = text.clone();
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(format!("{typed}\t").as_bytes()).await;
+        shows(&seen, "not attached: efrd does not take attachments").await;
+        keys.press(b'\r').await;
+        let (id, params) = steer_request(&mut conn).await;
+        assert_eq!(params.text, typed);
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(11), queued: false })
+            .await;
+        shows(&seen, "attachments go with a prompt, not with a steer").await;
+        keys.type_bytes(format!("{typed}\t").as_bytes()).await;
+        shows_where(&seen, |shown| shown.matches("not attached:").count() == 2).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("queued  look at"), "{}", readable(&out));
+    // The steer that no model call read goes back too, before the text of the row.
+    assert_eq!(setup.handed_back(), Some(format!("{text}\n{text}")));
+}
