@@ -15,6 +15,9 @@
 //! - [`LocalApi`]: a small typed client of tailscaled's LocalAPI over [`UnixClient`]:
 //!   the status of this node, the whois of a peer and the watch of the IPN bus, for
 //!   efrd's remote listener.
+//! - [`ExpoPush`]: a small typed client of the Expo push service, over
+//!   [`HttpClient`]: the send of notices and the read of their receipts, for efrd's
+//!   pushes to the phone app.
 //! - [`redact`]: header and URL redaction for logs, errors and transcripts.
 //! - [`Recorder`]: the hook through which the daemon records provider traffic as an
 //!   NDJSON transcript.
@@ -50,6 +53,11 @@ mod websocket;
 pub use bytes::Bytes;
 pub use client::{HttpClient, HttpConfig, POOL_IDLE_TIMEOUT};
 pub use error::HttpError;
+pub use expo_push::{
+    CODE_MAX_LEN, DEVICE_NOT_REGISTERED, EXPO_PUSH_BASE, EXPO_RETRY, ExpoAnswer, ExpoPush,
+    INVALID_CREDENTIALS, MAX_MESSAGES, MAX_RECEIPT_IDS, PushCode, PushMessage, RECEIPTS_PATH,
+    REQUEST_TIMEOUT, Receipt, SEND_PATH, TITLE, TOO_MANY_EXPERIENCE_IDS, Ticket, TicketId,
+};
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 pub use json_lines::JsonLines;
 pub use localapi::{
