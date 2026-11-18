@@ -1705,52 +1705,57 @@ export function isQueued(turn: TurnView): boolean {
   return turn.prompt !== undefined && !turn.started && turn.end === undefined;
 }
 
-/** The approvals of the conversation that wait for an answer, oldest first. */
-export function pendingApprovals(state: StreamState): ApprovalView[] {
-  const pending: ApprovalView[] = [];
-  for (const turnId of state.order) {
-    for (const approval of state.turns.get(turnId)?.approvals.values() ?? []) {
-      if (approval.status === "pending") {
-        pending.push(approval);
-      }
-    }
-  }
-  return pending;
+/** What waits for an answer in the conversation, each kind oldest first. */
+export interface PendingWaits {
+  /** The approvals, of any turn. */
+  readonly approvals: ApprovalView[];
+  /** The quarantine questions of the tool calls of the open turns. */
+  readonly quarantine: QuarantineQuestionView[];
+  /** The questions of the model of the tool calls of the open turns. */
+  readonly questions: UserQuestionView[];
 }
 
-/**
- * What `pick` gives of each tool call of the open turns, oldest first: the questions of
- * the calls that wait for an answer.
- */
-function pendingOf<T>(state: StreamState, pick: (call: ToolCallView) => T | undefined): T[] {
-  const pending: T[] = [];
+/** Every wait of the conversation, in one walk of its turns. */
+export function pendingWaits(state: StreamState): PendingWaits {
+  const waits: PendingWaits = { approvals: [], quarantine: [], questions: [] };
   for (const turnId of state.order) {
     const turn = state.turns.get(turnId);
-    if (turn === undefined || turn.end !== undefined) {
+    if (turn === undefined) {
+      continue;
+    }
+    for (const approval of turn.approvals.values()) {
+      if (approval.status === "pending") {
+        waits.approvals.push(approval);
+      }
+    }
+    if (turn.end !== undefined) {
       continue;
     }
     for (const call of turn.tools.values()) {
-      const picked = pick(call);
-      if (picked !== undefined) {
-        pending.push(picked);
+      if (call.quarantine?.answer === "pending") {
+        waits.quarantine.push(call.quarantine);
+      }
+      if (call.question?.answer.kind === "pending") {
+        waits.questions.push(call.question);
       }
     }
   }
-  return pending;
+  return waits;
+}
+
+/** The approvals of the conversation that wait for an answer, oldest first. */
+export function pendingApprovals(state: StreamState): ApprovalView[] {
+  return pendingWaits(state).approvals;
 }
 
 /** The quarantine questions of the conversation that wait for an answer, oldest first. */
 export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] {
-  return pendingOf(state, (call) =>
-    call.quarantine?.answer === "pending" ? call.quarantine : undefined,
-  );
+  return pendingWaits(state).quarantine;
 }
 
 /** The questions of the model that wait for an answer, oldest first. */
 export function pendingQuestions(state: StreamState): UserQuestionView[] {
-  return pendingOf(state, (call) =>
-    call.question?.answer.kind === "pending" ? call.question : undefined,
-  );
+  return pendingWaits(state).questions;
 }
 
 /** The quarantine question of the tool call `callId`, in any turn. */

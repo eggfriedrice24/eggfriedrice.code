@@ -35,14 +35,7 @@ import type { ApprovalButtons } from "../model/approval-block";
 import { approvalStrip, type ApprovalMeta, type ApprovalStripModel } from "../model/approval-strip";
 import { quarantineStrip } from "../model/quarantine";
 import { questionStrip, type QuestionStripModel } from "../model/question";
-import {
-  compareApprovals,
-  compareQuarantine,
-  compareQuestions,
-  selectPendingApprovals,
-  selectPendingQuarantine,
-  selectPendingQuestions,
-} from "../model/selectors";
+import { comparePendingWaits, selectPendingWaits } from "../model/selectors";
 import { useAnswerApproval, useExpiryLabel } from "../use-answer-approval";
 import type { AnswerQuestion } from "../use-answer-question";
 import { useLeaveQuarantine } from "../use-leave-quarantine";
@@ -86,16 +79,11 @@ export interface ApprovalStripProps {
 
 /** The strip of the question that waits first, or nothing when none waits. */
 export function ApprovalStrip(props: ApprovalStripProps) {
-  const waiting = useSelector(props.stream, selectPendingApprovals, {
-    compare: compareApprovals,
-  });
-  const quarantine = useSelector(props.stream, selectPendingQuarantine, {
-    compare: compareQuarantine,
-  });
-  const pendingQuestions = useSelector(props.stream, selectPendingQuestions, {
-    compare: compareQuestions,
-  });
-  const questions = props.questions === undefined ? [] : pendingQuestions;
+  // One walk of the turns per store update gives the three kinds of waits.
+  const waits = useSelector(props.stream, selectPendingWaits, { compare: comparePendingWaits });
+  const waiting = waits.approvals;
+  const quarantine = waits.quarantine;
+  const questions = props.questions === undefined ? [] : waits.questions;
   const first = waiting[0];
   const question = questions[0];
   const count = waiting.length + questions.length;

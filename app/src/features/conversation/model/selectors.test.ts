@@ -18,6 +18,7 @@ import {
 } from "@/lib/stream/testing";
 import {
   compareApprovals,
+  comparePendingWaits,
   compareQuestions,
   compareRows,
   compareShallow,
@@ -26,6 +27,7 @@ import {
   selectMessage,
   selectPendingApprovals,
   selectPendingQuestions,
+  selectPendingWaits,
   selectPrompt,
   selectReasoning,
   selectStatus,
@@ -168,5 +170,21 @@ describe("the questions of the model", () => {
     expect(compareQuestions(selectPendingQuestions(state), selectPendingQuestions(state))).toBe(
       true,
     );
+  });
+});
+
+describe("the waits selector", () => {
+  it("gives every kind of wait from one walk, equal until one comes or goes", () => {
+    const state = run([...asked(), event(approvalRequested(TURN, "a"))]);
+    const waits = selectPendingWaits(state);
+    expect(waits.approvals.map((approval) => approval.callId)).toEqual(["a"]);
+    expect(waits.questions.map((question) => question.questionId)).toEqual(["q1"]);
+    expect(waits.quarantine).toEqual([]);
+    expect(waits.approvals).toEqual(selectPendingApprovals(state));
+    const text = reduce(state, draft(textPart(0, 0, "x")));
+    expect(comparePendingWaits(waits, selectPendingWaits(text))).toBe(true);
+    const answered = reduce(state, event(approvalResolved(TURN, "a", "allow")));
+    expect(comparePendingWaits(waits, selectPendingWaits(answered))).toBe(false);
+    expect(selectPendingWaits(answered).questions).toEqual(waits.questions);
   });
 });

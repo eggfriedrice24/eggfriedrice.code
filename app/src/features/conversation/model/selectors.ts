@@ -25,6 +25,8 @@ import {
   pendingApprovals,
   pendingQuarantine,
   pendingQuestions,
+  type PendingWaits,
+  pendingWaits,
   type QuarantineQuestionView,
   runningTurn,
   type SteerView,
@@ -303,6 +305,25 @@ export const compareApprovals: (a: readonly ApprovalView[], b: readonly Approval
 /** The questions of the model that wait, oldest first. Compare with `compareQuestions`. */
 export function selectPendingQuestions(state: StreamState): readonly UserQuestionView[] {
   return pendingQuestions(state);
+}
+
+/**
+ * The approvals, the quarantine questions and the questions of the model that wait, in
+ * one walk of the turns, for a view that shows all three. Compare with
+ * `comparePendingWaits`.
+ */
+export function selectPendingWaits(state: StreamState): PendingWaits {
+  return pendingWaits(state);
+}
+
+/** The compare of `selectPendingWaits`: the same objects of each kind in the same order. */
+export function comparePendingWaits(a: PendingWaits, b: PendingWaits): boolean {
+  return (
+    a === b ||
+    (sameItems(a.approvals, b.approvals) &&
+      sameItems(a.quarantine, b.quarantine) &&
+      sameItems(a.questions, b.questions))
+  );
 }
 
 /**
