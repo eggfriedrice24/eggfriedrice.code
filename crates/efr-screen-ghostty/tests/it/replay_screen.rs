@@ -16,7 +16,7 @@
 
 use std::time::{Duration, Instant};
 
-use efr_screen::{Screen, ScreenSink, Size};
+use efr_screen::{Screen, ScreenSink, Seq, ShellMarkScanner, Size};
 use efr_test_support::bench::Report;
 
 /// The scrollback rows that every backend keeps at least (`TRUSTED_SCROLLBACK`).
@@ -98,7 +98,9 @@ fn replay<S: Screen>(make: &dyn Fn(Size) -> S, bytes: &[u8], read: Read) -> Coun
         let feeds = piece.iter().filter(|&&byte| byte == b'\n').count() + 1;
         let rows = u16::try_from(feeds).unwrap_or(u16::MAX).clamp(SHELL.rows, MAX_ROWS);
         let mut screen = make(Size { cols: SHELL.cols, rows });
-        screen.feed(piece, &mut Discard);
+        // As the actor does: one scan for marks, and the marks go with the bytes.
+        let marks = ShellMarkScanner::new().scan(piece, Seq::ZERO);
+        screen.feed_marked(piece, Seq::ZERO, &marks, &mut Discard);
         counts.screens += 1;
         counts.bytes_fed += piece.len() as u64;
         let full = match read {

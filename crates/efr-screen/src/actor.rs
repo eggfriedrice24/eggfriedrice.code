@@ -156,11 +156,12 @@ impl<S: Screen> ScreenActor<S> {
     }
 
     /// Scans for marks before the backend sees the bytes, so marks are the same for
-    /// every backend, then sends the marks, the notices in the order they happened and
-    /// the replies the backend buffered.
+    /// every backend, and gives the backend the marks with the bytes. Then it sends the
+    /// marks, the notices in the order they happened and the replies the backend
+    /// buffered.
     fn feed(&mut self, bytes: &[u8], base_seq: Seq) {
         let marks = self.scanner.scan(bytes, base_seq);
-        self.screen.feed(bytes, &mut self.sink);
+        self.screen.feed_marked(bytes, base_seq, &marks, &mut self.sink);
         self.next = Seq::new(base_seq.get().saturating_add(bytes.len() as u64));
         for mark in marks {
             self.events.send(ScreenEvent::ShellMark(mark));

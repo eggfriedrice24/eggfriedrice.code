@@ -2,10 +2,10 @@
 
 use std::time::Duration;
 
-use efr_protocol::{Cursor, RowCells, ScreenSnapshot};
+use efr_protocol::{Cursor, RowCells, ScreenSnapshot, Seq};
 
 use crate::snapshot::normalize;
-use crate::{ScreenSink, ScreenText};
+use crate::{ScreenSink, ScreenText, ShellMark};
 
 /// A terminal emulator that turns PTY output into a grid of cells.
 ///
@@ -16,14 +16,30 @@ use crate::{ScreenSink, ScreenText};
 /// [`ScreenActor::spawn`](crate::ScreenActor::spawn)). Other crates never hold a
 /// `Screen`; they talk to it through a [`ScreenHandle`](crate::ScreenHandle).
 ///
-/// Shell marks (OSC 133 and OSC 7) are not a `Screen` method. The actor scans every
-/// chunk with a [`ShellMarkScanner`](crate::ShellMarkScanner) before it calls
-/// [`feed`](Screen::feed), so both backends report identical marks with recording
-/// offsets.
+/// Shell marks (OSC 133 and OSC 7) never come from a `Screen`. The actor scans every
+/// chunk once with a [`ShellMarkScanner`](crate::ShellMarkScanner) and gives the
+/// marks to [`feed_marked`](Screen::feed_marked), so both backends report identical
+/// marks with recording offsets, and a backend that parses the sequences itself can
+/// check its own view against them without a second scan.
 pub trait Screen {
     /// Processes PTY output. Answers to terminal queries (DA, DSR, DECRQM, OSC 10 and
     /// 11), bells and title changes go to `sink` while the bytes are processed.
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink);
+
+    /// [`feed`](Screen::feed) with what the actor knows of the bytes: the recording
+    /// offset `base` of their first byte and the shell marks that its scanner found
+    /// in them, which end inside them, in stream order. The actor calls this, never
+    /// `feed`. The default ignores the marks.
+    fn feed_marked(
+        &mut self,
+        bytes: &[u8],
+        base: Seq,
+        marks: &[ShellMark],
+        sink: &mut dyn ScreenSink,
+    ) {
+        let _ = (base, marks);
+        self.feed(bytes, sink);
+    }
 
     /// Changes the size of the visible grid. A backend that reports size changes to
     /// the program (in-band resize, mode 2048) writes the report to `sink`.

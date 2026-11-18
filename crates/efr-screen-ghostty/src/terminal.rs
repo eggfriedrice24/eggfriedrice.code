@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
+use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Seq, ShellMark, Size};
 use libghostty_vt::Terminal;
 use libghostty_vt::color::Rgb;
 use libghostty_vt::screen::Screen as ActiveScreen;
@@ -82,9 +82,10 @@ impl Default for GhosttyConfig {
 ///
 /// Answers to terminal queries, bells and title changes are collected while
 /// libghostty-vt runs and handed to the [`ScreenSink`] after each feed and resize.
-/// Every feed is also cross-checked against a shell mark scanner: libghostty-vt's
-/// working directory and per-row prompt state must agree with the OSC 133 and OSC 7
-/// marks. A disagreement is logged as a warning; a feed never fails.
+/// Every feed from the actor is also cross-checked against the shell marks of the
+/// actor's scan: the OSC 133 steps that libghostty-vt reports, its working directory
+/// and its per-row prompt state must agree with the marks, at the byte where each
+/// OSC ends. A disagreement is logged as a warning; a feed never fails.
 #[derive(Debug)]
 pub struct GhosttyScreen {
     terminal: Terminal<'static, 'static>,
@@ -202,8 +203,25 @@ impl GhosttyScreen {
 }
 
 impl Screen for GhosttyScreen {
+    /// Writes the bytes without the cross-check, because there are no marks to
+    /// check. The actor calls [`feed_marked`](Screen::feed_marked).
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
-        for disagreement in self.cross_check.write(&mut self.terminal, &self.effects, bytes) {
+        self.cross_check.write_unchecked(&mut self.terminal, &self.effects, bytes);
+        self.log_failure();
+        self.effects.drain(sink);
+    }
+
+    /// Writes the bytes and checks libghostty-vt's own reading of OSC 133 and OSC 7
+    /// against the marks of the actor's scan.
+    fn feed_marked(
+        &mut self,
+        bytes: &[u8],
+        base: Seq,
+        marks: &[ShellMark],
+        sink: &mut dyn ScreenSink,
+    ) {
+        let check = &mut self.cross_check;
+        for disagreement in check.write(&mut self.terminal, &self.effects, bytes, base, marks) {
             disagreement.log();
         }
         self.log_failure();

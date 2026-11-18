@@ -1,48 +1,73 @@
-//! The cross-check between the shell mark scanner and libghostty-vt's own view.
+//! The cross-check between the shell marks and libghostty-vt's own view.
 //!
 //! The scanner in efr-screen is the source of truth for OSC 133 and OSC 7: it gives
 //! marks recording offsets and runs the same for every backend. libghostty-vt parses
-//! the same sequences for itself: it keeps a working directory (`Terminal::pwd`) and
-//! a semantic prompt state per row (`Row::semantic_prompt`). Where both read the same
-//! bytes they must agree, so a ghostty screen runs a second scanner over what it is
-//! fed, writes the bytes to the terminal in pieces that end where a mark ends, and
-//! compares the terminal after each piece with what the mark says.
+//! the same sequences for itself: it reports each OSC 133 step through its semantic
+//! prompt callback, keeps a working directory (`Terminal::pwd`) and a semantic prompt
+//! state per row (`Row::semantic_prompt`). Where both read the same bytes they must
+//! agree. The actor gives the screen the marks of its one scan with the bytes, and
+//! the screen writes the bytes with `Terminal::vt_write_until`, which stops at the end
+//! of every OSC that libghostty-vt reads. A mark must end where such an OSC ends, and
+//! the terminal at that stop must agree with the mark.
 //!
-//! What is compared:
+//! What is compared at the end of an OSC:
 //!
+//! - an OSC 133 mark: libghostty-vt reported the same step (prompt start with the same
+//!   kind of prompt, input start, output start, or command end with the same exit
+//!   code);
 //! - an OSC 7 mark: libghostty-vt's working directory, read as an OSC 7 URL, names
 //!   the same host and path;
-//! - any other piece: libghostty-vt's working directory did not change, because the
-//!   scanner saw no OSC 7 (ghostty also takes OSC 7 forms the scanner refuses, and
-//!   dispatches an OSC that an `ESC` cut short);
+//! - an OSC without a mark: libghostty-vt's working directory did not change (ghostty
+//!   also takes OSC 7 forms the scanner refuses, and dispatches an OSC that an `ESC`
+//!   cut short);
 //! - a prompt mark: the cursor row's prompt state is `Prompt` for a primary or right
 //!   prompt and `Continuation` for a continuation or secondary prompt, and after `A`
 //!   the cursor is in column 0, because `A` asks for a fresh line.
 //!
-//! A disagreement is logged as a warning by the screen and never fails a feed. The
-//! pinned libghostty-vt also has ghostty's semantic prompt effect
-//! (`Terminal::on_semantic_prompt`), which efr does not use yet. When it does, it is
-//! wired here, as one more comparison, and nowhere else.
+//! A mark that ends where libghostty-vt read no OSC end is a disagreement too. An OSC
+//! 133 step that libghostty-vt reports where the scanner read no mark is not: the
+//! scanner skips the marks of a nested tmux on purpose. A disagreement is logged as a
+//! warning by the screen and never fails a feed.
 
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_screen::{PromptKind, SemanticPromptEvent, Seq, ShellMarkKind, ShellMarkScanner};
+use efr_screen::{
+    PromptKind, SemanticPromptEvent, Seq, ShellMark, ShellMarkKind, ShellMarkScanner,
+};
 use libghostty_vt::Terminal;
+use libghostty_vt::effect::{self, SemanticPrompt, SemanticPromptKind};
 use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::screen::RowSemanticPrompt;
+use libghostty_vt::terminal::{Boundary, StringEnd};
 
 use crate::effects::Effects;
 
-/// The scanner and the stream position of one ghostty screen.
+/// The stream position and the last working directory of one ghostty screen.
 #[derive(Debug, Default)]
 pub(crate) struct CrossCheck {
-    scanner: ShellMarkScanner,
-    /// The offset of the next byte in this screen's own stream. The screen sees its
-    /// bytes without recording offsets, and a scanner only needs them to continue.
-    next: u64,
+    /// The recording offset after the last byte written; `None` before the first.
+    next: Option<u64>,
+    /// An OSC that ended with the `ESC` of `ESC \` as the last byte of a chunk: the
+    /// offset where its mark ends, after the `\` in the next chunk. The scanner
+    /// reports that mark with the next chunk, so the check waits for it. The
+    /// terminal does not change in between, because the `\` only ends the string.
+    pending: Option<u64>,
     /// libghostty-vt's working directory when it was last read.
     pwd: Option<String>,
+}
+
+/// One OSC 133 step, as both parsers can tell it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    /// A prompt starts (`A` or `P`), of this kind.
+    PromptStart(PromptKind),
+    /// The input starts (`B`).
+    InputStart,
+    /// The output starts (`C`).
+    OutputStart,
+    /// The command ended (`D`), with this exit code.
+    CommandEnd(Option<i32>),
 }
 
 /// One way libghostty-vt and the scanner disagreed.
@@ -63,6 +88,20 @@ pub(crate) enum Disagreement {
     UnmarkedCwd {
         /// libghostty-vt's new working directory, as it stores it.
         backend: Option<String>,
+    },
+    /// The scanner read an OSC 133 mark, but libghostty-vt reported another step at
+    /// the end of that OSC, or none.
+    Step {
+        /// The step of the mark.
+        expected: Step,
+        /// The step that libghostty-vt reported; `Some(None)` for a kind that this
+        /// crate does not know.
+        actual: Option<Option<Step>>,
+    },
+    /// The scanner read a mark that ends where libghostty-vt read no end of an OSC.
+    Unread {
+        /// The recording offset just after the mark.
+        end: u64,
     },
     /// A prompt mark left the cursor row in another prompt state.
     PromptRow {
@@ -89,36 +128,96 @@ impl CrossCheck {
         check
     }
 
-    /// Writes `bytes` to `terminal`, split at the end of every mark the scanner finds,
-    /// and returns what libghostty-vt disagreed on. `effects` must be the buffer of
-    /// `terminal`'s callbacks; its working directory flag is consumed here.
+    /// Writes `bytes`, whose first byte is at recording offset `base`, to `terminal`
+    /// and returns what libghostty-vt disagreed on with `marks`, the marks that the
+    /// actor's scanner found in them. `effects` must be the buffer of `terminal`'s
+    /// callbacks; its working directory, reset and step flags are consumed here.
     pub(crate) fn write(
         &mut self,
         terminal: &mut Terminal<'_, '_>,
         effects: &Effects,
         bytes: &[u8],
+        base: Seq,
+        marks: &[ShellMark],
     ) -> Vec<Disagreement> {
-        let base = self.next;
-        self.next = base.saturating_add(bytes.len() as u64);
-        let marks = self.scanner.scan(bytes, Seq::new(base));
-        let mut found = Vec::new();
-        let mut written = 0;
-        for mark in marks {
-            let end = usize::try_from(mark.end.get().saturating_sub(base))
-                .map_or(bytes.len(), |end| end.clamp(written, bytes.len()));
-            terminal.vt_write(&bytes[written..end]);
-            written = end;
-            self.check(terminal, effects, Some(&mark.kind), &mut found);
+        let base = base.get();
+        // A gap in the recording: the mark of the pending OSC cannot come any more.
+        if self.next != Some(base) && self.pending.take().is_some() {
+            self.forget(terminal, effects);
         }
-        if written < bytes.len() {
-            terminal.vt_write(&bytes[written..]);
-            self.check(terminal, effects, None, &mut found);
+        self.next = Some(base.saturating_add(bytes.len() as u64));
+        let mut marks = marks.iter().peekable();
+        let mut found = Vec::new();
+        if let Some(end) = self.pending.take() {
+            let mark = marks.next_if(|mark| mark.end.get() == end);
+            self.check(terminal, effects, mark.map(|mark| &mark.kind), &mut found);
+        }
+        let mut written = 0;
+        while written < bytes.len() {
+            let stop = match terminal.vt_write_until(&bytes[written..], Boundary::OSC_END) {
+                Ok(Some(stop)) if stop.consumed > 0 => stop,
+                Ok(None) => break,
+                // NOTE: the call refuses only boundaries it does not know, and only a
+                // ground stop consumes nothing, so this does not happen; the bytes
+                // still reach the terminal in full.
+                Ok(Some(_)) | Err(_) => {
+                    terminal.vt_write(&bytes[written..]);
+                    break;
+                }
+            };
+            written += stop.consumed;
+            let mut end = base.saturating_add(written as u64);
+            // The terminal stops after the `ESC` of `ESC \`; the mark ends after the
+            // `\`.
+            if stop.end == Some(StringEnd::StEsc) {
+                end = end.saturating_add(1);
+                if written == bytes.len() {
+                    self.pending = Some(end);
+                    break;
+                }
+            }
+            while let Some(missed) = marks.next_if(|mark| mark.end.get() < end) {
+                found.push(Disagreement::Unread { end: missed.end.get() });
+            }
+            let mark = marks.next_if(|mark| mark.end.get() == end);
+            self.check(terminal, effects, mark.map(|mark| &mark.kind), &mut found);
+        }
+        for missed in marks {
+            found.push(Disagreement::Unread { end: missed.end.get() });
+        }
+        // A full reset after the last OSC clears the working directory too. The flags
+        // of an OSC that waits for its `\` stay for that check.
+        if self.pending.is_none() && effects.take_reset() {
+            self.pwd = None;
         }
         found
     }
 
-    /// Compares `terminal` with the mark that ended the piece just written, or with
-    /// no mark for a piece after the last mark.
+    /// Writes `bytes` without a check, for a feed that comes without marks. The
+    /// working directory is read again, so a later check starts from the truth.
+    pub(crate) fn write_unchecked(
+        &mut self,
+        terminal: &mut Terminal<'_, '_>,
+        effects: &Effects,
+        bytes: &[u8],
+    ) {
+        terminal.vt_write(bytes);
+        self.next = None;
+        self.pending = None;
+        self.forget(terminal, effects);
+    }
+
+    /// Drops what the callbacks reported without a check and reads the working
+    /// directory again.
+    fn forget(&mut self, terminal: &Terminal<'_, '_>, effects: &Effects) {
+        let _ = (effects.take_reset(), effects.take_pwd_changed(), effects.take_step());
+        if !self.read_pwd(terminal) {
+            self.pwd = None;
+        }
+    }
+
+    /// Compares `terminal` at the end of one OSC with the mark that ends there, if
+    /// any.
     pub(crate) fn check(
         &mut self,
         terminal: &Terminal<'_, '_>,
@@ -132,6 +231,7 @@ impl CrossCheck {
             self.pwd = None;
         }
         let pwd_changed = effects.take_pwd_changed();
+        let step = effects.take_step();
         match mark {
             // A working directory that is not UTF-8 cannot be read through the safe
             // API, so there is nothing to compare it with.
@@ -154,12 +254,15 @@ impl CrossCheck {
             }
             _ => {}
         }
-        if let Some(ShellMarkKind::SemanticPrompt(SemanticPromptEvent::PromptStart {
-            kind,
-            fresh_line,
-            ..
-        })) = mark
+        let Some(ShellMarkKind::SemanticPrompt(event)) = mark else {
+            return;
+        };
+        if let Some(expected) = Step::of_mark(event)
+            && step != Some(Some(expected))
         {
+            found.push(Disagreement::Step { expected, actual: step });
+        }
+        if let SemanticPromptEvent::PromptStart { kind, fresh_line, .. } = event {
             check_prompt(terminal, *kind, *fresh_line, found);
         }
     }
@@ -173,6 +276,40 @@ impl CrossCheck {
                 true
             }
             None => false,
+        }
+    }
+}
+
+impl Step {
+    /// The step that libghostty-vt reports; `None` for a kind that this crate does
+    /// not know.
+    pub(crate) fn of(event: SemanticPrompt<'_>) -> Option<Step> {
+        match event.kind().ok()? {
+            SemanticPromptKind::PromptStart => {
+                let kind = match event.prompt_kind().ok()? {
+                    effect::PromptKind::Primary => PromptKind::Initial,
+                    effect::PromptKind::Right => PromptKind::Right,
+                    effect::PromptKind::Continuation => PromptKind::Continuation,
+                    effect::PromptKind::Secondary => PromptKind::Secondary,
+                    _ => return None,
+                };
+                Some(Step::PromptStart(kind))
+            }
+            SemanticPromptKind::InputStart => Some(Step::InputStart),
+            SemanticPromptKind::OutputStart => Some(Step::OutputStart),
+            SemanticPromptKind::CommandEnd => Some(Step::CommandEnd(event.exit_code())),
+            _ => None,
+        }
+    }
+
+    /// The step of a mark; `None` for a kind that this crate does not know yet.
+    fn of_mark(event: &SemanticPromptEvent) -> Option<Step> {
+        match event {
+            SemanticPromptEvent::PromptStart { kind, .. } => Some(Step::PromptStart(*kind)),
+            SemanticPromptEvent::InputStart => Some(Step::InputStart),
+            SemanticPromptEvent::OutputStart { .. } => Some(Step::OutputStart),
+            SemanticPromptEvent::CommandEnd { exit_code, .. } => Some(Step::CommandEnd(*exit_code)),
+            _ => None,
         }
     }
 }
@@ -257,6 +394,26 @@ impl fmt::Display for Disagreement {
                 f,
                 "libghostty-vt changed its working directory to {} without an OSC 7 mark",
                 backend.as_deref().unwrap_or("nothing"),
+            ),
+            Disagreement::Step { expected, actual } => match actual {
+                Some(Some(actual)) => write!(
+                    f,
+                    "the scanner read OSC 133 {expected:?}, but libghostty-vt reported {actual:?}"
+                ),
+                Some(None) => write!(
+                    f,
+                    "the scanner read OSC 133 {expected:?}, but libghostty-vt reported a step \
+                     of a kind efr does not know"
+                ),
+                None => write!(
+                    f,
+                    "the scanner read OSC 133 {expected:?}, but libghostty-vt reported no step"
+                ),
+            },
+            Disagreement::Unread { end } => write!(
+                f,
+                "the scanner read a mark that ends at byte {end}, but libghostty-vt read no \
+                 end of an OSC there"
             ),
             Disagreement::PromptRow { kind, expected, actual } => write!(
                 f,

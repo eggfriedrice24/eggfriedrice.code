@@ -219,7 +219,9 @@ snapshot per vt fixture per backend).
 - A `Screen` is built on, used on and dropped on its own actor thread; other crates
   hold only `ScreenHandle` and `ScreenEvents`.
 - OSC 133 and OSC 7 are parsed once, here, before any backend sees the bytes, so every
-  backend produces the same marks with the same recording offsets. The conformance
+  backend produces the same marks with the same recording offsets. The actor gives
+  the marks to the backend with the bytes (`Screen::feed_marked`), so a backend that
+  checks them needs no scan of its own. The conformance
   suite compares marks for every backend, even for fixtures that list the backend in
   their `differs` list.
 - Nothing in the actor waits on real time; backpressure is the bounded queues.

@@ -96,7 +96,10 @@ fn pwd_is_the_raw_osc_7_url() {
 fn a_disagreement_with_the_scanner_never_fails_a_feed() {
     let mut screen = screen(10, 2);
     // ghostty takes an http:// OSC 7 that the scanner refuses: a disagreement.
-    let sink = feed(&mut screen, b"\x1b]7;http://arch/tmp\x07ok\x1b[c");
+    let bytes = b"\x1b]7;http://arch/tmp\x07ok\x1b[c";
+    let marks = efr_screen::ShellMarkScanner::new().scan(bytes, Seq::ZERO);
+    let mut sink = Recorder::default();
+    screen.feed_marked(bytes, Seq::ZERO, &marks, &mut sink);
     assert_eq!(sink.replies(), b"\x1b[?62;22c".to_vec());
     assert_eq!(texts(&[screen.row(0)]), vec!["ok"]);
     assert_eq!(screen.pwd(), Some("http://arch/tmp"));
@@ -260,6 +263,51 @@ fn the_factory_builds_the_screen_on_the_actor_thread() {
     assert_eq!(texts(&capture.snapshot.rows), vec!["hi", "", ""]);
     handle.shutdown_blocking().unwrap();
     assert_eq!(events.blocking_recv(), None);
+}
+
+#[test]
+fn the_marks_and_the_cwd_arrive_once_with_their_offsets() {
+    let (handle, mut events) =
+        ScreenActor::spawn("screen-ghostty-test", factory(size(20, 4)), size(20, 4)).unwrap();
+    // 0..8 A, 8..34 OSC 7, "$ ", 36..44 B, "ls\r\n", 48..56 C, "out\r\n", 61..71 D;2.
+    // The chunks cut A in two and OSC 7 between the two bytes of its `ESC \`.
+    let stream: &[u8] = b"\x1b]133;A\x07\x1b]7;file://arch/home/egg\x1b\\$ \x1b]133;B\x07ls\r\n\
+        \x1b]133;C\x07out\r\n\x1b]133;D;2\x07";
+    let mut at = 0;
+    for chunk in [&stream[..4], &stream[4..33], &stream[33..58], &stream[58..]] {
+        handle.feed_blocking(Bytes::copy_from_slice(chunk), Seq::new(at)).unwrap();
+        at += chunk.len() as u64;
+    }
+    handle.shutdown_blocking().unwrap();
+    let mut marks = Vec::new();
+    while let Some(event) = events.blocking_recv() {
+        if let ScreenEvent::ShellMark(mark) = event {
+            marks.push((mark.start.get(), mark.end.get(), mark.kind));
+        }
+    }
+    let offsets: Vec<(u64, u64)> = marks.iter().map(|(start, end, _)| (*start, *end)).collect();
+    assert_eq!(offsets, vec![(0, 8), (8, 34), (36, 44), (48, 56), (61, 71)]);
+    assert!(matches!(
+        &marks[1].2,
+        efr_screen::ShellMarkKind::CwdChanged { path, .. } if path.as_os_str() == "/home/egg"
+    ));
+    assert!(matches!(
+        &marks[4].2,
+        efr_screen::ShellMarkKind::SemanticPrompt(efr_screen::SemanticPromptEvent::CommandEnd {
+            exit_code: Some(2),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_feed_of_the_actor_reaches_the_terminal_in_full_with_its_marks() {
+    let mut screen = screen(20, 3);
+    let bytes = b"\x1b]133;A\x07$ \x1b]7;file://arch/srv\x07ok";
+    let marks = efr_screen::ShellMarkScanner::new().scan(bytes, Seq::new(100));
+    screen.feed_marked(bytes, Seq::new(100), &marks, &mut Recorder::default());
+    assert_eq!(texts(&screen.snapshot(0).rows), vec!["$ ok", "", ""]);
+    assert_eq!(screen.pwd(), Some("file://arch/srv"));
 }
 
 #[test]

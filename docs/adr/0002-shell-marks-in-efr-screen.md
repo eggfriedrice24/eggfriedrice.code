@@ -11,6 +11,11 @@ event: the pinned master has only per-row semantic prompt state with no exit cod
 the newer ghostty effect (commit 7bb45ba) fires after the screen update with no stream
 offset. vt100 handles only OSC 0, 1, 2 and 52.
 
+Update 2026-11-18: the pin of libghostty-vt 1.0.1 has that effect
+(`Terminal::on_semantic_prompt`) and gives exact stream offsets through
+`Terminal::vt_write_until`. The effect still has no `aid`, no `cl`, no fresh line of
+`A` and no efr end mark of a sandboxed call, so the decision stays.
+
 ## Decision
 
 `efr-screen/src/shell_marks/` holds a backend-independent `ShellMarkScanner` that
@@ -28,7 +33,9 @@ sequences as ghostty's zsh integration, which is GPLv3 and is never copied.
 
 - Both backends produce identical marks, and one conformance suite tests them.
 - Output slices come from the recording, not from rendered rows.
-- When a libghostty-rs rev wraps the 7bb45ba effect, it becomes a cross-check in
-  `efr-screen-ghostty/src/semantic_prompt.rs`; the scanner stays the source of truth.
+- The effect is a cross-check in `efr-screen-ghostty/src/semantic_prompt.rs` (since
+  2026-11-18): the actor gives the backend the marks of its one scan, and each mark
+  must end where libghostty-vt ends an OSC, with the same step. The scanner stays the
+  source of truth.
 - Nested shells and raw `ESC ]` fragments in binary output are open risks, covered by
   proptest chunk-split tests and, if needed later, fuzzing.

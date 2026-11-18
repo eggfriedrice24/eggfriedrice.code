@@ -13,6 +13,7 @@ use std::rc::Rc;
 use efr_screen::ScreenSink;
 use libghostty_vt::Terminal;
 
+use crate::semantic_prompt::Step;
 use crate::snapshot;
 
 /// What the callbacks of one terminal produced since the last drain.
@@ -35,6 +36,10 @@ pub(crate) struct Effects {
     /// directory without a working directory callback. Cleared by
     /// [`take_reset`](Effects::take_reset).
     reset: Cell<bool>,
+    /// The last OSC 133 step that libghostty-vt reported, cleared by
+    /// [`take_step`](Effects::take_step). `Some(None)` is a step of a kind that this
+    /// crate does not know.
+    step: Cell<Option<Option<Step>>>,
 }
 
 /// A callback other than a reply, kept in order.
@@ -55,6 +60,7 @@ impl Effects {
         let titles = Rc::clone(&effects);
         let pwd = Rc::clone(&effects);
         let resets = Rc::clone(&effects);
+        let steps = Rc::clone(&effects);
         terminal
             .on_pty_write(move |_, bytes| replies.replies.borrow_mut().extend_from_slice(bytes))?
             .on_bell(move |_| bells.notices.borrow_mut().push(Notice::Bell))?
@@ -71,7 +77,8 @@ impl Effects {
             .on_reset(move |_| {
                 resets.notices.borrow_mut().push(Notice::Title(String::new()));
                 resets.reset.set(true);
-            })?;
+            })?
+            .on_semantic_prompt(move |_, event| steps.step.set(Some(Step::of(event))))?;
         Ok(effects)
     }
 
@@ -99,6 +106,12 @@ impl Effects {
     /// True when the program made a full reset since the last call.
     pub(crate) fn take_reset(&self) -> bool {
         self.reset.replace(false)
+    }
+
+    /// The last OSC 133 step that libghostty-vt reported since the last call:
+    /// `Some(None)` for a kind that this crate does not know.
+    pub(crate) fn take_step(&self) -> Option<Option<Step>> {
+        self.step.take()
     }
 }
 

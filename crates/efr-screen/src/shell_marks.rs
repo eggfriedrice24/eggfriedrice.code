@@ -2,9 +2,11 @@
 //!
 //! The marks must be the same for every backend, with recording offsets. vt100
 //! handles only OSC 0, 1, 2 and 52. libghostty-vt reports OSC 133 and OSC 7 through
-//! its own callbacks, but efr does not use them, and vt100 has no such callbacks. So
-//! the actor runs a [`ShellMarkScanner`] over every chunk before the backend sees it,
-//! and every backend gets the same marks with the same recording offsets. Four small
+//! its own callbacks, but without the options `aid` and `cl`, without the fresh line
+//! of `A` and without efr's own end mark of a sandboxed call, and vt100 has no such
+//! callbacks. So the actor runs a [`ShellMarkScanner`] over every chunk before the
+//! backend sees it, and every backend gets the same marks with the same recording
+//! offsets. The ghostty backend uses its callbacks only to check the marks. Four small
 //! parts: `osc_frames` finds complete OSC sequences,
 //! `semantic_prompt` reads OSC 133, `sandbox_end` reads efr's own OSC 133 end mark of a
 //! sandboxed call, and `cwd_report` reads OSC 7.

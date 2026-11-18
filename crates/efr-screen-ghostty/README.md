@@ -14,7 +14,8 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   `ScreenError::Closed` for every handle.
 - `effects`: the effect callbacks. libghostty-vt runs them inside `vt_write`, so they
   push answers to terminal queries (DA, DSR, DECRQM, OSC 10 and 11, in-band resize
-  reports), bells and title changes into `RefCell` buffers, and the screen drains
+  reports), bells, title changes and OSC 133 steps into `RefCell` buffers, and the
+  screen drains
   them into the `ScreenSink` after each feed and resize. A full reset (RIS) clears
   the title without a title callback, so its own callback reports an empty title.
   libghostty-vt cuts a title at 1024 bytes, also inside a character; such a title
@@ -30,16 +31,19 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it
   and `GhosttyScreen::restore` reads it back, here or in another process.
-- `semantic_prompt`: the cross-check. A second `ShellMarkScanner` runs over what the
-  screen is fed; the bytes go to libghostty-vt in pieces that end at each mark, and
-  after each piece libghostty-vt's working directory (`Terminal::pwd`) and the cursor
-  row's prompt state must agree with the mark. A disagreement is a `warn` log line;
-  a feed never fails. The pinned libghostty-vt also has ghostty's semantic prompt
-  effect (`Terminal::on_semantic_prompt`), which efr does not use yet. When it does,
-  it is wired here only.
+- `semantic_prompt`: the cross-check. The actor gives the screen the marks of its one
+  scan with the bytes (`Screen::feed_marked`); the screen runs no scanner of its own.
+  The bytes go to libghostty-vt through `Terminal::vt_write_until`, which stops at the
+  end of every OSC that the library reads, so each mark must end at such a stop. At
+  the stop, the step that libghostty-vt reported (`Terminal::on_semantic_prompt`: the
+  kind of prompt, the exit code), its working directory (`Terminal::pwd`) and the
+  cursor row's prompt state must agree with the mark. A disagreement is a `warn` log
+  line; a feed never fails. A plain `Screen::feed`, which only tests use, is not
+  checked.
 
 The marks themselves never come from here: the actor's scanner in `efr-screen` is
-the source of truth for every backend.
+the source of truth for every backend. libghostty-vt does not report `aid`, `cl`, the
+fresh line of `A` or efr's end mark of a sandboxed call.
 
 The pin (libghostty-rs rev, ghostty commit, Zig version) is in `docs/ghostty-pin.md`.
 This crate is not a default workspace member, and `efr-daemon` reaches it only
@@ -81,7 +85,7 @@ test), `efr-screen` with its
 - A callback never blocks and never calls back into the terminal; the screen drains
   the buffers after libghostty-vt returns.
 - The cross-check only logs. The scanner's marks stay the truth, and a feed always
-  reaches the terminal in full.
+  reaches the terminal in full. Each chunk is scanned once, by the actor.
 - A hidden terminal draws nothing, so it does not say that it can. `configure` sets
   the Kitty image store to 0 (the protocol is off, and the `a=q` query gets no
   answer), turns the Glyph Protocol off, and keeps at most 8 KiB of one APC string.

@@ -145,7 +145,7 @@ libghostty-vt 1.0.1 has the two fixes that the pin waited for: the scrollback af
 resize that adds rows and removes columns (`e0e57281`) and the page capacity of a
 restored snapshot (`a622196c`).
 
-The pin has `Terminal::on_semantic_prompt`, the semantic prompt effect of ghostty.
-efr does not use it yet. When it does, the effect is wired in
-`efr-screen-ghostty/src/semantic_prompt.rs` only as a cross-check against the
-backend-independent OSC 133 scanner (`docs/adr/0002-shell-marks-in-efr-screen.md`).
+efr uses `Terminal::on_semantic_prompt`, the semantic prompt effect of ghostty, and
+`Terminal::vt_write_until` only in `efr-screen-ghostty/src/semantic_prompt.rs`, as a
+cross-check against the backend-independent OSC 133 scanner
+(`docs/adr/0002-shell-marks-in-efr-screen.md`).

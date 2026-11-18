@@ -2,8 +2,9 @@
 //!
 //! - [`GhosttyScreen`]: `efr_screen::Screen` over a libghostty-vt `Terminal`. It
 //!   answers terminal queries (DA, DSR, DECRQM, OSC 10 and 11) through the sink,
-//!   exports and restores GHOSTSNP snapshots, and cross-checks libghostty-vt's working
-//!   directory and per-row prompt state against the shell mark scanner.
+//!   exports and restores GHOSTSNP snapshots, and cross-checks libghostty-vt's OSC 133
+//!   steps, working directory and per-row prompt state against the actor's shell
+//!   marks.
 //! - [`factory`], [`factory_with`] and [`restore_factory`]: the `Send` factories that
 //!   `efr_screen::ScreenActor::spawn` runs on the screen thread. libghostty-vt types
 //!   are neither `Send` nor `Sync`, so a screen is built there and never leaves.
