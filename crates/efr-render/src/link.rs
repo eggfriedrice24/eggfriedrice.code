@@ -47,7 +47,12 @@ fn has_scheme(destination: &str) -> bool {
 /// A `file://` URL for an absolute path. A trailing `:line` or `:line:column`, as
 /// compilers and models write it, is not part of the file name and is left out.
 pub(crate) fn file_url(path: &str) -> String {
-    let path = strip_line_suffix(path);
+    file_url_exact(strip_line_suffix(path))
+}
+
+/// A `file://` URL for the absolute path `path` as it is, also when its name ends in
+/// `:12`: for a path that efr knows to be a file, such as the copy of an attachment.
+pub fn file_url_exact(path: &str) -> String {
     let mut url = String::from("file://");
     for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {

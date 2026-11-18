@@ -27,6 +27,8 @@
 //! - [`text_width`] and [`display_width`]: columns by code point or by grapheme
 //!   cluster, as the terminal counts them. [`display_rows`] and [`last_rows`]: the
 //!   rows of a painted line as the terminal wraps it, and its last rows.
+//! - [`file_url_exact`]: the `file://` target of a path that names a file as it is,
+//!   for a caller that writes its own OSC 8 hyperlink.
 //!
 //! Headings, emphasis, inline code, lists, task items, quotes, tables, links (as OSC 8
 //! hyperlinks, `file://` for paths), code blocks with syntax colours and unified diffs
@@ -69,6 +71,7 @@ pub use diff_lines::{DiffLine, DiffLineKind, diff_lines};
 pub use diff_rows::diff_rows;
 pub use error::RenderError;
 pub use glyph::Glyphs;
+pub use link::file_url_exact;
 pub use options::{ColourMode, RenderOptions, Theme};
 pub use palette::{Palette, Role};
 pub use renderer::{Renderer, Update, render};

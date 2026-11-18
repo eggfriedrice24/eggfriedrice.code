@@ -1,6 +1,6 @@
 use pretty_assertions::assert_eq;
 
-use super::{code_target, encode, file_url, find_urls, link_target};
+use super::{code_target, encode, file_url, file_url_exact, find_urls, link_target};
 
 fn urls(text: &str) -> Vec<&str> {
     find_urls(text).into_iter().map(|range| &text[range]).collect()
@@ -32,6 +32,12 @@ fn absolute_paths_become_file_urls() {
     assert_eq!(file_url("/src/main.rs:42"), "file:///src/main.rs");
     assert_eq!(file_url("/src/main.rs:42:7"), "file:///src/main.rs");
     assert_eq!(file_url("/src/a:b"), "file:///src/a%3Ab");
+}
+
+#[test]
+fn an_exact_file_url_keeps_a_name_that_ends_in_a_line_number() {
+    assert_eq!(file_url_exact("/tmp/a1-log:12"), "file:///tmp/a1-log%3A12");
+    assert_eq!(file_url_exact("/tmp/a b.png"), file_url("/tmp/a b.png"));
 }
 
 #[test]
