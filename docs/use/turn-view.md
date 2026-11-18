@@ -414,14 +414,16 @@ lines and before the reply. `efr history` shows the same row under the model row
 the prompt:
 
 ```text
-@ image shot.png 1920x1080 2.1 MB, pdf report.pdf 3.4 MB, text data.csv 48 KB
+@ image shot.png 1920x1080 2.1 MB, pdf report.pdf 3.4 MB, text data.csv 48 KB as a path
 @ pdf manual.pdf 18 MB as a path
 ```
 
 - Each file shows its kind (`image`, `pdf`, `text` or `file`), its name and its size.
   An image also shows its pixels.
-- `as a path` tells that the model of the turn does not read the file as content. It
-  gets the path of the file, and it can open the file with a tool.
+- `as a path` tells that the model of the turn gets the path of the file, not its
+  content, and it can open the file with a tool. A text file and each other file always
+  go as a path. An image or a PDF goes as a path when the model does not read that
+  kind, or when efr cannot send it as content, such as a PDF over 5 MiB.
 - The name is a link to the copy of the file in `$SCRATCH/attachments`: Ctrl+click
   opens it in the viewer of your system. A rule of your window manager can make that
   viewer window float. There is no link when OSC 8 links are off, and when `efr` runs
