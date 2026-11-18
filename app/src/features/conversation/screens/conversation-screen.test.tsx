@@ -1,8 +1,9 @@
 // The conversation screen on the services of the app over fake sockets (boards
 // R-Streaming, R-Approval, C-Failed and C-Offline, and the undrawn loading state): the
 // subscription follows the focus, the transcript shows the stream and the outbox, the
-// screen scrolls to an approval on request, and the focused screen gives the VoiceOver
-// announcements and the error haptic of a failed turn.
+// screen scrolls to an approval on request, the composer takes a typed answer to a
+// question of the model, and the focused screen gives the VoiceOver announcements and
+// the error haptic of a failed turn.
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { router } from "expo-router";
@@ -22,6 +23,7 @@ import {
   View,
 } from "react-native";
 
+import { showActionSheet } from "@/components/ui/native/show-action-sheet";
 import { haptic } from "@/lib/native/haptics";
 import { flush } from "@/lib/net/testing";
 import type { Event } from "@/lib/protocol/wire";
@@ -31,8 +33,11 @@ import {
   eventItem,
   promptQueued as queued,
   snapshotItem,
+  toolCallStarted,
   turnCompleted,
   turnStarted,
+  userQuestionAnswered,
+  userQuestionRequested,
 } from "@/lib/stream/testing";
 import {
   DESKTOP,
@@ -91,11 +96,20 @@ jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
 }));
 jest.mock("@/lib/native/haptics", () => ({ haptic: jest.fn(), setHapticsEnabled: jest.fn() }));
+jest.mock("@/components/ui/native/show-action-sheet", () => ({
+  showActionSheet: jest.fn(() => Promise.resolve(undefined)),
+}));
 
 const CONVERSATION = conversationId(1);
 const TURN = "019a9b1c-3d00-7a10-8b20-0000000000f1";
 const NEXT = "019a9b1c-3d00-7a10-8b20-0000000000f2";
 const CALL = "019a9b1c-3d00-7a10-8b20-0000000000f3";
+const ASK_1 = "019a9b1c-3d00-7a10-8b20-0000000000a1";
+const ASK_2 = "019a9b1c-3d00-7a10-8b20-0000000000a2";
+const ASK_3 = "019a9b1c-3d00-7a10-8b20-0000000000a3";
+const QUESTION_1 = "019a9b1c-3d00-7a10-8b20-0000000000b1";
+const QUESTION_2 = "019a9b1c-3d00-7a10-8b20-0000000000b2";
+const QUESTION_3 = "019a9b1c-3d00-7a10-8b20-0000000000b3";
 
 let commands = 0;
 
@@ -182,6 +196,11 @@ function running() {
     ],
     5,
   );
+}
+
+/** The text input of the composer. */
+function composerInput() {
+  return screen.getByTestId("composer-input");
 }
 
 /** Types `text` in the composer and taps Send. */
@@ -418,6 +437,75 @@ describe("the conversation screen", () => {
     });
     await act(flush);
     expect(view?.getPathname()).toBe(`/c/${DESKTOP}/${CONVERSATION}`);
+  });
+
+  it("keeps a typed answer until efrd takes it, and drops or keeps it when the answer ends", async () => {
+    // Each tap on the strip picks "Type an answer" in the action sheet.
+    jest.mocked(showActionSheet).mockResolvedValue("type");
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [running()]);
+    });
+    seq = 5;
+    const socket = socketOf(services(), DESKTOP);
+    const ask = async (call: string, question: string): Promise<void> => {
+      await send(
+        toolCallStarted(NEXT, call, "ask_user"),
+        userQuestionRequested(NEXT, call, question),
+      );
+      await fireEvent.press(
+        screen.getByRole("button", { name: "Question: Which database should the tests use?" }),
+      );
+      await act(flush);
+      expect(screen.getByTestId("composer-answer-row")).toBeOnTheScreen();
+    };
+
+    // Send: the text stays while the answer is on its way, and goes once efrd took it.
+    await ask(ASK_1, QUESTION_1);
+    await fireEvent.changeText(composerInput(), "Postgres 15");
+    await fireEvent.press(screen.getByRole("button", { name: "Send the answer" }));
+    await act(flush);
+    expect(socket.requests("question.respond").at(-1)?.["params"]).toMatchObject({
+      conversation_id: CONVERSATION,
+      question_id: QUESTION_1,
+      answer: { kind: "text", text: "Postgres 15" },
+    });
+    expect(composerInput().props.value).toBe("Postgres 15");
+    await act(async () => {
+      socket.answer("question.respond", { seq: 40 });
+      await flush();
+    });
+    expect(composerInput().props.value).toBe("");
+    await send(
+      userQuestionAnswered(NEXT, QUESTION_1, {
+        kind: "replied",
+        reply: { kind: "text", text: "Postgres 15" },
+      }),
+    );
+    expect(screen.queryByTestId("composer-answer-row")).toBeNull();
+
+    // An answer from elsewhere ends the answer state, and the typed text goes with it.
+    await ask(ASK_2, QUESTION_2);
+    await fireEvent.changeText(composerInput(), "SQLite");
+    await send(
+      userQuestionAnswered(NEXT, QUESTION_2, {
+        kind: "replied",
+        reply: { kind: "option", index: 1 },
+      }),
+    );
+    expect(screen.queryByTestId("composer-answer-row")).toBeNull();
+    expect(composerInput().props.value).toBe("");
+
+    // Leave keeps the typed text as a message, after the draft.
+    await fireEvent.changeText(composerInput(), "Also");
+    await ask(ASK_3, QUESTION_3);
+    expect(composerInput().props.value).toBe("");
+    await fireEvent.changeText(composerInput(), "both");
+    await fireEvent.press(screen.getByRole("button", { name: "Leave the answer" }));
+    expect(screen.queryByTestId("composer-answer-row")).toBeNull();
+    expect(composerInput().props.value).toBe("Also both");
+    const target = { machine: DESKTOP, id: CONVERSATION, isBlankRoot: false };
+    expect(services().services.drafts.text(composerDraftKey(target))).toBe("Also both");
   });
 
   it("fetches the older history when the reader gets to the top", async () => {
