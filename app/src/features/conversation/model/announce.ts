@@ -7,6 +7,7 @@
 // Pure: the screen passes the stream state before and after a change.
 
 import type { StreamState, TurnOutcome } from "@/lib/stream/reducer";
+import { questionLine } from "./question";
 
 /** One announcement. */
 export interface Announcement {
@@ -18,8 +19,8 @@ export interface Announcement {
 }
 
 /**
- * The announcements for the change from `before` to `after`: each new approval question,
- * and the end of each turn that ran while the screen was open.
+ * The announcements for the change from `before` to `after`: each new approval question
+ * and question of the model, and the end of each turn that ran while the screen was open.
  */
 export function announcements(before: StreamState, after: StreamState): Announcement[] {
   if (before.turns === after.turns) {
@@ -46,6 +47,19 @@ export function announcements(before: StreamState, after: StreamState): Announce
         priority: "high",
         queue: false,
       });
+    }
+    // A question of the model stops the turn as an approval does (S-Ask).
+    if (turn.tools !== old?.tools) {
+      for (const [callId, call] of turn.tools) {
+        const question = call.question;
+        if (
+          question?.answer.kind !== "pending" ||
+          old?.tools.get(callId)?.question?.answer.kind === "pending"
+        ) {
+          continue;
+        }
+        out.push({ text: `Question. ${questionLine(question)}`, priority: "high", queue: false });
+      }
     }
     if (turn.end !== undefined && old !== undefined && old.end === undefined && old.started) {
       const text = endText(turn.end.outcome, turn.end.error);

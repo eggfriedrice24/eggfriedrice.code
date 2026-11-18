@@ -181,5 +181,8 @@ describe("the row of a question (S-Ask 4)", () => {
     await render(<QuestionRowView row={ended} onOpen={() => undefined} />);
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText("skipped")).toBeOnTheScreen();
+    // A past answer is no control: VoiceOver reads no "dimmed".
+    const row = screen.getByLabelText("Which database? skipped.");
+    expect(row.props.accessibilityState?.disabled).not.toBe(true);
   });
 });

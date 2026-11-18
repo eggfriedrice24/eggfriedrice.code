@@ -1,6 +1,7 @@
 // The row of one tool call: the question card of an `ask_user` call (S-Ask 4), an edit
-// block for a call with a diff (a file tool's call), else a tool block. It reads only its call, whether its turn ended, its approval and its
-// own open flags. A tap on a card whose approval waits opens the approval sheet.
+// block for a call with a diff (a file tool's call), else a tool block. It reads only its
+// call, whether its turn ended, its approval and its own open flags. A tap on a card
+// whose approval waits opens the approval sheet.
 
 import { useSelector } from "@tanstack/react-store";
 

@@ -42,8 +42,9 @@ export function QuestionRowView(props: QuestionRowViewProps) {
         accessibilityRole={tappable ? "button" : "text"}
         accessibilityLabel={`${row.question} ${row.state}.`}
         accessibilityHint={tappable ? "Opens the choices." : undefined}
-        disabled={!tappable}
-        onPress={() => onOpen?.(anchor.current)}
+        // NOTE: no `disabled`: VoiceOver reads a disabled view as "dimmed", and a row
+        // that tells a past answer is no control. With no `onPress` it takes no tap.
+        onPress={tappable ? () => onOpen(anchor.current) : undefined}
         className={cn(
           "flex-row items-start gap-8 px-12 py-9",
           tappable && "active:bg-selection-bg",

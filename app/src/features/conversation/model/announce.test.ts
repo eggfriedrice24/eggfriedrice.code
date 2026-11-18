@@ -8,6 +8,7 @@ import {
   run,
   turnCompleted,
   turnStarted,
+  userQuestionRequested,
 } from "@/lib/stream/testing";
 import { announcements } from "./announce";
 
@@ -27,6 +28,19 @@ describe("announcements", () => {
     expect(announcements(asked, done)).toEqual([
       { text: "Reply done.", priority: "low", queue: true },
     ]);
+  });
+
+  it("announces a new question of the model at once, and only once", () => {
+    const running = apply(EMPTY_STREAM, event(turnStarted("t")));
+    const asked = apply(
+      running,
+      event(userQuestionRequested("t", "c", "019a9b1c-3d00-7a10-8b20-0000000000a1")),
+    );
+    expect(announcements(running, asked)).toEqual([
+      { text: "Question. Which database should the tests use?", priority: "high", queue: false },
+    ]);
+    const later = apply(asked, event(turnStarted("t2")));
+    expect(announcements(asked, later)).toEqual([]);
   });
 
   it("says where to answer a local question", () => {
