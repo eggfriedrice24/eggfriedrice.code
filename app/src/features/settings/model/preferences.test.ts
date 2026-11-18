@@ -23,6 +23,7 @@ describe("the preferences", () => {
       showLegacyModels: false,
       faceIdUnlock: false,
       faceIdUnlockNotice: null,
+      notifications: false,
     });
     // The schema falls back to the same defaults.
     expect(savedPreferencesSchema.parse({})).toEqual(DEFAULT_PREFERENCES);
@@ -44,6 +45,7 @@ describe("the preferences", () => {
       showLegacyModels: true,
       faceIdUnlock: false,
       faceIdUnlockNotice: null,
+      notifications: false,
     });
     await preferences.settled();
     expect(storage.writes).toBe(5);
@@ -90,6 +92,7 @@ describe("the preferences", () => {
       showLegacyModels: false,
       faceIdUnlock: false,
       faceIdUnlockNotice: null,
+      notifications: false,
     });
     expect(parsePreferences(JSON.stringify({ lastMachine: LAPTOP }))).toEqual({
       haptics: true,
@@ -99,6 +102,7 @@ describe("the preferences", () => {
       showLegacyModels: false,
       faceIdUnlock: false,
       faceIdUnlockNotice: null,
+      notifications: false,
     });
   });
 
@@ -119,6 +123,18 @@ describe("the preferences", () => {
   });
 });
 
+describe("the switch Notifications in the preferences", () => {
+  it("is off by default, and saves and reads back the switch", async () => {
+    const storage = new MemoryKeyValue();
+    const preferences = createPreferences({ storage });
+    expect(preferences.store.get().notifications).toBe(false);
+    preferences.setNotifications(true);
+    await preferences.settled();
+    expect(createPreferences({ storage }).store.get().notifications).toBe(true);
+    expect(parsePreferences(JSON.stringify({ notifications: "on" })).notifications).toBe(false);
+  });
+});
+
 describe("the Face ID unlock in the preferences", () => {
   it("is off with no notice by default, saves the switch and the notice, and reads them back", async () => {
     const storage = new MemoryKeyValue();
@@ -126,6 +142,7 @@ describe("the Face ID unlock in the preferences", () => {
     expect(preferences.store.get()).toMatchObject({
       faceIdUnlock: false,
       faceIdUnlockNotice: null,
+      notifications: false,
     });
     preferences.setFaceIdUnlock(false, "no_passcode");
     await preferences.settled();

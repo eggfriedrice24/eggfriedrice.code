@@ -6,6 +6,8 @@ import { BLANK_ROOT, DRAFTS_KEY, draftKey } from "@/features/conversation/model/
 import { conversationsKeys, recentItems } from "@/features/conversations/conversations-queries";
 import { waitsElsewhere } from "@/features/conversations/model/waiting";
 import type { ConversationsRecentResult } from "@/lib/protocol/generated";
+import { machineRecord } from "@/features/machines/model/testing";
+import { FakePushNative } from "@/features/settings/model/testing";
 import {
   DESKTOP,
   LAPTOP,
@@ -18,6 +20,7 @@ import {
 import { lockView } from "./app-lock";
 import { createLinkGate } from "./link-gate";
 import { machineConnections } from "./machine-connections";
+import { createNoticeTaps } from "./notice-taps";
 import { streamTitles } from "./stream-titles";
 
 let parts: TestServices | undefined;
@@ -449,5 +452,21 @@ describe("the Face ID unlock in the services", () => {
       .entries.find((one) => one.commandId === entry.commandId);
     expect(kept?.auto).toBeUndefined();
     expect(test.services.preferences.store.get().faceIdUnlock).toBe(false);
+  });
+});
+
+describe("the taps on a notice in the services", () => {
+  it("open a conversation of a paired machine only", async () => {
+    const native = new FakePushNative();
+    native.launchTap = { id: "n1", data: { d: LAPTOP, c: CONVERSATION } };
+    const taps = createNoticeTaps();
+    const paths: string[] = [];
+    taps.subscribe((path) => paths.push(path));
+    parts = await testServices([machineRecord(DESKTOP)], { push: native, noticeTaps: taps });
+    await flush();
+    expect(paths).toEqual([]);
+    native.tap({ id: "n2", data: { d: DESKTOP, c: CONVERSATION } });
+    await flush();
+    expect(paths).toEqual([`/c/${DESKTOP}/${CONVERSATION}`]);
   });
 });

@@ -61,6 +61,15 @@ export const pairParamsSchema = z.object({
   machine: z.guid().exactOptional(),
 });
 
+/**
+ * The data of a push notice of efrd: the daemon id and the conversation id, the only parts
+ * of a notice that the app reads.
+ */
+export const noticeDataSchema = z.object({
+  d: z.guid(),
+  c: z.guid(),
+});
+
 /** The params of `settings`. */
 export const settingsParamsSchema = z.object({
   /** `unlock`: Settings scrolls to the row "Face ID unlock" and marks it for a moment. */

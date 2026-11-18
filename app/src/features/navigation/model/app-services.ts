@@ -16,6 +16,9 @@
 //   too; a watch that stopped makes the recent list ask efrd again.
 // - The drafts are saved at once when the app goes to the background: iOS can stop the
 //   wait of a debounced save there, and then end the app.
+// - In a build with expo-notifications, the push service gives each machine the push
+//   token of the switch "Notifications", and the taps on a notice reach the router as
+//   links to their conversation, for the machines that the phone knows.
 //
 // Every effect comes in as a parameter, so the services run in Vitest with fakes. The
 // root layout gives the native ones.
@@ -65,8 +68,10 @@ import {
 } from "@/features/machines/model/runtime";
 import type { PairingDeps } from "@/features/pairing/model/pair";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
+import { createPush, type Push, type PushNative } from "@/features/settings/model/push";
 import { createAppLock, type AppLock, type LockPhase } from "./app-lock";
 import type { LinkGate } from "./link-gate";
+import type { NoticeSource, NoticeTaps } from "./notice-taps";
 import { wireOutboxDrains } from "./outbox-drains";
 import { withOutboxEcho } from "./outbox-echo";
 
@@ -85,6 +90,8 @@ export interface AppServices {
   readonly modelChoices: ModelChoices;
   /** The Face ID unlock of the app (round 9). */
   readonly appLock: AppLock;
+  /** The push notices, or null in a build without expo-notifications. */
+  readonly push: Push | null;
   /** Settles when the runtime read the paired machines. It never rejects. */
   readonly loaded: Promise<void>;
   /** Stops every connection, drain and listener. */
@@ -129,6 +136,10 @@ export interface AppServicesDeps {
   readonly lock?: AppLockEffects;
   /** The gate of the links from outside; the root layout gives the one of the app. */
   readonly linkGate?: LinkGate;
+  /** The effects of push and of the taps on a notice; none in a build without them. */
+  readonly push?: (PushNative & NoticeSource) | null;
+  /** The taps on a notice; the root layout gives the ones of the app. */
+  readonly noticeTaps?: NoticeTaps | undefined;
   /** The managers of Query; the tests give fakes. */
   readonly queryManagers?: QueryManagers;
 }
@@ -281,6 +292,24 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     onError(error);
   });
 
+  const native = deps.push ?? null;
+  let push: Push | null = null;
+  if (native !== null) {
+    const created = createPush({
+      native,
+      runtime,
+      preferences,
+      followAppState: (listener) => deps.lifecycle.followAppState(listener),
+      onError,
+    });
+    push = created;
+    stops.push(() => created.dispose());
+    deps.noticeTaps?.attach(native, async (machine) => {
+      await loaded;
+      return runtime.machine(machine) !== undefined;
+    });
+  }
+
   return {
     runtime,
     queryClient,
@@ -290,6 +319,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     preferences,
     modelChoices,
     appLock,
+    push,
     loaded,
     dispose(): void {
       for (const stop of stops.splice(0)) {

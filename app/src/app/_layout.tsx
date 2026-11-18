@@ -20,8 +20,10 @@ import { LockGate, LockOverlay } from "@/features/navigation/components/lock-ove
 import { RootStack } from "@/features/navigation/components/root-stack";
 import { createAppServices } from "@/features/navigation/model/app-services";
 import { linkGate } from "@/features/navigation/model/link-gate";
+import { noticeTaps } from "@/features/navigation/model/notice-taps";
 import type { PairingDeps } from "@/features/pairing/model/pair";
 import { nativePairingDeps } from "@/features/pairing/native/native-pairing";
+import { nativePush } from "@/features/settings/native/push";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -90,6 +92,8 @@ const services = createAppServices({
     announce: (line) => AccessibilityInfo.announceForAccessibility(line),
   },
   linkGate,
+  push: nativePush(),
+  noticeTaps,
 });
 
 function machineMenu(machine: string) {

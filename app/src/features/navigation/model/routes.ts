@@ -61,6 +61,11 @@ export function conversationHref(ref: ConversationRef, options: OpenOptions = {}
   return { pathname: "/c/[machine]/[id]", params: { ...conversationParams(ref, options) } };
 }
 
+/** The path of the conversation `ref`, as a link from outside names it. */
+export function conversationPath(ref: ConversationRef): string {
+  return `/c/${ref.machine}/${ref.id}`;
+}
+
 /** The link to the approval sheet of the question of tool call `call` in `ref`. */
 export function approvalHref(ref: ConversationRef, call: string): Href {
   return { pathname: "/approval", params: { machine: ref.machine, id: ref.id, call } };

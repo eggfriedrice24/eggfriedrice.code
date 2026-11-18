@@ -5,6 +5,9 @@
 // the screen itself. So the screens of the other features hold only their content, and
 // the header follows the route and its params. Each screen waits under Suspense until the
 // runtime read the paired machines; until then it shows the background colour.
+//
+// When a conversation gets the focus, its delivered push notices leave the Notification
+// Center: the screen shows what they said.
 
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { Suspense, createContext, use, type ReactElement, type ReactNode } from "react";
@@ -51,11 +54,20 @@ const MachineMenuContext = createContext<MachineMenuSlot>(() => null);
 
 /** The root stack. */
 export function RootStack(props: RootStackProps) {
+  const push = useAppServices().push;
+  const onFocus = (route: FrameRoute): void => {
+    const conversation =
+      route.name === ROUTE_NAMES.conversation ? conversationOfParams(route.params) : undefined;
+    if (conversation !== undefined) {
+      push?.shown(conversation.id);
+    }
+  };
   return (
     <ThemeProvider value={THEME}>
       <MachineMenuContext value={props.machineMenu}>
         <Stack
           screenOptions={({ route }) => screenOptions(route.params, LIQUID_GLASS)}
+          screenListeners={({ route }) => ({ focus: () => onFocus(route) })}
           screenLayout={screenLayout}
         >
           <Stack.Screen name={ROUTE_NAMES.root} options={ROOT_OPTIONS} />

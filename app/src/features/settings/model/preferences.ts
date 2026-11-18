@@ -15,6 +15,8 @@
 //   (features/navigation/model/app-lock.ts) reads it at the start and saves it; only it
 //   calls `setFaceIdUnlock`. `faceIdUnlockNotice` is "no_passcode" after efr turned the
 //   switch off because the iPhone has no passcode (D5).
+// - `notifications`: the switch "Notifications" of Settings (off by default). Only the
+//   push service (model/push.ts) calls `setNotifications`, after iOS allowed the notices.
 //
 // The store reads the saved value once, when it is made, so the first frame shows it.
 // Each change writes the whole value at once; the writes run in order.
@@ -42,6 +44,7 @@ export interface Preferences {
   readonly showLegacyModels: boolean;
   readonly faceIdUnlock: boolean;
   readonly faceIdUnlockNotice: FaceIdUnlockNotice;
+  readonly notifications: boolean;
 }
 
 /** Why efr turned the Face ID unlock off, or none. */
@@ -56,6 +59,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showLegacyModels: false,
   faceIdUnlock: false,
   faceIdUnlockNotice: null,
+  notifications: false,
 };
 
 /** What the preferences need from the app. */
@@ -75,6 +79,8 @@ export interface PreferencesStore {
   setShowLegacyModels(on: boolean): void;
   /** Saves the switch of the Face ID unlock and its notice. Only the app lock calls it. */
   setFaceIdUnlock(on: boolean, notice: FaceIdUnlockNotice): void;
+  /** Saves the switch "Notifications". Only the push service calls it. */
+  setNotifications(on: boolean): void;
   /** The user forgot a machine: it is no longer the last one. */
   forgetMachine(machine: DaemonId): void;
   /** Resolves when every write so far is done. */
@@ -120,7 +126,8 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
       next.askCostlySwitch === now.askCostlySwitch &&
       next.showLegacyModels === now.showLegacyModels &&
       next.faceIdUnlock === now.faceIdUnlock &&
-      next.faceIdUnlockNotice === now.faceIdUnlockNotice
+      next.faceIdUnlockNotice === now.faceIdUnlockNotice &&
+      next.notifications === now.notifications
     ) {
       return;
     }
@@ -150,6 +157,9 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
     },
     setFaceIdUnlock(on: boolean, notice: FaceIdUnlockNotice): void {
       update({ ...store.state, faceIdUnlock: on, faceIdUnlockNotice: notice });
+    },
+    setNotifications(on: boolean): void {
+      update({ ...store.state, notifications: on });
     },
     forgetMachine(machine: DaemonId): void {
       if (store.state.lastMachine === machine) {

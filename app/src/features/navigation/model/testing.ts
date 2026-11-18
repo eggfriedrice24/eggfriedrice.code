@@ -31,9 +31,11 @@ import { DESKTOP, LAPTOP, machineRecord, pairedStores } from "@/features/machine
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import type { MemoryPairedDevices } from "@/features/pairing/model/testing";
 import { PREFERENCES_KEY } from "@/features/settings/model/preferences";
+import type { PushNative } from "@/features/settings/model/push";
 import type { LockPhase } from "./app-lock";
 import { createAppServices, type AppServices } from "./app-services";
 import { createLinkGate, type LinkGate } from "./link-gate";
+import type { NoticeSource, NoticeTaps } from "./notice-taps";
 
 export { DESKTOP, LAPTOP };
 
@@ -123,6 +125,12 @@ export interface TestServicesOptions {
   readonly phase?: LockPhase;
   /** The gate of the links from outside; none by default. */
   readonly linkGate?: LinkGate;
+  /** The native side of push; none by default, as in a build without it. */
+  readonly push?: PushNative & NoticeSource;
+  /** The switch "Notifications" is saved on. */
+  readonly notificationsOn?: boolean;
+  /** The taps on a notice; none by default. */
+  readonly noticeTaps?: NoticeTaps;
 }
 
 /** The services of the app with `records` paired (desktop and laptop by default). */
@@ -141,8 +149,12 @@ export async function testServices(
   const checks: ((result: OwnerCheck) => void)[] = [];
   const checkReasons: string[] = [];
   let facts: OwnerFacts = options.facts ?? DEFAULT_FACTS;
-  if (options.lockOn === true) {
-    void keyValue.setItem(PREFERENCES_KEY, JSON.stringify({ faceIdUnlock: true }));
+  if (options.lockOn === true || options.notificationsOn === true) {
+    const saved = {
+      faceIdUnlock: options.lockOn === true,
+      notifications: options.notificationsOn === true,
+    };
+    void keyValue.setItem(PREFERENCES_KEY, JSON.stringify(saved));
   }
   let ids = 0;
   let aliases = 0;
@@ -206,6 +218,8 @@ export async function testServices(
     },
     // A gate of its own, so no test shares the gate of the app.
     linkGate: options.linkGate ?? createLinkGate(),
+    push: options.push ?? null,
+    noticeTaps: options.noticeTaps,
   });
   await services.loaded;
   return {

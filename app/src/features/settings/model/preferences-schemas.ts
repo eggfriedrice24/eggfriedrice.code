@@ -13,4 +13,5 @@ export const savedPreferencesSchema = z.object({
   showLegacyModels: z.boolean().catch(false),
   faceIdUnlock: z.boolean().catch(false),
   faceIdUnlockNotice: z.literal("no_passcode").nullable().catch(null),
+  notifications: z.boolean().catch(false),
 });
