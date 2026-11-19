@@ -82,6 +82,15 @@ pub(crate) fn set(
          updated_at = excluded.updated_at",
         params![device_id.to_string(), token.expose_secret(), sql::micros(at)],
     )?;
+    if changed > 0 {
+        // NOTE: iOS keeps the token when the app is installed again, and the new install
+        // pairs as a new device. The old one cannot connect again, and its row would
+        // send each notice twice and pass the lease of the new one.
+        conn.execute(
+            "DELETE FROM device_push WHERE token = ?2 AND device_id != ?1",
+            params![device_id.to_string(), token.expose_secret()],
+        )?;
+    }
     Ok(changed > 0)
 }
 

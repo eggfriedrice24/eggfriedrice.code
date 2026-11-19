@@ -231,7 +231,9 @@ across a restart:
   alone.
 - `device_push` (migration 16, ADR 0028): the Expo push token of each device, in a
   table of its own, so `devices` stays as it is. `WriterHandle::device_push_set` sets
-  the token of an active device, or deletes it with no token; `device_push_drop`
+  the token of an active device and deletes the row of each other device with the same
+  token (an install of the app again keeps its token and pairs as a new device), or
+  deletes it with no token; `device_push_drop`
   deletes it only when the row still holds the token of a push that Expo called dead,
   so a newer token stays. `device_revoke` deletes the row in the same transaction.
   `device_push::targets` lists the active devices with a token, oldest pairing first

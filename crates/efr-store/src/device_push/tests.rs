@@ -45,6 +45,20 @@ async fn a_token_is_set_changed_and_removed() {
 }
 
 #[tokio::test]
+async fn a_token_that_a_new_device_takes_leaves_the_old_device() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    writer.device_insert(phone(1)).await.unwrap();
+    writer.device_insert(phone(2)).await.unwrap();
+    writer.device_insert(phone(3)).await.unwrap();
+    assert!(writer.device_push_set(device(1), Some(token("a"))).await.unwrap());
+    assert!(writer.device_push_set(device(3), Some(token("c"))).await.unwrap());
+
+    assert!(writer.device_push_set(device(2), Some(token("a"))).await.unwrap());
+    let left = [(device(2), token_text("a")), (device(3), token_text("c"))];
+    assert_eq!(pushed(&writer, None).await, left);
+}
+
+#[tokio::test]
 async fn an_unknown_or_revoked_device_gets_no_token_and_a_bad_token_fails() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
     writer.device_insert(phone(1)).await.unwrap();
