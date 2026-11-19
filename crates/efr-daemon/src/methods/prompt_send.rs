@@ -104,9 +104,7 @@ fn check_uploads(
         return Ok(());
     }
     let Some(limits) = crate::attachments::limits(&state.settings.borrow()) else {
-        return Err(DaemonError::InvalidParams {
-            reason: "this efrd takes no attachments: attachments.enabled is false",
-        });
+        return Err(DaemonError::InvalidParams { reason: crate::attachments::ATTACHMENTS_OFF });
     };
     if params.attachments.len() > limits.max_per_message as usize {
         return Err(DaemonError::InvalidParams {

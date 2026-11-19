@@ -19,10 +19,7 @@ pub(crate) async fn handle(
     params: DevicePushSet,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let Some(device_id) = crate::remote::admission(context)
-        .and_then(|admission| admission.proved())
-        .map(|proved| proved.device_id)
-    else {
+    let Some(device_id) = crate::remote::prove::proved_device(context) else {
         return Err(DaemonError::ProofNeeded { method: METHOD });
     };
     if params.token.as_ref().is_some_and(|token| !is_expo_push_token(token.expose_secret())) {

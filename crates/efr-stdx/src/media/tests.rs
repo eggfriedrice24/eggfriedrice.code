@@ -27,17 +27,17 @@ fn each_signature_fits_in_the_head_that_a_caller_reads() {
 }
 
 #[test]
-fn each_type_has_its_wire_name() {
+fn each_type_has_its_wire_name_its_short_name_and_its_extension() {
     let names = [MediaType::Png, MediaType::Jpeg, MediaType::Gif, MediaType::Webp, MediaType::Pdf]
-        .map(|media| (media.as_str(), media.is_image()));
+        .map(|media| (media.as_str(), media.name(), media.extension(), media.is_image()));
     assert_eq!(
         names,
         [
-            ("image/png", true),
-            ("image/jpeg", true),
-            ("image/gif", true),
-            ("image/webp", true),
-            ("application/pdf", false),
+            ("image/png", "PNG", "png", true),
+            ("image/jpeg", "JPEG", "jpg", true),
+            ("image/gif", "GIF", "gif", true),
+            ("image/webp", "WebP", "webp", true),
+            ("application/pdf", "PDF", "pdf", false),
         ]
     );
 }

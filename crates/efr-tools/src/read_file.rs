@@ -123,7 +123,7 @@ impl Tool for ReadFileTool {
                     |name| name.to_string_lossy().into_owned(),
                 );
                 let text =
-                    format!("{name}: {} image, {}", kind(media), byte_size(bytes.len() as u64));
+                    format!("{name}: {} image, {}", media.name(), byte_size(bytes.len() as u64));
                 Ok(ToolResult::ok(text).with_media(vec![ToolMedia { path, bytes }]))
             }
         }
@@ -136,17 +136,6 @@ enum Read {
     Text(String),
     /// A PNG, JPEG, GIF or WebP image, with its bytes.
     Image(MediaType, Vec<u8>),
-}
-
-/// The name of an image type in the text of a call.
-fn kind(media: MediaType) -> &'static str {
-    match media {
-        MediaType::Png => "PNG",
-        MediaType::Jpeg => "JPEG",
-        MediaType::Gif => "GIF",
-        MediaType::Webp => "WebP",
-        _ => "an",
-    }
 }
 
 /// The file's text or image, after the symlink and type checks, the type from its first

@@ -20,9 +20,7 @@ pub(crate) async fn handle(
 ) -> Result<(), DaemonError> {
     let now = state.clock.now();
     let expires_at = now.checked_add(LEASE_TTL).unwrap_or(now);
-    let device = crate::remote::admission(context)
-        .and_then(|admission| admission.proved())
-        .map(|proved| proved.device_id);
+    let device = crate::remote::prove::proved_device(context);
     state.connections.report_lease(
         context.conn_id(),
         Lease {

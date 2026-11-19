@@ -48,8 +48,9 @@ Modules, in the order of the milestone 1 file map:
   ...]`, the one marker of a cut output) and `hex(bytes)` (lowercase hex, for a
   SHA-256 and a random id).
 - `media`: `sniff(head)`, the type of a file from its first bytes (PNG, JPEG, GIF, WebP
-  or PDF), with `MediaType::as_str`: the one table of magic bytes of `efr-tools`,
-  `efr-media` and efrd.
+  or PDF), with `MediaType::as_str` (`image/png`), `name` (`PNG`, for a text) and
+  `extension` (`png`): the one table of magic bytes and type names of `efr-tools`,
+  `efr-media`, efrd and `efr clip`.
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
 - `panic`: `quiet(f)` runs `f` with the panic message hidden on its thread, and
   `install_quiet_hook()` puts a hook before the current one that, inside `quiet`,

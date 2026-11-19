@@ -45,18 +45,6 @@ pub enum MediaError {
 impl MediaError {
     /// A walk of a file of `media` that stopped at the offset `at`.
     pub(crate) fn broken(media: MediaType, at: usize) -> Self {
-        MediaError::Broken { media: name(media), at }
-    }
-}
-
-/// The short name of `media` in an error text.
-fn name(media: MediaType) -> &'static str {
-    match media {
-        MediaType::Png => "PNG",
-        MediaType::Jpeg => "JPEG",
-        MediaType::Gif => "GIF",
-        MediaType::Webp => "WebP",
-        MediaType::Pdf => "PDF",
-        _ => "media",
+        MediaError::Broken { media: media.name(), at }
     }
 }

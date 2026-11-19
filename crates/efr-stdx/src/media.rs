@@ -32,6 +32,28 @@ impl MediaType {
         }
     }
 
+    /// The short name of the type in a text, such as `PNG` or `WebP`.
+    pub const fn name(self) -> &'static str {
+        match self {
+            MediaType::Png => "PNG",
+            MediaType::Jpeg => "JPEG",
+            MediaType::Gif => "GIF",
+            MediaType::Webp => "WebP",
+            MediaType::Pdf => "PDF",
+        }
+    }
+
+    /// The extension of a file name of the type, such as `png` or `jpg`.
+    pub const fn extension(self) -> &'static str {
+        match self {
+            MediaType::Png => "png",
+            MediaType::Jpeg => "jpg",
+            MediaType::Gif => "gif",
+            MediaType::Webp => "webp",
+            MediaType::Pdf => "pdf",
+        }
+    }
+
     /// True for the four image types.
     pub const fn is_image(self) -> bool {
         !matches!(self, MediaType::Pdf)

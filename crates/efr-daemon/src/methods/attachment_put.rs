@@ -29,7 +29,7 @@ pub(crate) async fn handle(
         (crate::attachments::limits(&settings), settings.attachments.max_edge_px)
     };
     let Some(limits) = limits else {
-        return Err(invalid("this efrd takes no attachments: attachments.enabled is false"));
+        return Err(invalid(crate::attachments::ATTACHMENTS_OFF));
     };
     if params.data.as_bytes().len() as u64 > limits.chunk_bytes {
         return Err(invalid("the chunk is larger than the chunk limit"));

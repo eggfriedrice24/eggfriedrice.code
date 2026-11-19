@@ -59,6 +59,10 @@ pub(crate) fn store(
     (Arc::new(store), uploads, cache)
 }
 
+/// The refusal of a file when [`limits`] is `None`.
+pub(crate) const ATTACHMENTS_OFF: &str =
+    "this efrd takes no attachments: attachments.enabled is false";
+
 /// The limits of the capability `attachments` under `settings`, or `None` when this
 /// efrd takes no attachments.
 pub(crate) fn limits(settings: &Settings) -> Option<AttachmentLimits> {
