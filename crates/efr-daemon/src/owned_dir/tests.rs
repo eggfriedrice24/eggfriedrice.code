@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Write as _;
+use std::io::{Seek as _, SeekFrom, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
@@ -68,6 +68,23 @@ fn a_new_file_has_the_bytes_of_its_source_and_mode_0600() {
     let copy = scratch.path().join(ATTACH_DIR).join("a1-shot.png");
     assert_eq!(std::fs::read(&copy).unwrap(), bytes);
     assert_eq!(std::fs::metadata(&copy).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+#[test]
+fn a_source_on_another_file_system_is_copied_from_its_position() {
+    // NOTE: a memfd lives in a file system of its own, so `copy_file_range` to the
+    // owned dir always fails with `EXDEV`, and the copy reads and writes.
+    let scratch = tempfile::tempdir().unwrap();
+    make(scratch.path(), ATTACH_DIR).unwrap();
+    let dir = open(scratch.path(), ATTACH_DIR).unwrap();
+    let memfd = rustix::fs::memfd_create("efr-source", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+    let mut memfd = File::from(memfd);
+    let bytes: Vec<u8> = (0..=255_u8).cycle().take(200_000).collect();
+    memfd.write_all(&bytes).unwrap();
+    memfd.seek(SeekFrom::Start(7)).unwrap();
+    write_new(&dir, "a2-notes.txt", &memfd).unwrap();
+    let copy = scratch.path().join(ATTACH_DIR).join("a2-notes.txt");
+    assert_eq!(std::fs::read(copy).unwrap(), bytes[7..]);
 }
 
 #[test]
