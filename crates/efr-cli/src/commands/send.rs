@@ -324,25 +324,14 @@ async fn queue_behind(
     queued: &mut VecDeque<String>,
 ) -> Result<(), CliError> {
     let size = ctx.screen.size();
-    while let Some(text) = queued.front().cloned() {
-        let words = Words::find(&text, &Places::of(ctx, &compose.context.pwd));
+    while let Some(text) = queued.front() {
+        let (words, prompt) = compose.prompt(ctx, conversation, text);
         for note in &words.notes {
             let step = view.event_row(&[(note.clone(), Tone::Attention)], size);
             out.err(&step.err);
             out.out(&step.out)?;
         }
-        let sent = words.sent_text(&text);
-        let prompt = PromptSend {
-            command_id: ctx.command_id(),
-            conversation_id: Some(conversation),
-            new_conversation: false,
-            text: sent.clone(),
-            context: Some(compose.context.clone()),
-            last_command: compose.last_command.clone().map(LastCommand::into_string),
-            recent_commands: compose.recent_commands.clone(),
-            settings: compose.settings.clone(),
-            attachments: Vec::new(),
-        };
+        let sent = prompt.text.clone();
         let failure = match attach::send(ctx, client, prompt, &words).await {
             Ok(result) => {
                 queued.pop_front();
@@ -434,7 +423,7 @@ async fn steer(
     if conversation.is_none() && tty.is_none() {
         return Err(CliError::SteerNeedsConversation);
     }
-    let attaches = !Words::find(&text, &Places::of(ctx, &context.pwd)).files.is_empty();
+    let attaches = attach::names_file(ctx, &context.pwd, &text);
     let client = ctx.connect(origin, tty).await?;
     let conversation_id = match (conversation, tty) {
         (Some(id), _) => id,

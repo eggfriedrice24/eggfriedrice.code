@@ -40,6 +40,12 @@ pub(crate) const CLIPS_DIR: &str = "clips";
 /// word stays text (spec 4.7).
 pub(crate) const STEER_NOTE: &str = "attachments go with a prompt, not with a steer";
 
+/// True when an `@` word of `text` names a file, from the shell's directory `pwd`: a
+/// steer with such a word shows [`STEER_NOTE`].
+pub(crate) fn names_file(ctx: &Context, pwd: &Path, text: &str) -> bool {
+    !Words::find(text, &Places::of(ctx, pwd)).files.is_empty()
+}
+
 /// The marks of a sentence that can end a word after its path, such as the `?` of
 /// `what is in @shot.png?`.
 const SENTENCE_MARKS: [char; 6] = ['.', ',', ';', ':', '!', '?'];

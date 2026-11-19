@@ -152,6 +152,31 @@ pub(crate) struct Compose {
     pub(crate) settings: TurnSettings,
 }
 
+impl Compose {
+    /// The `@` words of `text` and the prompt that queues it in `conversation`, with
+    /// the sent text of the words and no uploads yet ([`attach::send`] adds them).
+    pub(crate) fn prompt(
+        &self,
+        ctx: &Context,
+        conversation: ConversationId,
+        text: &str,
+    ) -> (Words, PromptSend) {
+        let words = Words::find(text, &Places::of(ctx, &self.context.pwd));
+        let prompt = PromptSend {
+            command_id: ctx.command_id(),
+            conversation_id: Some(conversation),
+            new_conversation: false,
+            text: words.sent_text(text),
+            context: Some(self.context.clone()),
+            last_command: self.last_command.clone().map(LastCommand::into_string),
+            recent_commands: self.recent_commands.clone(),
+            settings: self.settings.clone(),
+            attachments: Vec::new(),
+        };
+        (words, prompt)
+    }
+}
+
 /// The input row of a followed turn: what it sends with, its key reader, which
 /// started before the prompt went out, so keys typed meanwhile land in the row, and the
 /// origin that the command connected as, to connect again when the connection ends.
@@ -1632,7 +1657,7 @@ impl Follower<'_> {
             return Ok(());
         }
         let text = view.row_take();
-        if !Words::find(&text, &Places::of(self.ctx, &compose.context.pwd)).files.is_empty() {
+        if attach::names_file(self.ctx, &compose.context.pwd, &text) {
             let step = view.note(attach::STEER_NOTE, self.ctx.screen.size());
             self.apply(step, out, view, false).await?;
         }
@@ -1684,24 +1709,13 @@ impl Follower<'_> {
             return Ok(());
         }
         let text = view.row_take();
-        let words = Words::find(&text, &Places::of(self.ctx, &compose.context.pwd));
+        let (words, prompt) = compose.prompt(self.ctx, self.target.conversation, &text);
         let size = self.ctx.screen.size();
         for note in &words.notes {
             let step = view.event_row(&[(note.clone(), Tone::Attention)], size);
             self.apply(step, out, view, false).await?;
         }
-        let sent = words.sent_text(&text);
-        let prompt = PromptSend {
-            command_id: self.ctx.command_id(),
-            conversation_id: Some(self.target.conversation),
-            new_conversation: false,
-            text: sent.clone(),
-            context: Some(compose.context),
-            last_command: compose.last_command.map(LastCommand::into_string),
-            recent_commands: compose.recent_commands,
-            settings: compose.settings,
-            attachments: Vec::new(),
-        };
+        let sent = prompt.text.clone();
         // NOTE: the uploads belong to this connection, so a prompt with files does not
         // go again on a new one; a prompt with none does, as each request of the row.
         let answer = if words.files.is_empty() {
