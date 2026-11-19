@@ -28,6 +28,9 @@ into the GitHub release notes, and it stops when the section is missing.
   when efr stops to send a file as content. A prompt that names a file that cannot
   attach does not go, and a note tells you why. A client uploads each file in chunks
   with `attachment.put` and names the uploads in `prompt.send`.
+- `,context` and a manual compaction count the attachments that go to the model as
+  content. `,context` shows them as the part `attachments`, after the prompts, and
+  names an attachment in its largest items.
 - In Ghostty 1.4, a paste of an image into a `,` line attaches it: the line gets an
   `@` word with the path of a file, and the prompt names the image `@paste-1.png`.
   Text that you paste goes into the line as before; text over 16 KiB goes as a file.
@@ -57,6 +60,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - With libghostty-vt, efrd gets that text 3.5 to 4 times faster: the formatter of
   libghostty-vt gives all of it in one call, and efrd no longer reads it cell by cell.
   At a few rare points where a line wraps, a space can now be there or not be there.
+- The release build makes efrd about 1.1 MB smaller: efrd now builds in a cargo run of
+  its own, so the regex features of the syntax colours of efr stay out of it.
 
 ### Fixed
 

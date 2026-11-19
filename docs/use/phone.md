@@ -500,8 +500,10 @@ Under Privacy, the switch "Face ID unlock" (off by default) locks the app. Its n
 follows the iPhone: "Touch ID unlock", or "Passcode unlock" when no Face ID or Touch ID
 is set up. With it on, efr asks for Face ID, with the passcode of the iPhone as the
 fallback, when the app opens and when it comes back after 5 minutes or more in the
-background. A lock screen shows nothing of a conversation, and the app switcher shows
-only the efr mark. Auto from the phone needs this unlock. The switch asks iOS before it
+background. The lock of the app shows nothing of a conversation, and the app switcher
+shows only the efr mark. A notice on the lock screen of the iPhone shows the name of
+the place (see [Push notifications](#push-notifications)). Auto from the phone needs
+this unlock. The switch asks iOS before it
 turns on and before it turns off. When it turns off, each conversation of the phone goes
 back to cautious. An iPhone without a passcode cannot turn it on; when you remove the
 passcode while it is on, efr turns it off and says why. efr has no passcode of its own.
@@ -562,6 +564,10 @@ A push shows the title `efr` and one short line, such as `app: a question waits`
 `app: done in 4m 12s`. `app` is the name of the project of the conversation, or the
 name of its directory. A push never holds a prompt, a command, a title of a
 conversation or text of the model. A tap opens the conversation.
+
+The lock screen of the iPhone shows the body of a push, so it shows the name of the
+place. To hide the body there, set "Show Previews" to "When Unlocked" in the iOS
+Settings, under Notifications, then efr.
 
 The push goes from efrd to the Expo push service, then to Apple, then to the phone.
 efrd keeps no push key: the push key of the app is at Expo. The servers of Expo and of
