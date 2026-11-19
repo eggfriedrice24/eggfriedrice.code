@@ -11,6 +11,8 @@
 
 import { utf8Length } from "@/lib/stream/utf8";
 
+import { byteSize } from "./format";
+
 /** The longest name of an attachment in UTF-8 bytes (`NAME_MAX_BYTES` of efr-protocol). */
 export const NAME_MAX_BYTES = 240;
 
@@ -42,18 +44,6 @@ export function fitName(name: string): string {
     kept += char.length;
   }
   return `${stem.slice(0, kept)}${extension}`;
-}
-
-/** The size of a file as efr writes it everywhere: `2.0 KB`, `14 KB`, `2.1 MB`. */
-export function byteSize(bytes: number): string {
-  const n = Math.max(0, Math.floor(bytes));
-  if (n < 1_000) {
-    return `${n} B`;
-  }
-  const [unit, name] =
-    n < 1_000_000 ? [1_000, "KB"] : n < 1_000_000_000 ? [1_000_000, "MB"] : [1_000_000_000, "GB"];
-  const whole = Math.floor(n / unit);
-  return whole < 10 ? `${whole}.${Math.floor(n / (unit / 10)) % 10} ${name}` : `${whole} ${name}`;
 }
 
 /** What a tile shows: a photo of this phone, an image from elsewhere, a PDF or a file. */

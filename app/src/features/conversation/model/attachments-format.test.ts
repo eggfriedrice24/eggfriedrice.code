@@ -4,7 +4,6 @@ import { utf8Length } from "@/lib/stream/utf8";
 import {
   KEPT_EXTENSION_BYTES,
   NAME_MAX_BYTES,
-  byteSize,
   captionLine,
   fitName,
   overLimitLine,
@@ -43,23 +42,6 @@ describe("fitName", () => {
     const fit = fitName(`${"s".repeat(300)}${extension}`);
     expect(fit.endsWith(`s${extension}`)).toBe(true);
     expect(utf8Length(fit)).toBe(NAME_MAX_BYTES);
-  });
-});
-
-describe("byteSize", () => {
-  // The table of `a_byte_size_has_one_decimal_only_under_ten` in efr-stdx.
-  it.each([
-    [0, "0 B"],
-    [999, "999 B"],
-    [2_000, "2.0 KB"],
-    [9_999, "9.9 KB"],
-    [14_200, "14 KB"],
-    [999_999, "999 KB"],
-    [2_180_000, "2.1 MB"],
-    [310_000_000, "310 MB"],
-    [1_250_000_000, "1.2 GB"],
-  ])("writes %d bytes as %s", (bytes, want) => {
-    expect(byteSize(bytes)).toBe(want);
   });
 });
 

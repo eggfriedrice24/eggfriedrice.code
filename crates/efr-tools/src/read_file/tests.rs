@@ -74,12 +74,29 @@ async fn an_image_comes_back_as_its_bytes_with_one_line(#[case] bytes: &[u8], #[
     let fixture = Fixture::new();
     let path = fixture.cwd().join("shot.png");
     std::fs::write(&path, bytes).unwrap();
+    let context = fixture.context().with_read_images(true);
     let result = ReadFileTool::new()
-        .invoke(fixture.context(), json!({"path": "shot.png", "offset": 3}), &mut NoOutput)
+        .invoke(context, json!({"path": "shot.png", "offset": 3}), &mut NoOutput)
         .await
         .unwrap();
     assert_eq!(result.output, text, "offset and limit do not apply to an image");
     assert_eq!(result.media, [ToolMedia { path, bytes: bytes.to_vec() }]);
+}
+
+#[tokio::test]
+async fn with_images_off_an_image_is_a_binary_file_before_the_size_check() {
+    let fixture = Fixture::new();
+    let path = fixture.cwd().join("huge.png");
+    let file = std::fs::File::create(&path).unwrap();
+    std::io::Write::write_all(&mut &file, b"\x89PNG\r\n\x1a\n").unwrap();
+    file.set_len(17 * 1024 * 1024).unwrap();
+    let result = ReadFileTool::new()
+        .invoke(fixture.context(), json!({"path": "huge.png"}), &mut NoOutput)
+        .await;
+    assert!(
+        matches!(result, Err(ToolError::NotText { path: ref got }) if *got == path),
+        "{result:?}"
+    );
 }
 
 #[tokio::test]
@@ -101,7 +118,11 @@ async fn an_image_over_16_mib_is_too_large() {
     std::io::Write::write_all(&mut &file, b"\x89PNG\r\n\x1a\n").unwrap();
     file.set_len(17 * 1024 * 1024).unwrap();
     let result = ReadFileTool::new()
-        .invoke(fixture.context(), json!({"path": "huge.png"}), &mut NoOutput)
+        .invoke(
+            fixture.context().with_read_images(true),
+            json!({"path": "huge.png"}),
+            &mut NoOutput,
+        )
         .await;
     assert!(
         matches!(result, Err(ToolError::TooLarge { bytes, .. }) if bytes == 17 * 1024 * 1024),

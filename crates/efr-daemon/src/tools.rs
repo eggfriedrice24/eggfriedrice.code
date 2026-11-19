@@ -461,6 +461,7 @@ impl DaemonToolbox {
         .with_interactive_limit(self.interactive_limit(call))
         .with_input_limit(Some(self.input_limit()))
         .with_approved_by(call.approved_by)
+        .with_read_images(self.settings.borrow().attachments.enabled)
     }
 
     /// How long any command may run past the model's timeout while it waits for input
@@ -1157,14 +1158,6 @@ impl DaemonToolbox {
             return outcome;
         }
         let mut outcome = match invoked {
-            // NOTE: with attachments off, `read_file` refuses an image as it refuses
-            // any other binary file.
-            Ok(ref result)
-                if !self.settings.borrow().attachments.enabled
-                    && let Some(media) = result.media.first() =>
-            {
-                ToolOutcome::error(for_model(&ToolError::NotText { path: media.path.clone() }))
-            }
             Ok(result) => {
                 let written = result.written.clone();
                 let mut outcome = outcome(result);

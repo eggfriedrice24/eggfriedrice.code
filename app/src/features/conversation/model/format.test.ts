@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { ago, baseName, clock, contextGauge, lastLines, size, tokens } from "./format";
+import { ago, baseName, byteSize, clock, contextGauge, lastLines, tokens } from "./format";
 
-describe("size", () => {
-  it("counts in thousands and cuts the digits, as the terminal does", () => {
-    expect(size(0)).toBe("0 B");
-    expect(size(999)).toBe("999 B");
-    expect(size(1_000)).toBe("1.0 KB");
-    expect(size(2_399)).toBe("2.3 KB");
-    expect(size(999_999)).toBe("999.9 KB");
-    expect(size(1_400_000)).toBe("1.4 MB");
-    expect(size(2_100_000_000)).toBe("2.1 GB");
+describe("byteSize", () => {
+  // The table of `a_byte_size_has_one_decimal_only_under_ten` in efr-stdx.
+  it.each([
+    [0, "0 B"],
+    [999, "999 B"],
+    [2_000, "2.0 KB"],
+    [2_399, "2.3 KB"],
+    [9_999, "9.9 KB"],
+    [14_200, "14 KB"],
+    [999_999, "999 KB"],
+    [2_180_000, "2.1 MB"],
+    [310_000_000, "310 MB"],
+    [1_250_000_000, "1.2 GB"],
+  ])("writes %d bytes as %s", (bytes, want) => {
+    expect(byteSize(bytes)).toBe(want);
   });
 });
 

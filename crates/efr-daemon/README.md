@@ -1970,7 +1970,7 @@ capability `attachments` while `attachments.enabled` is on.
   each upload in `<state>/uploads/<upload-id>.part` (0600) by the one result rule of
   `attachment.put`, checks it after its last chunk, and writes what a model gets of it
   beside it (`.sent`). It sweeps every part at the start of efrd, drops the uploads of
-  a Unix connection when it closes (`Connections::closed`), the uploads of a revoked
+  a Unix connection when it closes (`Methods::closed`), the uploads of a revoked
   device (`remote::live::follow`), and an upload of a device after `UPLOAD_TTL` with no
   chunk, at the next put or the next look of `gc::collect`. A bind or a tool image
   whose bytes have a blob in the conversation takes the `sent` form of the first row
@@ -2001,8 +2001,8 @@ capability `attachments` while `attachments.enabled` is on.
   `jobs/output.rs` and the attachments both use it. Each open goes through `openat2`
   with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, a copy is a new file (`O_EXCL`), and an
   entry in the way goes aside to `<name>.moved-<n>`.
-- `read_file` gets the flag of `attachments.enabled`; with it off, the tool refuses an
-  image as binary, as before.
+- The context of each tool call gets `read_images` from `attachments.enabled`; with it
+  off, `read_file` refuses an image as a binary file after its first bytes.
 
 ### Push
 

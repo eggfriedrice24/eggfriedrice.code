@@ -74,6 +74,9 @@ pub struct ToolContext {
     /// the sandbox (or the exit child) of this call, and the shell tool passes it on to
     /// the run. `None` types the command into the hidden shell, as in the other modes.
     pub sandbox: Option<SandboxRun>,
+    /// Whether `read_file` reads an image file (`attachments.enabled`). When it is
+    /// `false`, an image is a binary file and the tool refuses it after its first bytes.
+    pub read_images: bool,
 }
 
 impl ToolContext {
@@ -104,6 +107,7 @@ impl ToolContext {
             input_limit: None,
             approved_by: None,
             sandbox: None,
+            read_images: false,
         }
     }
 
@@ -165,6 +169,13 @@ impl ToolContext {
     #[must_use]
     pub fn with_sandbox(mut self, sandbox: Option<SandboxRun>) -> Self {
         self.sandbox = sandbox;
+        self
+    }
+
+    /// Sets whether `read_file` reads an image file.
+    #[must_use]
+    pub fn with_read_images(mut self, read_images: bool) -> Self {
+        self.read_images = read_images;
         self
     }
 

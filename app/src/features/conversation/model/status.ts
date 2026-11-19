@@ -3,7 +3,7 @@
 // context`, `done, ctx 43%`). Pure, so each state has a test.
 
 import type { StreamState, TurnEnd, TurnView } from "@/lib/stream/reducer";
-import { type ContextGauge, contextGauge, size } from "./format";
+import { type ContextGauge, contextGauge, byteSize } from "./format";
 
 /** The status line of a running turn. */
 export interface TurnStatus {
@@ -30,7 +30,7 @@ export function turnStatus(turn: TurnView | undefined, state: StreamState): Turn
   const inputs = [...(turn?.toolInputs.values() ?? [])];
   const input = inputs[inputs.length - 1];
   if (input !== undefined) {
-    return withGauge(`writing ${input.tool} ${size(input.bytes)}`);
+    return withGauge(`writing ${input.tool} ${byteSize(input.bytes)}`);
   }
   for (const call of turn?.tools.values() ?? []) {
     if (!call.done) {

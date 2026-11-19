@@ -1,8 +1,8 @@
 // Small text formats of the screens. They follow the terminal client where it has the
 // same field, so the phone and the terminal say the same thing:
 //
-// - `size` is efr-cli's `format::size`: `512 B`, `3.2 KB`, `1.4 MB`, in thousands, cut
-//   and not rounded.
+// - `byteSize` is `byte_size` of efr-stdx: `512 B`, `3.2 KB`, `14 KB`, `1.4 MB`, in
+//   thousands, cut and not rounded, with one decimal only under 10.
 // - `tokens` and `contextGauge` are efr-cli's `format::context`: `ctx 43%`, the tokens as
 //   a percent of the limit, rounded down; `success` below 50%, `warning` from 50% and
 //   `error` from 90%.
@@ -14,19 +14,16 @@ export interface ContextUse {
   readonly window: number;
 }
 
-/** A size in bytes, as the terminal shows it. */
-export function size(bytes: number): string {
+/** A size in bytes, as efrd and the terminal write it. */
+export function byteSize(bytes: number): string {
   const n = Math.max(0, Math.floor(bytes));
   if (n < 1_000) {
     return `${n} B`;
   }
-  if (n < 1_000_000) {
-    return `${Math.floor(n / 1_000)}.${Math.floor(n / 100) % 10} KB`;
-  }
-  if (n < 1_000_000_000) {
-    return `${Math.floor(n / 1_000_000)}.${Math.floor(n / 100_000) % 10} MB`;
-  }
-  return `${Math.floor(n / 1_000_000_000)}.${Math.floor(n / 100_000_000) % 10} GB`;
+  const [unit, name] =
+    n < 1_000_000 ? [1_000, "KB"] : n < 1_000_000_000 ? [1_000_000, "MB"] : [1_000_000_000, "GB"];
+  const whole = Math.floor(n / unit);
+  return whole < 10 ? `${whole}.${Math.floor(n / (unit / 10)) % 10} ${name}` : `${whole} ${name}`;
 }
 
 /** A count of tokens: as it is under 1000, `3.2k` under 10000, then `24k` and `1.2M`. */

@@ -45,7 +45,8 @@ struct ReadFileInput {
 /// Reads a text file or an image file. It declares the path for reading, refuses a path
 /// that goes through a symbolic link, a file over 16 MiB and a binary file that is no
 /// image, and cuts long output in the middle. An image comes back as its bytes in
-/// [`ToolResult::media`] with one line of text; the daemon decides what the model sees.
+/// [`ToolResult::media`] with one line of text when [`ToolContext::read_images`] is on;
+/// the daemon decides what the model sees. When it is off, an image is a binary file.
 #[derive(Debug, Clone)]
 pub struct ReadFileTool {
     output_limit: usize,
@@ -106,7 +107,8 @@ impl Tool for ReadFileTool {
         let path = resolve(&ctx, &input.path)?;
         let home = ctx.home.clone();
         let target = path.clone();
-        let read = tokio::task::spawn_blocking(move || read(&home, &target))
+        let images = ctx.read_images;
+        let read = tokio::task::spawn_blocking(move || read(&home, &target, images))
             .await
             .map_err(|_| ToolError::Interrupted { path: path.clone() })??;
         match read {
@@ -148,8 +150,9 @@ fn kind(media: MediaType) -> &'static str {
 }
 
 /// The file's text or image, after the symlink and type checks, the type from its first
-/// bytes, then the size check, before the whole file is read.
-fn read(home: &Home, path: &Path) -> Result<Read, ToolError> {
+/// bytes, then the size check, before the whole file is read. With `images` off, an
+/// image stops at its first bytes as a binary file.
+fn read(home: &Home, path: &Path, images: bool) -> Result<Read, ToolError> {
     check_real(home, path)?;
     let read_error = |source| ToolError::Read { path: path.to_path_buf(), source };
     // NOTE: the type before the open, so a FIFO or a device is never opened.
@@ -161,6 +164,9 @@ fn read(home: &Home, path: &Path) -> Result<Read, ToolError> {
     let mut bytes = Vec::new();
     (&mut file).take(SNIFF_BYTES as u64).read_to_end(&mut bytes).map_err(read_error)?;
     let image = sniff(&bytes).filter(|media| media.is_image());
+    if image.is_some() && !images {
+        return Err(ToolError::NotText { path: path.to_path_buf() });
+    }
     if size > MAX_FILE_BYTES {
         return Err(ToolError::TooLarge {
             path: path.to_path_buf(),

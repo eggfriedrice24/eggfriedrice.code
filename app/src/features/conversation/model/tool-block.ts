@@ -39,7 +39,7 @@ import type {
 import { utf8Length } from "@/lib/stream/utf8";
 import { between, clockTime, elapsed } from "./durations";
 import { isNoAnswer, isRefused } from "./exit-words";
-import { size } from "./format";
+import { byteSize } from "./format";
 
 /** The lines of output of a collapsed block. */
 export const TAIL_LINES = 3;
@@ -404,7 +404,7 @@ export interface WritingBlock {
 /** The writing block of `input` (design 3.7: only the size grows). */
 export function writingBlock(input: ToolInputView): WritingBlock {
   const verb = input.tool === "apply_patch" ? "writing patch" : `writing ${input.tool}`;
-  return { verb, size: size(input.bytes) };
+  return { verb, size: byteSize(input.bytes) };
 }
 
 /**
