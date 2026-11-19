@@ -281,4 +281,12 @@ fn e2e_the_mode_is_on_only_at_a_prompt_line_that_the_gate_allows() {
     assert!(screens[2].contains(MODE_ON), "sticky mode: {screens:?}");
     assert!(!screens[3].contains(MODE_OFF), "{screens:?}");
     assert!(screens[4].contains(MODE_OFF), "a `!` line: {screens:?}");
+
+    // Ctrl+C ends a prompt line with no line-finish hook: the end string of ZLE's
+    // bracketed paste turns the mode off, and the next prompt line turns it on again.
+    let home = Home::new();
+    let screens = Terminal::new(&home, b"").run(&[", ", "\x03", ", "]);
+    assert!(screens[0].contains(MODE_ON), "{screens:?}");
+    assert!(screens[1].contains(MODE_OFF), "Ctrl+C: {screens:?}");
+    assert!(screens[2].contains(MODE_ON), "the next prompt line: {screens:?}");
 }

@@ -3649,6 +3649,30 @@ fn e2e_tab_after_an_at_sign_completes_a_file_name() {
     );
 }
 
+/// With interactive_comments the rest of a `,` line is a comment, and zsh completes it
+/// in the context -command-: Tab after `@` still completes a file name there, and a
+/// plain command word still completes a command.
+#[test]
+fn e2e_tab_after_an_at_sign_completes_a_file_name_with_interactive_comments() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::write(home.path().join("shot.png"), "x").unwrap();
+    type_lines(
+        &home,
+        &[
+            "autoload -Uz compinit; compinit -u -D; setopt interactive_comments",
+            RECORD_LINES[0],
+            ", why @sh\t\u{18}\u{12}\u{15}",
+            ",! look at @sh\t\u{18}\u{12}\u{15}",
+            "setop\t\u{18}\u{12}\u{15}",
+        ],
+    );
+    let shown: Vec<String> = attach_colours(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, [", why @shot.png ", ",! look at @shot.png ", "setopt "]);
+}
+
 /// The built `efr` uploads the file of an `@path` word to the daemon, which sends the
 /// model its label before the prompt text, and the prompt text keeps the word.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -1036,6 +1036,12 @@ _efr_show_indicator() {
 _efr_line_init() {
   _efr_warmed=0
   _efr_show_indicator
+  # NOTE: zsh calls no line-pre-redraw hook for the first draw of a line, and no
+  # line-finish hook after Ctrl+C; ZLE wrote the end of its bracketed paste, which turns
+  # mode 5522 off (_efr_paste_mode), at the end of the line before. So the paste state
+  # starts again here: an empty sticky line is a prompt line from its first draw.
+  _efr_paste_on=0 _efr_paste_prompt=0
+  _efr_paste_line
 }
 
 # --- warm-up of the next prompt's connection ----------------------------------------
@@ -2103,6 +2109,11 @@ typeset -g _efr_attach_seen
 # `~/` starts at $HOME, a relative path at $PWD. It runs before each redraw, but it acts
 # only when BUFFER changed and holds an `@`: one `[[ -f ]]` test for each word, with no
 # fork. ZLE cannot hold an OSC 8 link, so the line has no link.
+#
+# Each read of the ZLE special BUFFER makes a string of the whole line, so the hook
+# reads it once into `line`, and takes a word with one expansion; only a word with a
+# backslash is walked one character at a time. A pasted prompt of some KB with many `@`
+# words then costs no more than a short line for each key.
 _efr_attach_colour() {
   [[ $BUFFER == "$_efr_attach_seen" ]] && return 0
   _efr_attach_seen=$BUFFER
@@ -2110,33 +2121,36 @@ _efr_attach_colour() {
   [[ $CONTEXT == start && $BUFFER == *@* ]] || return 0
   _efr_prompt_line || return 0
   emulate -L zsh -o extended_glob
-  local REPLY file quote
+  local REPLY file quote rest line=$BUFFER
   local -a ends
-  integer at=1 end last n=${#BUFFER} marks
+  integer at=1 end last n=${#line} marks
   while (( at <= n )); do
-    at=${BUFFER[(ib:at:)@]}
+    at=${line[(ib:at:)@]}
     (( at > n )) && break
-    if (( at > 1 )) && [[ ${BUFFER[at-1]} != [[:space:]] ]]; then
+    if (( at > 1 )) && [[ ${line[at-1]} != [[:space:]] ]]; then
       (( at++ ))
       continue
     fi
-    file= end=at+1 quote=${BUFFER[at+1]}
+    quote=${line[at+1]}
+    rest=${line[at+1,-1]}
     if [[ $quote == [\"\'] ]]; then
-      (( end++ ))
-      while (( end <= n )) && [[ ${BUFFER[end]} != "$quote" ]]; do
-        file+=${BUFFER[end]}
-        (( end++ ))
-      done
-      (( end > n )) && break
-      last=end
+      rest=${rest[2,-1]}
+      [[ $rest == *$quote* ]] || break
+      file=${rest%%$quote*}
+      last=at+2+${#file}
     else
       quote=
-      while (( end <= n )) && [[ ${BUFFER[end]} != [[:space:]] ]]; do
-        [[ ${BUFFER[end]} == '\' ]] && (( end < n )) && (( end++ ))
-        file+=${BUFFER[end]}
-        (( end++ ))
-      done
-      last=end-1
+      file=${rest%%[[:space:]]*}
+      last=at+${#file}
+      if [[ $file == *\\* ]]; then
+        file= end=at+1
+        while (( end <= n )) && [[ ${line[end]} != [[:space:]] ]]; do
+          [[ ${line[end]} == '\' ]] && (( end < n )) && (( end++ ))
+          file+=${line[end]}
+          (( end++ ))
+        done
+        last=end-1
+      fi
     fi
     if [[ -z $file ]]; then
       :
@@ -2145,7 +2159,7 @@ _efr_attach_colour() {
     elif [[ -z $quote ]]; then
       marks=$(( ${#file} - ${#${file%%[.,;:!?]##}} ))
       if (( marks && marks < ${#file} )) &&
-        [[ ${BUFFER[last-marks+1,last]} == "${file[-marks,-1]}" ]] &&
+        [[ ${line[last-marks+1,last]} == "${file[-marks,-1]}" ]] &&
         _efr_attach_file ${file[1,-marks-1]}; then
         ends+=("$(( at - 1 )) $(( last - marks ))")
       fi
@@ -2211,14 +2225,21 @@ _efr_paste_wanted() {
   _efr_terminal_allows $_efr_paste 1.4.0
 }
 
-# Turns mode 5522 on (1) or off (0), when it is not so already.
+# Turns mode 5522 on (1) or off (0), when it is not so already. While it is on, the end
+# string of ZLE's bracketed paste turns it off too: ZLE writes that string at each end
+# of a line, also at Ctrl+C, and before a widget starts a program (edit-command-line,
+# the fzf widgets), so no program that runs from the line gets the mode.
 _efr_paste_mode() {
   (( $1 == _efr_paste_on )) && return 0
   _efr_paste_on=$1
   if (( $1 )); then
     print -rn -- $'\e[?5522h'
+    [[ ${zle_bracketed_paste[2]-} == *$'\e[?5522l'* ]] ||
+      zle_bracketed_paste[2]+=$'\e[?5522l'
   else
     print -rn -- $'\e[?5522l'
+    (( ${+zle_bracketed_paste} )) &&
+      zle_bracketed_paste[2]=${zle_bracketed_paste[2]//$'\e[?5522l'}
   fi
 }
 
@@ -2348,6 +2369,18 @@ _efr_complete_prompt() {
   fi
 }
 
+# The widget of Tab. With interactive_comments set (oh-my-zsh and prezto set it), the
+# alias of `,` makes the rest of a prompt line a comment, and zsh would complete there
+# with no words. On a prompt line the widget turns the option off for the completion,
+# so the words go to _efr_complete_prompt as they do with the default options; then it
+# runs the widget that Tab had before (_efr_tab_widget).
+_efr_complete_word() {
+  if [[ -o interactive_comments ]] && _efr_prompt_line; then
+    setopt local_options no_interactive_comments
+  fi
+  zle ${_efr_tab_widget:-expand-or-complete}
+}
+
 # Reads what `,model` takes with `efr models --names`, at most once a minute: the model
 # ids, and with more than one account each model as account/model, such as b/gpt-6.1-sol.
 _efr_load_model_names() {
@@ -2397,6 +2430,15 @@ zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
 zle -N _efr_notice_wake
 zle -N _efr_clip_event
+zle -N _efr_complete_word
+# The widget that Tab had, once: a re-source keeps it.
+if [[ -z ${_efr_tab_widget-} ]]; then
+  typeset -g _efr_tab_widget=${${(z)"$(bindkey -M emacs '^I')"}[2]}
+  [[ -z $_efr_tab_widget || $_efr_tab_widget == _efr_complete_word ]] &&
+    _efr_tab_widget=expand-or-complete
+  bindkey -M emacs '^I' _efr_complete_word
+  bindkey -M viins '^I' _efr_complete_word
+fi
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
 add-zle-hook-widget line-pre-redraw _efr_warm_line
