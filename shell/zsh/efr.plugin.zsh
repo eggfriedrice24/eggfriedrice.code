@@ -147,15 +147,23 @@
 # `,new` or `,!` line completes a file name, and each `@path` word of a prompt line that
 # names a regular file shows in the accent colour while you type (_efr_attach_colour).
 #
+# In Ghostty 1.4.0 or later, a paste into a prompt line attaches an image of the
+# clipboard: the line gets `@<file>`, and text goes into the line as before
+# (attachments.paste in efr's config, see _efr_paste_line). The terminal sends a paste
+# event (OSC 5522) only while the line is a prompt line, and `efr clip` reads the
+# clipboard. At each other line, zsh's own paste works as before.
+#
 # The plugin only observes and relays. The daemon derives git root, scope and
-# permissions, so nothing here runs git. The one fork is the warm-up of a prompt line
-# (`efr warm` in the background, at most once for each line, see _efr_warm_line).
+# permissions, so nothing here runs git. The one fork while you type is the warm-up of
+# a prompt line (`efr warm` in the background, at most once for each line, see
+# _efr_warm_line); a paste event runs `efr clip` (see _efr_clip_event).
 #
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND, the terminal's
 # recent command lines as EFR_RECENT_COMMANDS, the prompt as EFR_PROMPT (the focus
 # of `,compact` too), the prompts that a paste queues behind it as EFR_QUEUED_PROMPTS
-# (one per line) and the words of `,resume` as EFR_RESUME_WORDS. Any local user can read a command line in
+# (one per line), the words of `,resume` as EFR_RESUME_WORDS and the paste event, with
+# its one-time password, as EFR_CLIP_EVENT. Any local user can read a command line in
 # /proc/<pid>/cmdline, while /proc/<pid>/environ is readable only by this user. The
 # terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
@@ -185,7 +193,7 @@ zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME 2>/dev/null
 zmodload -F zsh/stat b:zstat 2>/dev/null
 zmodload -F zsh/system p:sysparams b:sysopen b:sysread 2>/dev/null
-autoload -Uz add-zsh-hook
+autoload -Uz add-zsh-hook is-at-least
 
 typeset -g _efr_sticky=0
 # This terminal's turn settings, which every `,` and `,new` prompt hands to efr: the
@@ -301,9 +309,10 @@ typeset -gi _efr_has_corner _efr_corner_export
 # the corner.
 typeset -g _efr_corner_text _efr_corner_rprompt _efr_theme_rprompt _efr_theme_right
 # The prompt file's stamp that _efr_read_prompt_file read last, the default mode that
-# efrd wrote there, the colour of each role that it wrote, by role, and
-# notify.terminal (auto, on or off), the gate of the desktop notice.
-typeset -g _efr_prompt_seen _efr_default_mode _efr_notify=auto
+# efrd wrote there, the colour of each role that it wrote, by role,
+# notify.terminal (auto, on or off), the gate of the desktop notice, and
+# attachments.paste (auto, on or off), the gate of the paste of an image.
+typeset -g _efr_prompt_seen _efr_default_mode _efr_notify=auto _efr_paste=auto
 typeset -gA _efr_colors
 # The descriptor of this terminal's wake FIFO while this shell reads it (see
 # _efr_open_wake), else empty. Re-sourcing keeps it, so the shell never opens a second.
@@ -1469,17 +1478,17 @@ efr_prompt_info() {
 # --- the prompt corner -------------------------------------------------------------
 
 # Reads efrd's prompt file (prompt.tsv in the runtime root, see _efr_runtime_root) into
-# _efr_default_mode, _efr_colors and _efr_notify, again only when its inode, time or
-# size changed, as _efr_read_projects reads the projects file. Each line is
-# `<key><tab><value>`: `mode`, `color.<role>` and `notify` (on or off; no line is
-# auto). Returns 1 when there is no file, such as before efrd ever ran. It runs no
-# program.
+# _efr_default_mode, _efr_colors, _efr_notify and _efr_paste, again only when its
+# inode, time or size changed, as _efr_read_projects reads the projects file. Each line
+# is `<key><tab><value>`: `mode`, `color.<role>`, `notify` and `paste` (on or off; no
+# line is auto). Returns 1 when there is no file, such as before efrd ever ran. It runs
+# no program.
 _efr_read_prompt_file() {
   emulate -L zsh -o extended_glob
   local REPLY file
   local -A stat
   if ! _efr_runtime_root || ! zstat -H stat -- $REPLY/prompt.tsv 2>/dev/null; then
-    _efr_prompt_seen= _efr_default_mode= _efr_notify=auto
+    _efr_prompt_seen= _efr_default_mode= _efr_notify=auto _efr_paste=auto
     _efr_colors=()
     return 1
   fi
@@ -1487,7 +1496,7 @@ _efr_read_prompt_file() {
   local stamp="$file:$stat[inode]:$stat[mtime]:$stat[size]"
   [[ $stamp == "$_efr_prompt_seen" ]] && return 0
   _efr_prompt_seen=$stamp
-  _efr_default_mode= _efr_notify=auto
+  _efr_default_mode= _efr_notify=auto _efr_paste=auto
   _efr_colors=()
   local line key value
   [[ -r $file ]] || return 0
@@ -1497,6 +1506,7 @@ _efr_read_prompt_file() {
     case $key in
       (mode) [[ $value == (manual|cautious|auto|full) ]] && _efr_default_mode=$value ;;
       (notify) [[ $value == (auto|on|off) ]] && _efr_notify=$value ;;
+      (paste) [[ $value == (auto|on|off) ]] && _efr_paste=$value ;;
       (color.(text|muted|accent|warning|error))
         [[ $value == (\#[[:xdigit:]](#c6)|<0-15>) ]] && _efr_colors[${key#color.}]=$value ;;
     esac
@@ -1857,18 +1867,26 @@ _efr_skip_wake() {
 }
 
 # Returns 0 when a desktop notice may go to this terminal: notify.terminal (see
-# _efr_read_prompt_file) is on, or auto in Ghostty with no terminal multiplexer (tmux,
-# GNU screen, zellij), by efr's own rule; and stdout is a terminal.
+# _efr_read_prompt_file) allows it (see _efr_terminal_allows).
 _efr_notify_wanted() {
+  _efr_read_prompt_file
+  _efr_terminal_allows $_efr_notify
+}
+
+# Returns 0 when the setting $1 (auto, on or off) of a feature of the terminal allows
+# it, by efr's own rule: on, or auto in Ghostty $2 or later (any version when $2 is
+# empty) with no terminal multiplexer (tmux, GNU screen, zellij); and stdout is a
+# terminal. It runs no program.
+_efr_terminal_allows() {
   emulate -L zsh
   [[ -t 1 ]] || return 1
-  _efr_read_prompt_file
-  case $_efr_notify in
+  case $1 in
     (on) return 0 ;;
     (off) return 1 ;;
   esac
   [[ ${(L)TERM_PROGRAM-} == ghostty && $TERM != (screen|tmux)* ]] || return 1
-  (( ! ${+TMUX} && ! ${+STY} && ! ${+ZELLIJ} ))
+  (( ! ${+TMUX} && ! ${+STY} && ! ${+ZELLIJ} )) || return 1
+  [[ -z $2 ]] || is-at-least $2 ${TERM_PROGRAM_VERSION:-0}
 }
 
 # The widget of zle -F for the wake FIFO: prints the notices of this terminal above the
@@ -1906,6 +1924,7 @@ _efr_preexec() {
   _efr_running_cwd=$PWD
   _efr_running_start=${EPOCHREALTIME-}
   _efr_restore_options
+  _efr_paste_end
 }
 
 # Puts the whole text of a prompt over several lines in history, where zsh would keep
@@ -2067,10 +2086,10 @@ _efr_probe_background() {
 
 # 0 when BUFFER is a prompt line: its first word is `,`, `,new` or `,!` and a blank or
 # the end of the line follows it, or sticky mode is on and the line does not start with
-# `!` or `,`.
+# `!` or `,`, also when it is empty.
 _efr_prompt_line() {
   [[ $BUFFER == ,(new|!|)([[:space:]]*|) ]] && return 0
-  (( _efr_sticky )) && [[ -n $BUFFER && $BUFFER != [,!]* ]]
+  (( _efr_sticky )) && [[ $BUFFER != [,!]* ]]
 }
 
 # The BUFFER that the colours of its @path words were made for; empty after a change
@@ -2146,6 +2165,151 @@ _efr_attach_file() {
   else
     [[ -f $1 ]]
   fi
+}
+
+# --- the paste of an image into a prompt line -------------------------------------
+
+# 1 while mode 5522 of the terminal is on, and 1 while the line was a prompt line at the
+# last redraw. Re-sourcing keeps them.
+typeset -gi _efr_paste_on _efr_paste_prompt
+# The failed reads of a paste in this shell, and 1 once the paste stays off for the rest
+# of this shell.
+typeset -gi _efr_paste_failed _efr_paste_off
+# The most bytes and seconds of a paste event that the widget reads: an event is about
+# 150 to 400 bytes, the list of its types is at most 4096 bytes as base64, and the
+# terminal writes all of it at once.
+typeset -gi _efr_clip_event_max=8192 _efr_clip_event_secs=1
+# The texts of the paste that the plugin shows itself. efr gives each other text.
+typeset -g _efr_clip_stopped='efr: the clipboard read stopped. Nothing was added.'
+typeset -g _efr_clip_again='efr: the clipboard read failed again. Pastes on , lines are text again in this shell.'
+
+# Runs before each redraw. When the line becomes a prompt line (_efr_prompt_line) and
+# _efr_paste_wanted allows it, it turns mode 5522 on, so that a paste comes as an event
+# (OSC 5522) for _efr_clip_event and not as text. When the line stops being one, it
+# turns the mode off. It acts only when that changed, with no fork.
+_efr_paste_line() {
+  (( _efr_paste_off )) && return 0
+  emulate -L zsh
+  # NOTE: not named prompt, which is zsh's special parameter for PS1.
+  integer line=0
+  [[ $CONTEXT == start ]] && _efr_prompt_line && line=1
+  (( line == _efr_paste_prompt )) && return 0
+  _efr_paste_prompt=line
+  if (( line )) && _efr_paste_wanted; then
+    _efr_paste_mode 1
+  else
+    _efr_paste_mode 0
+  fi
+}
+
+# 0 when a paste may come as an event: attachments.paste (see _efr_read_prompt_file)
+# allows it in Ghostty 1.4.0 or later (see _efr_terminal_allows), efr is there to read
+# it, and the shell knows its terminal.
+_efr_paste_wanted() {
+  [[ -n $TTY ]] && _efr_available || return 1
+  _efr_read_prompt_file
+  _efr_terminal_allows $_efr_paste 1.4.0
+}
+
+# Turns mode 5522 on (1) or off (0), when it is not so already.
+_efr_paste_mode() {
+  (( $1 == _efr_paste_on )) && return 0
+  _efr_paste_on=$1
+  if (( $1 )); then
+    print -rn -- $'\e[?5522h'
+  else
+    print -rn -- $'\e[?5522l'
+  fi
+}
+
+# Turns mode 5522 off at the end of a line, before a command runs and when the shell
+# exits, so no program that runs gets the mode.
+_efr_paste_end() {
+  _efr_paste_prompt=0
+  _efr_paste_mode 0
+}
+
+# Turns the paste off for the rest of this shell and shows the message $1: pastes on
+# prompt lines are text again.
+_efr_paste_stop() {
+  _efr_paste_off=1
+  _efr_paste_end
+  zle -M -- $1
+}
+
+# The widget of `ESC ] 5522 ;`, the start of an OSC 5522 packet. It reads the rest of
+# the packets with `read -k`, at most _efr_clip_event_max bytes and seconds, to the packet
+# with the status DONE or an error. The first packet of a paste event has a password.
+# Then `efr clip` reads the clipboard on the terminal itself, with the event in
+# EFR_CLIP_EVENT: the environment, never the arguments, because the password is a
+# secret. A packet with no password, such as a reply that came too late, goes to `efr
+# clip --drain`, which reads the rest of the reply and drops it, so it never becomes
+# typed text. efr answers `<kind>\0<text>\0`, then the keys that came during the read,
+# which go back to the line (zle -U):
+#
+#   file    an image, or text over 16 KiB: the line gets `@<file> `
+#   text    the line gets the text
+#   error   a message, and nothing is added
+#   failed  a read that failed: a message; the second one in this shell turns the
+#           paste off
+#   off     the terminal does not allow the read: a message, and the paste is off
+#
+# The drain answers an empty kind.
+_efr_clip_event() {
+  emulate -L zsh -o extended_glob
+  local rest= c previous= packet out kind text
+  local -F deadline=$(( EPOCHREALTIME + _efr_clip_event_secs )) left
+  integer event=0 ended=0
+  while (( ${#rest} < _efr_clip_event_max )); do
+    left=$(( deadline - EPOCHREALTIME ))
+    (( left > 0 )) && read -k 1 -t $left c || break
+    rest+=$c
+    if [[ $c != $'\a' && ( $c != '\' || $previous != $'\e' ) ]]; then
+      previous=$c
+      continue
+    fi
+    previous=
+    packet=${rest##*$'\e]5522;'}
+    (( event )) || [[ $packet == *:pw=* ]] || break
+    event=1
+    if [[ $packet == type=read:status=(DONE|E[[:upper:]]##)[^[:upper:]]* ]]; then
+      ended=1
+      break
+    fi
+  done
+  if (( ended )); then
+    out=$(EFR_CLIP_EVENT=$'\e]5522;'$rest efr clip --tty $TTY --shell $$ 2>/dev/null
+      print -n .)
+  else
+    out=$(efr clip --drain --tty $TTY 2>/dev/null; print -n .)
+  fi
+  out=${out%.}
+  if [[ $out == *$'\0'*$'\0'* ]]; then
+    kind=${out%%$'\0'*} out=${out#*$'\0'}
+    text=${out%%$'\0'*} out=${out#*$'\0'}
+  else
+    kind= out=
+  fi
+  # An event that did not end in time, or a read with no answer, failed.
+  (( event && ! (ended && $#kind) )) && kind=failed text=$_efr_clip_stopped
+  case $kind in
+    (file)
+      [[ -z $LBUFFER || $LBUFFER == *[[:space:]] ]] || LBUFFER+=' '
+      LBUFFER+="@$text "
+      ;;
+    (text) LBUFFER+=$text ;;
+    (error) zle -M -- $text ;;
+    (failed)
+      if (( ++_efr_paste_failed >= 2 )); then
+        _efr_paste_stop $_efr_clip_again
+      else
+        zle -M -- $text
+      fi
+      ;;
+    (off) _efr_paste_stop $text ;;
+  esac
+  [[ -n $out ]] && zle -U -- $out
+  return 0
 }
 
 # --- completion -------------------------------------------------------------------
@@ -2232,10 +2396,13 @@ esac
 zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
 zle -N _efr_notice_wake
+zle -N _efr_clip_event
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
 add-zle-hook-widget line-pre-redraw _efr_warm_line
 add-zle-hook-widget line-pre-redraw _efr_attach_colour
+add-zle-hook-widget line-pre-redraw _efr_paste_line
+add-zle-hook-widget line-finish _efr_paste_end
 # Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
 # not expand an alias again inside its own expansion, so `,` reaches the function.
 alias ,=', #' ,new=',new #' ,compact=',compact #'
@@ -2246,8 +2413,13 @@ _efr_alias_sticky_word
 # Ctrl+Space sends NUL (^@) in common terminals.
 bindkey -M emacs '^@' _efr_toggle_sticky
 bindkey -M viins '^@' _efr_toggle_sticky
+# The start of an OSC 5522 packet, which zsh binds to nothing by default.
+bindkey -M emacs $'\e]5522;' _efr_clip_event
+bindkey -M viins $'\e]5522;' _efr_clip_event
+bindkey -M vicmd $'\e]5522;' _efr_clip_event
 add-zsh-hook precmd _efr_precmd
 add-zsh-hook preexec _efr_preexec
+add-zsh-hook zshexit _efr_paste_end
 add-zsh-hook zshaddhistory _efr_add_history
 _efr_register_completion
 _efr_probe_background

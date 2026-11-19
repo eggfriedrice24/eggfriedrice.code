@@ -34,7 +34,7 @@ cat /proc/$$/cmdline > "$record.cmdline"
 if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
   mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
 fi
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_CORNER EFR_RESUME_WORDS EFR_QUEUED_PROMPTS; do
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_CORNER EFR_RESUME_WORDS EFR_QUEUED_PROMPTS EFR_CLIP_EVENT; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -71,6 +71,8 @@ struct Call {
     resume_words: Option<String>,
     /// The prompts to queue behind the prompt, one per line.
     queued_prompts: Option<String>,
+    /// The paste event that `efr clip` reads.
+    clip_event: Option<String>,
 }
 
 impl Call {
@@ -103,6 +105,7 @@ impl Call {
             corner: var("EFR_CORNER"),
             resume_words: var("EFR_RESUME_WORDS"),
             queued_prompts: var("EFR_QUEUED_PROMPTS"),
+            clip_event: var("EFR_CLIP_EVENT"),
         }
     }
 
@@ -3549,6 +3552,7 @@ fn e2e_efr_warm_0_turns_the_warm_up_off_from_the_next_line() {
 }
 
 mod look;
+mod paste;
 mod wake;
 
 /// The colours of the `@path` words that [`RECORD_LINES`] recorded in `home`: for each

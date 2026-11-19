@@ -28,6 +28,10 @@ into the GitHub release notes, and it stops when the section is missing.
   file with its kind and its size, and its name links to the copy of the file; `efr
   history` shows the row too. A row tells you when efr stops to send a file as content. A prompt that names a
   file that cannot attach does not go, and a note tells you why.
+- In Ghostty 1.4, a paste of an image into a `,` line attaches it: the line gets an
+  `@` word with the path of a file, and the prompt names the image `@paste-1.png`.
+  Text that you paste goes into the line as before; text over 16 KiB goes as a file.
+  `attachments.paste` turns it on or off.
 - Push notifications on the phone when a question waits and you are away (the
   Notifications switch, `efr push test`). The notices go through the Expo push
   service. `efr device list` shows `push on` for a phone that has push on.
@@ -66,6 +70,8 @@ into the GitHub release notes, and it stops when the section is missing.
   as it does with libghostty-vt.
 - The desktop notice at the end of a turn no longer counts the time that the turn
   waited for your answer to a card.
+- A late reply of the terminal, such as a clipboard reply, no longer puts its text into
+  the input row of a turn.
 
 ## [0.0.12] - 2026-11-18
 

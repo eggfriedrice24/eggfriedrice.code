@@ -1,4 +1,4 @@
-<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_corner, efr_prompt_info, _efr_warm_line); crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
+<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_corner, efr_prompt_info, _efr_warm_line, _efr_paste_line, _efr_clip_event); crates/efr-cli/src/clip.rs; crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
 
 # Your first prompt
 
@@ -35,6 +35,29 @@ so the reply does not wait for a handshake after Enter. This sends the terminal,
 directory and the model, but no text of the prompt, and it runs no model. To turn it
 off, set `EFR_WARM=0`, for example `export EFR_WARM=0` in `.zshrc`. The plugin reads
 the variable for each line, so a change applies from the next line.
+
+### Paste an image
+
+In Ghostty 1.4 or later, you can paste an image into a prompt line. Copy the image,
+type `, ` and press the paste key. The line gets an `@` word with the path of a file
+that holds the image, such as `@/home/you/.local/state/efr/clips/4242.1.png`. The image goes
+with the prompt, and the prompt text names it `@paste-1.png`. efr removes the file
+when the prompt went.
+
+- Text that you paste goes into the line as before. Text over 16 KiB goes as a file.
+- When the clipboard has an image and text, the image goes.
+- The paste works on `,` and `,new` lines, and on each line of sticky mode that does
+  not start with `!`. A `,!` line takes text only, because a steer takes no file. On
+  all other lines, zsh pastes as before.
+- When a paste adds nothing, one line under the prompt tells you why, such as for an
+  image over `attachments.max_file_mib`. After two failed reads in one shell, or when
+  the terminal does not allow clipboard reads (`clipboard-read` of Ghostty), each
+  paste in that shell is text again.
+- `attachments.paste` in [`config.toml`](../config.md#attachments) sets it: `auto`
+  (the default) is on in Ghostty 1.4 or later outside tmux, GNU screen and zellij,
+  `on` is on in each terminal, and `off` is off.
+- In another terminal, type `@` and drop the file on the window: the terminal pastes
+  its path.
 
 ## What you see
 
