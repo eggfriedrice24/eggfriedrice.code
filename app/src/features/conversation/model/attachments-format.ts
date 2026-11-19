@@ -155,7 +155,7 @@ function stateLabel(tile: TileText): string {
     case "again":
       return [...parts, "uploading again", `${state.percent} percent`].join(", ");
     case "not_sent":
-      return [...parts, "not sent"].join(", ");
+      return `${[...parts, "not sent"].join(", ")}. ${UPLOAD_LOST}`;
     case "as_path":
       return [...parts, "as a path"].join(", ");
     case "over_limit":

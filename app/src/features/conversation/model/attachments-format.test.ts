@@ -95,7 +95,9 @@ describe("the caption and the label of a tile", () => {
     expect(tileLabel(photo({ kind: "again", percent: 10 }))).toBe(
       "Photo, IMG_2044.jpg, 2.4 MB, uploading again, 10 percent",
     );
-    expect(tileLabel(photo({ kind: "not_sent" }))).toBe("Photo, IMG_2044.jpg, 2.4 MB, not sent");
+    expect(tileLabel(photo({ kind: "not_sent" }))).toBe(
+      "Photo, IMG_2044.jpg, 2.4 MB, not sent. The upload did not arrive.",
+    );
     const zip: TileText = {
       kind: "file",
       name: "logs.zip",

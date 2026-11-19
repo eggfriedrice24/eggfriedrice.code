@@ -23,9 +23,23 @@ function lastPart(uri: string): string {
   return decodeURIComponent(uri.slice(uri.lastIndexOf("/") + 1));
 }
 
-/** A picked photo. Its size comes with its JPEG from efr-files. */
-function photoOf(asset: ImageAsset): PickedFile {
-  return { kind: "photo", uri: asset.uri, name: asset.fileName ?? lastPart(asset.uri) };
+/** A picked photo, named `fallback` when it has no name. Its size comes with its JPEG
+ * from efr-files. */
+function photoOf(asset: ImageAsset, fallback: string): PickedFile {
+  return { kind: "photo", uri: asset.uri, name: asset.fileName ?? fallback };
+}
+
+/**
+ * The name of a photo of the camera, which has no file name: the uri ends in a UUID, so
+ * the time names it, such as `Photo 14.05.33.jpg`.
+ */
+function cameraName(now: Date): string {
+  return `Photo ${two(now.getHours())}.${two(now.getMinutes())}.${two(now.getSeconds())}.jpg`;
+}
+
+/** `value` with two digits. */
+function two(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 /** The attach effects of the app, or null in a build without them. */
@@ -72,14 +86,16 @@ export function nativeAttach(): AttachNative | null {
           return [];
         }
         const result = await images.launchCameraAsync(photoOptions);
-        return result.canceled ? [] : result.assets.map(photoOf);
+        const name = cameraName(new Date());
+        return result.canceled ? [] : result.assets.map((asset) => photoOf(asset, name));
       }
       const result = await images.launchImageLibraryAsync({
         ...photoOptions,
         allowsMultipleSelection: true,
         selectionLimit: limit,
       });
-      return result.canceled ? [] : result.assets.slice(0, limit).map(photoOf);
+      const picked = result.canceled ? [] : result.assets.slice(0, limit);
+      return picked.map((asset) => photoOf(asset, lastPart(asset.uri)));
     },
   };
 }

@@ -43,8 +43,16 @@ public class EfrFilesModule: Module {
     do {
       let image = try Jpeg.thumbnail(of: source, maxEdge: maxEdge, name: input.lastPathComponent)
       try Jpeg.write(image, to: prepared, quality: quality)
+      // The preview comes from the small JPEG just written, so the large original (a
+      // 48 MP HEIC) is decoded only once.
+      guard
+        let written = CGImageSourceCreateWithURL(
+          prepared as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+      else {
+        throw ImageReadException(prepared.lastPathComponent)
+      }
       let small = try Jpeg.thumbnail(
-        of: source, maxEdge: min(maxEdge, Jpeg.previewEdge), name: input.lastPathComponent)
+        of: written, maxEdge: min(maxEdge, Jpeg.previewEdge), name: input.lastPathComponent)
       try Jpeg.write(small, to: preview, quality: Jpeg.previewQuality)
       return PreparedImage(
         uri: prepared.absoluteString,
