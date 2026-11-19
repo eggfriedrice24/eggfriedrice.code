@@ -47,9 +47,11 @@ build:
 
 # Release build of efrd, efr and the sandbox launcher efr-sbx, with the ghostty screen
 # backend (needs Zig 0.17.0). Only these three packages, so efrd never gets the test
-# seams that efr-test-daemon turns on.
+# seams that efr-test-daemon turns on. efrd builds in a cargo run of its own: in one
+# run with efr, the regex features of efr's syntax colours join the regex of efrd.
 build-release:
-    cargo build --release -p efr-daemon -p efr-cli -p efr-sbx --features efr-daemon/screen-ghostty
+    cargo build --release -p efr-daemon --features efr-daemon/screen-ghostty
+    cargo build --release -p efr-cli -p efr-sbx
 
 # Run efrd in the foreground on vt100 screens with throwaway directories; Ctrl+C stops it.
 run:
