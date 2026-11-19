@@ -130,9 +130,13 @@ export function createVoice(deps: VoiceDeps): Voice {
   const { speech, drafts, clock } = deps;
   const store = createStore<VoiceState>(OFF);
   let limit: Timer | undefined;
-  // Where the words of this recording stand in the draft, and what they are now.
+  // Where the words of this recording stand in the draft, and what they are now. Each
+  // event holds the whole text so far: `skip` of it went into the draft before the user
+  // changed those words, and `last` is the text of the last event.
   let at = 0;
   let words = "";
+  let skip = 0;
+  let last = "";
   let heard = false;
 
   const set = (next: VoiceState): void => {
@@ -152,13 +156,19 @@ export function createVoice(deps: VoiceDeps): Voice {
     heard = heard || text.trim() !== "";
     let draft = drafts.text(key);
     if (draft.slice(at, at + words.length) !== words) {
-      // The user changed the words of this recording: the next ones go at the end.
+      // The user changed the words of this recording: only the new words go, at the end.
       at = draft.length;
       words = "";
+      skip = last.length;
     }
+    last = text;
+    const fresh = text.slice(skip).trimStart();
     const before = draft.slice(0, at);
-    const next = text === "" ? "" : `${joins(before) ? "" : " "}${text}`;
-    draft = `${before}${next}${draft.slice(at + words.length)}`;
+    const after = draft.slice(at + words.length);
+    // A space before the words, and one after them when a word follows.
+    const space = joins(before) ? "" : " ";
+    const next = fresh === "" ? "" : `${space}${fresh}${/^[\p{L}\p{N}]/u.test(after) ? " " : ""}`;
+    draft = `${before}${next}${after}`;
     words = next;
     drafts.set(key, draft);
   };
@@ -235,6 +245,8 @@ export function createVoice(deps: VoiceDeps): Voice {
       }
       at = Math.max(0, Math.min(cursor, drafts.text(key).length));
       words = "";
+      skip = 0;
+      last = "";
       heard = false;
       set({ kind: "preparing", key, model: false });
       speech.start().catch((error: unknown) => {

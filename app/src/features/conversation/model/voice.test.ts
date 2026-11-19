@@ -87,7 +87,7 @@ describe("the voice controller", () => {
     expect(voice.store.get()).toEqual({ kind: "preparing", key: KEY, model: true });
   });
 
-  it("puts the next words at the end when the user changed the words of the recording", async () => {
+  it("puts only the new words at the end when the user changed the words of the recording", async () => {
     const { voice, speech, drafts } = await setup("Hi");
     voice.start(KEY, 2);
     speech.phase("recording");
@@ -98,7 +98,19 @@ describe("the voice controller", () => {
     expect(drafts.text(KEY)).toBe("Hi there friend, you");
     drafts.set(KEY, "Hi THERE, you");
     speech.transcript("there friend and more");
-    expect(drafts.text(KEY)).toBe("Hi THERE, you there friend and more");
+    expect(drafts.text(KEY)).toBe("Hi THERE, you and more");
+    speech.transcript("there friend and more words");
+    expect(drafts.text(KEY)).toBe("Hi THERE, you and more words");
+  });
+
+  it("puts a space after the words when a word follows the cursor", async () => {
+    const { voice, speech, drafts } = await setup("Hello world");
+    voice.start(KEY, 6);
+    speech.phase("recording");
+    speech.transcript("there");
+    expect(drafts.text(KEY)).toBe("Hello there world");
+    speech.transcript("there big");
+    expect(drafts.text(KEY)).toBe("Hello there big world");
   });
 
   it("stops at the limit of 5 minutes and keeps the text", async () => {
