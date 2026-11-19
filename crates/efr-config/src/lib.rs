@@ -16,7 +16,7 @@
 //!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`RenderColors`] and
 //!   [`DiffColors`], and [`AutoOnOff`], the choice of `render.progress`,
-//!   `render.images`, `notify.terminal` and `attachments.paste`): every key with its
+//!   `notify.terminal` and `attachments.paste`): every key with its
 //!   default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays

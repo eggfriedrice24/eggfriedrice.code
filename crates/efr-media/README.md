@@ -21,8 +21,6 @@ which decides what goes to a model.
 - `scale`: `Prepared`, an image whose longer edge is at most the edge that efrd gives,
   with a triangle filter: a JPEG at quality `JPEG_QUALITY` (85), or a PNG when the
   image has alpha.
-- `thumbnail`: a PNG of at most `THUMB_WIDTH` x `THUMB_HEIGHT` (512 x 256) pixels from
-  the same decode.
 - `pdf_facts`: `PdfFacts`, whether a PDF has `/Encrypt` and the largest `/Count` of a
   `/Type /Pages` object, in plain objects and in object streams. It is no PDF parser.
   It inflates object streams up to `PDF_INFLATE_MAX` (64 MiB) in all; past that, the

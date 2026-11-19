@@ -1338,11 +1338,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "images": {
-          "$ref": "#/$defs/AutoOnOff",
-          "default": "auto",
-          "description": "Small pictures of the attached images in the rows of a prompt: `auto` (only in\nGhostty 1.4.0 or later and kitty, never inside tmux, GNU screen or zellij, and\nonly when stdout is a terminal), `on` or `off`."
-        },
         "motion": {
           "default": true,
           "description": "Motion in the status row of a running turn: the spinner turns and a band in\nthe `text` role moves over the state in the `muted` role. `false` shows a still\ndot and no band; the time still counts.",
@@ -2153,7 +2148,6 @@
         },
         "diff_lines": 20,
         "diff_lines_long": 8,
-        "images": "auto",
         "motion": true,
         "progress": "auto",
         "theme_dark": "catppuccin-mocha",

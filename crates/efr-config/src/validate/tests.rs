@@ -453,7 +453,6 @@ fn attachment_keys_have_defaults_ranges_and_their_reader() {
         (20, 10, 2000)
     );
     assert_eq!(defaults.paste, AutoOnOff::Auto);
-    assert_eq!(Settings::default().render.images, AutoOnOff::Auto);
     assert_eq!(crate::kind("attachments.enabled"), Some(Kind::Boolean));
     assert_eq!(
         crate::kind("attachments.paste"),
@@ -461,7 +460,6 @@ fn attachment_keys_have_defaults_ranges_and_their_reader() {
     );
     assert_eq!(Applies::of("attachments.max_file_mib"), Applies::Live);
     assert_eq!(Applies::of("attachments.paste"), Applies::Client, "the plugin reads it");
-    assert_eq!(Applies::of("render.images"), Applies::Client);
     assert!(!RESTART_KEYS.iter().any(|key| key.starts_with("attachments.")));
 
     for (key, low, high) in [
@@ -486,10 +484,10 @@ fn attachment_keys_have_defaults_ranges_and_their_reader() {
     }
 
     let path = Path::new("/home/u/.config/efr/config.toml");
-    let text = "[attachments]\nenabled = false\npaste = \"off\"\n[render]\nimages = \"on\"\n";
+    let text = "[attachments]\nenabled = false\npaste = \"off\"\n";
     let read = Settings::parse(path, Some(text)).unwrap();
     assert!(!read.attachments.enabled);
-    assert_eq!((read.attachments.paste, read.render.images), (AutoOnOff::Off, AutoOnOff::On));
+    assert_eq!(read.attachments.paste, AutoOnOff::Off);
     let error = Settings::parse(path, Some("[attachments]\nmax_file_mb = 5\n")).unwrap_err();
     assert_eq!(error.key().as_deref(), Some("attachments.max_file_mb"));
 }

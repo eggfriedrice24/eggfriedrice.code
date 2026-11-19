@@ -1,6 +1,6 @@
 [package]
 name = "efr-media"
-description = "The images and PDFs of efr's attachments: sizes, decode checks, metadata strips, downscales, thumbnails and PDF facts"
+description = "The images and PDFs of efr's attachments: sizes, decode checks, metadata strips, downscales and PDF facts"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

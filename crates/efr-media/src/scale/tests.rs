@@ -86,13 +86,3 @@ fn a_48_megapixel_photo_decodes() {
     assert_eq!(decoded.edge(), 8000);
     assert_eq!(scale(&decoded, 2000).unwrap().width, 2000);
 }
-
-#[test]
-fn a_thumbnail_fits_in_its_box_and_a_small_image_keeps_its_size() {
-    let wide = thumbnail(&decode(&jpeg(2000, 500)).unwrap()).unwrap();
-    let header = probe(&wide).unwrap();
-    assert_eq!((header.media, header.width, header.height), (MediaType::Png, 512, 128));
-
-    let small = thumbnail(&decode(&png(40, 30, true)).unwrap()).unwrap();
-    assert_eq!(probe(&small).unwrap().width, 40);
-}

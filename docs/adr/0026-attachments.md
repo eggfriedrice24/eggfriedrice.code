@@ -130,8 +130,9 @@ A file in a conversation is different from text in four ways:
   bytes of images and PDFs.
 - `efr-media` adds the `image` crate (PNG and JPEG only) and `miniz_oxide` to efrd:
   0.62 MB in the probe build. No other binary links it.
-- When this record was written, efrd made no thumbnail and `efr` drew none. Point 10
-  holds for the build that adds them.
+- 0.0.13 has no thumbnail: efrd makes none, `efr` draws none, and the config has no
+  `render.images` key. They were the first item to cut. Point 10 holds for the build
+  that adds them.
 
 ## Rejected
 

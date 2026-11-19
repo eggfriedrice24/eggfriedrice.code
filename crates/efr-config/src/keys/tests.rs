@@ -55,7 +55,6 @@ fn the_render_keys_hold_one_colour_key_per_role() {
         "diff_lines",
         "diff_lines_long",
         "progress",
-        "images",
         "turn_input",
         "bell",
     ]

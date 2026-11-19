@@ -1,6 +1,6 @@
 //! The images and PDFs of efr's attachments (ADR 0026), as pure functions of their
 //! bytes: the size from the header, the decode check, the strip of EXIF, GPS, XMP and
-//! comment metadata, the downscale, the thumbnail and the facts of a PDF.
+//! comment metadata, the downscale and the facts of a PDF.
 //!
 //! Allowed dependencies: `efr-stdx` (the one table of magic bytes, `media::sniff`).
 //! Only efrd links this crate. What does not belong here: IO, tokio, the blob dir and
@@ -22,7 +22,5 @@ mod testing;
 pub use error::MediaError;
 pub use pdf::{PDF_INFLATE_MAX, PdfFacts, pdf_facts};
 pub use probe::{MAX_PIXELS, Probe, probe};
-pub use scale::{
-    Decoded, JPEG_QUALITY, Prepared, THUMB_HEIGHT, THUMB_WIDTH, decode, scale, thumbnail,
-};
+pub use scale::{Decoded, JPEG_QUALITY, Prepared, decode, scale};
 pub use strip::strip;

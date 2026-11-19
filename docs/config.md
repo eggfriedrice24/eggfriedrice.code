@@ -326,7 +326,6 @@ How `efr` shows replies.
 | `diff_lines` | `20` | client | The lines of a file tool's diff that a call shows after it ran, from 0 to 1000; a muted line then says how many more there are. 0 shows no diff. `efr diff` shows all of a turn's diff. |
 | `diff_lines_long` | `8` | client | The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000, in place of `diff_lines`: a long turn shows shorter diffs. 0 shows no diff there. |
 | `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux, GNU screen or zellij), `on` or `off`. |
-| `images` | `"auto"` | client | Small pictures of the attached images in the rows of a prompt: `auto` (only in Ghostty 1.4.0 or later and kitty, never inside tmux, GNU screen or zellij, and only when stdout is a terminal), `on` or `off`. |
 | `turn_input` | `true` | client | An input row below the status row while a turn runs, when the terminal is interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts it. `false` shows no input row: keys typed during a turn go to the shell's next prompt. |
 | `bell` | `false` | client | One bell (BEL) when a question appears while a turn runs, so a terminal can mark the tab or the window. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |

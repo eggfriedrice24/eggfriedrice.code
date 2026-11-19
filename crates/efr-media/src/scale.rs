@@ -1,4 +1,4 @@
-//! The decode of a PNG or JPEG image, its downscale for a model and its thumbnail.
+//! The decode of a PNG or JPEG image and its downscale for a model.
 
 use std::io::Cursor;
 
@@ -14,12 +14,6 @@ use crate::{MediaError, jpeg};
 
 /// The quality of the JPEG that [`scale`] writes.
 pub const JPEG_QUALITY: u8 = 85;
-
-/// The largest width of a thumbnail in pixels.
-pub const THUMB_WIDTH: u32 = 512;
-
-/// The largest height of a thumbnail in pixels.
-pub const THUMB_HEIGHT: u32 = 256;
 
 /// A PNG or JPEG image after one decode, turned as its EXIF orientation says.
 #[derive(Debug)]
@@ -66,7 +60,7 @@ pub struct Prepared {
 }
 
 /// The PNG or JPEG image `bytes`, decoded once: the check that it is whole, and the
-/// source of [`scale`] and [`thumbnail`].
+/// source of [`scale`].
 ///
 /// # Errors
 ///
@@ -125,19 +119,6 @@ pub fn scale(decoded: &Decoded, max_edge: u32) -> Result<Prepared, MediaError> {
     let media = if image.color().has_alpha() { MediaType::Png } else { MediaType::Jpeg };
     let bytes = encode(image, media)?;
     Ok(Prepared { media, bytes, width: image.width(), height: image.height() })
-}
-
-/// A PNG of `decoded` within [`THUMB_WIDTH`] x [`THUMB_HEIGHT`] pixels, for the inline
-/// picture of a terminal. A smaller image keeps its size.
-///
-/// # Errors
-///
-/// [`MediaError::Codec`] when the encoder fails.
-pub fn thumbnail(decoded: &Decoded) -> Result<Vec<u8>, MediaError> {
-    let image = &decoded.image;
-    let small = (image.width() > THUMB_WIDTH || image.height() > THUMB_HEIGHT)
-        .then(|| image.thumbnail(THUMB_WIDTH, THUMB_HEIGHT));
-    encode(small.as_ref().unwrap_or(image), MediaType::Png)
 }
 
 /// `image` as a PNG or a JPEG of 8 bits for each channel, converted only when the

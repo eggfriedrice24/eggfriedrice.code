@@ -129,7 +129,6 @@ render.turn_summary = true  # default
 render.diff_lines = 20  # default
 render.diff_lines_long = 8  # default
 render.progress = "auto"  # default
-render.images = "auto"  # default
 render.turn_input = true  # default
 render.bell = false  # default
 render.colors.text = (unset)  # default
