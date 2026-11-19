@@ -93,6 +93,12 @@ fn arithmetic_and_conditions_hold_no_redirection(#[case] line: &str, #[case] exp
 }
 
 #[test]
+fn an_arithmetic_past_the_cap_is_read_as_before() {
+    let long = format!("(( {} > 9 ))", "1 + ".repeat(100));
+    assert_eq!(redirect_targets(&long), words(&["9"]));
+}
+
+#[test]
 fn a_segment_after_cd_runs_in_an_unknown_directory() {
     let segments = scan("ls; cd /tmp && rm -r x; ls");
     let after: Vec<bool> = segments.iter().map(|segment| segment.after_cd).collect();

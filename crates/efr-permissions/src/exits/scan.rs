@@ -584,17 +584,22 @@ fn leads(raw: &[String], also: &[&str]) -> bool {
     raw.iter().all(|word| KEYWORDS.contains(&word.as_str()) || also.contains(&word.as_str()))
 }
 
+/// The most characters that [`arithmetic_end`] reads for one `((`. Each `(` of a line
+/// may start a scan, so without a cap a line of many `(` costs the square of its length.
+const MAX_ARITHMETIC: usize = 256;
+
 /// Where the `))` that ends the arithmetic `((` at `open` ends, as the shell reads
 /// `(( p > 90 ))`: the `)` that closes the inner `(` comes right before the one that
 /// closes the outer. `None` when the text is a nested subshell, such as
-/// `((cd x) && ls)`, and when it holds a quote, a backslash or a substitution, which
-/// the split then reads as commands as before.
+/// `((cd x) && ls)`, when it holds a quote, a backslash or a substitution, and past
+/// [`MAX_ARITHMETIC`] characters; the split then reads the text as commands as before.
 // NOTE: `efr-tools/src/shell_tool/words.rs` has the same function for the paths that
 // the shell tool declares, since that crate cannot name this one.
 fn arithmetic_end(chars: &[char], open: usize) -> Option<usize> {
     if chars.get(open + 1) != Some(&'(') {
         return None;
     }
+    let chars = chars.get(..open.saturating_add(MAX_ARITHMETIC).min(chars.len()))?;
     let mut depth = 0usize;
     let mut at = open + 2;
     while let Some(&c) = chars.get(at) {
