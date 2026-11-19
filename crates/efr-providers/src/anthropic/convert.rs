@@ -93,7 +93,7 @@ use std::io;
 
 use efr_provider::{
     AttachmentPart, ContentBlock, EncodedBytes, FREEFORM_INPUT, HostedTool, Message, ModelInfo,
-    ProviderError, Request, Role, label, unoffered_call_text,
+    ProviderError, Request, Role, content_tokens, label, unoffered_call_text,
 };
 use efr_stdx::media::MediaType;
 use serde::de::IgnoredAny;
@@ -370,6 +370,10 @@ struct Source {
     kind: &'static str,
     media_type: String,
     data: Base64,
+    /// What the model counts for the attachment (`efr_provider::content_tokens`); the
+    /// estimate counts this in place of the base64 text.
+    #[serde(skip)]
+    tokens: u64,
 }
 
 /// The base64 text of an attachment, which the body writes from the shared text with
@@ -895,7 +899,8 @@ fn attachment_blocks(blocks: &mut Vec<Block>, part: &AttachmentPart) {
     let media_type =
         attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type).clone();
     let pdf = media_type == MediaType::Pdf.as_str();
-    let source = Source { kind: "base64", media_type, data: Base64(data.clone()) };
+    let tokens = content_tokens(attachment);
+    let source = Source { kind: "base64", media_type, data: Base64(data.clone()), tokens };
     blocks.push(Block::Text { text: label.open, cache_control: None });
     blocks.push(if pdf { Block::Document { source } } else { Block::Image { source } });
     blocks.push(Block::Text { text: label.close.to_owned(), cache_control: None });
@@ -977,12 +982,42 @@ fn tool_input(input: &Value) -> Value {
 
 /// The estimate of a message's tokens: its JSON bytes over [`BYTES_PER_TOKEN`], rounded
 /// up. It is the same for the same bytes, which the anchors of the cache markers need.
+/// The base64 text of an attachment is no text that the model reads: it counts as the
+/// tokens of its source, so an image is not a cache anchor of its own.
 fn estimate(message: &BodyMessage) -> u64 {
     let mut bytes = ByteCount(0);
     if serde_json::to_writer(&mut bytes, message).is_err() {
         return 0;
     }
-    bytes.0.div_ceil(BYTES_PER_TOKEN)
+    let (data, tokens) = sources(message).fold((0_u64, 0_u64), |(data, tokens), source| {
+        (data + source.data.0.len() as u64, tokens + source.tokens)
+    });
+    bytes.0.saturating_sub(data).div_ceil(BYTES_PER_TOKEN) + tokens
+}
+
+/// The sources of the image and document blocks of `message`, also inside its tool
+/// results.
+fn sources(message: &BodyMessage) -> impl Iterator<Item = &Source> {
+    let parts = match &message.content {
+        Content::Parts(parts) => parts.as_slice(),
+        Content::Raw(_) => &[],
+    };
+    let blocks = parts.iter().filter_map(|part| match part {
+        Part::Block(block) => Some(block),
+        Part::Raw(_) => None,
+    });
+    blocks.flat_map(|block| {
+        let nested = match block {
+            Block::ToolResult { content: Some(ResultContent::Blocks(blocks)), .. } => {
+                blocks.as_slice()
+            }
+            _ => std::slice::from_ref(block),
+        };
+        nested.iter().filter_map(|block| match block {
+            Block::Image { source } | Block::Document { source } => Some(source),
+            _ => None,
+        })
+    })
 }
 
 /// A writer that only counts the bytes written to it.

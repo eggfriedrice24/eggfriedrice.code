@@ -626,11 +626,18 @@ fn push_attachment(content: &mut Vec<Value>, part: &AttachmentPart) {
     url.push_str(BASE64);
     url.push_str(data.as_str());
     content.push(json!({"type": "input_text", "text": label.open}));
+    // NOTE: `json!` copies each value it takes; the map takes the url as it is.
+    let mut item = Map::new();
     if media == MediaType::Pdf.as_str() {
-        content.push(json!({"type": "input_file", "filename": attachment.name, "file_data": url}));
+        item.insert("type".to_owned(), Value::from("input_file"));
+        item.insert("filename".to_owned(), Value::from(attachment.name.as_str()));
+        item.insert("file_data".to_owned(), Value::String(url));
     } else {
-        content.push(json!({"type": "input_image", "image_url": url, "detail": "high"}));
+        item.insert("type".to_owned(), Value::from("input_image"));
+        item.insert("image_url".to_owned(), Value::String(url));
+        item.insert("detail".to_owned(), Value::from("high"));
     }
+    content.push(Value::Object(item));
     content.push(json!({"type": "input_text", "text": label.close}));
 }
 

@@ -1,6 +1,6 @@
 use efr_provider::{
-    ContentBlock, EditTool, Message, ModelInfo, ProviderError, Request, Role, ToolDefinition,
-    ToolGrammar, label,
+    ContentBlock, EditTool, EncodedBytes, Message, ModelInfo, ProviderError, Request, Role,
+    ToolDefinition, ToolGrammar, label,
 };
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
@@ -716,6 +716,31 @@ fn an_image_and_a_pdf_go_as_base64_blocks_inside_their_labels() {
             {"type": "text", "text": "What is this?", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
         ])
     );
+}
+
+#[test]
+fn the_estimate_of_a_message_counts_an_image_by_its_tokens_and_not_by_its_base64() {
+    let source = |tokens| super::Source {
+        kind: "base64",
+        media_type: "image/jpeg".to_owned(),
+        data: super::Base64(EncodedBytes::new("A".repeat(800_000))),
+        tokens,
+    };
+    let image = super::Block::Image { source: source(2_000) };
+    let result = super::Block::ToolResult {
+        tool_use_id: "toolu_01".to_owned(),
+        content: Some(super::ResultContent::Blocks(vec![super::Block::Image {
+            source: source(3_000),
+        }])),
+        is_error: false,
+        cache_control: None,
+    };
+    let message = super::BodyMessage {
+        role: "user",
+        content: super::Content::Parts(vec![super::Part::Block(image), super::Part::Block(result)]),
+    };
+    let estimate = super::estimate(&message);
+    assert!((5_000..5_100).contains(&estimate), "{estimate}");
 }
 
 #[test]

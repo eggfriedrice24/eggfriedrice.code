@@ -111,8 +111,10 @@ Modules:
   PDF as `input_file` with `filename` and `file_data`. A part with no data is its label
   alone. A tool result with attachments sends `output` as a list of `input_text` and
   `input_image`; with none it stays the string of before, so the bytes of old turns do
-  not change. The base64 text goes from the `Arc<str>` of the part into the body with
-  one copy.
+  not change. The base64 text goes from the `Arc<str>` of the part into the data URL
+  with one copy, which the item takes as it is. The WebSocket path copies the items
+  that it sends once more, and its continuation prints hash each item, the data URLs
+  too.
 - `convert`: canonical `Request` and `Message` to the Responses body and `input`
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
@@ -629,8 +631,10 @@ pub(crate) enum Ttl { FiveMinutes, OneHour }                 // "5m", "1h"
 ```
 
 `opens_turn` is true for a user message that holds no `tool_result`; `tokens` is the
-conversion's estimate of a message: its JSON bytes without markers over 4, rounded up,
-so the same for the same bytes. A marker is `"cache_control": {"type": "ephemeral",
+conversion's estimate of a message: its JSON bytes without markers and without the
+base64 text of its attachments over 4, rounded up, plus the tokens of each attachment
+by `efr_provider::content_tokens`, so the same for the same bytes, and an image is no
+anchor of its own. A marker is `"cache_control": {"type": "ephemeral",
 "ttl": "5m"}` (or `"1h"`), always the last member of its block. The rules:
 
 - Places: the conversion never merges user messages, and the API joins a run of
