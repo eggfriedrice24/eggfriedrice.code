@@ -24,14 +24,13 @@ import { createStore, type Readable } from "@tanstack/store";
 
 import type { Clock, Timer } from "@/lib/net/clock";
 import type { EfrSpeechNative } from "../../../../modules/efr-speech";
+import { MICROPHONE_DENIED } from "../../../../modules/efr-speech/src/EfrSpeech.types";
 import type { ComposerTrailing } from "./composer-state";
 import type { DraftKey, Drafts } from "./drafts";
+import { nativeErrorCode } from "./native-error";
 
 /** The longest recording. */
 export const MAX_RECORDING_MS = 5 * 60 * 1000;
-
-/** The code of the error of `start` when iOS denies the microphone (efr-speech). */
-export const MICROPHONE_DENIED = "ERR_MICROPHONE_DENIED";
 
 /** What went wrong with the last recording, for its line. */
 export type VoiceProblem = "denied" | "silent" | "interrupted" | "failed";
@@ -117,11 +116,6 @@ export function trailingWhileVoice(
     return { kind: "send", enabled: false };
   }
   return trailing.kind === "stop" ? { kind: "stop", capsule: null } : trailing;
-}
-
-/** The `code` of an error of a native module, such as `ERR_MICROPHONE_DENIED`. */
-function codeOf(error: unknown): unknown {
-  return typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
 }
 
 /** True when `text` ends with a blank, or is empty: the words then need no space before. */
@@ -268,7 +262,7 @@ export function createVoice(deps: VoiceDeps): Voice {
           end(undefined);
           return;
         }
-        const denied = codeOf(error) === MICROPHONE_DENIED;
+        const denied = nativeErrorCode(error) === MICROPHONE_DENIED;
         if (!denied) {
           deps.onError(error);
         }

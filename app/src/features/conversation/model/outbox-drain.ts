@@ -15,12 +15,13 @@
 // - Every other error of efrd fails the entry: a resend with the same command id gets
 //   the same answer.
 //
-// - The files of an entry go first (spec 7.1): each with `attachment.put`, one chunk in
-//   flight, from the bytes that efrd has. A lost link keeps the progress, and the next
-//   start goes on there. When `prompt.send` answers `not_found` with `missing_uploads`,
-//   efrd lost those uploads: they go again with the same ids and the same command id,
-//   at most MAX_REUPLOADS times, and then the entry fails with UPLOAD_LOST. An entry
-//   that the user withdraws during its upload stops at the next chunk.
+// - The files of an entry go first (ADR 0026, docs/protocol.md `attachment.put`): each
+//   with `attachment.put`, one chunk in flight, from the bytes that efrd has. A lost link
+//   keeps the progress, and the next start goes on there. When `prompt.send` answers
+//   `not_found` with `missing_uploads`, efrd lost those uploads: they go again with the
+//   same ids and the same command id, at most MAX_REUPLOADS times, and then the entry
+//   fails with UPLOAD_LOST. An entry that the user withdraws during its upload stops at
+//   the next chunk. A file that iOS purged from the caches fails the entry at once.
 //
 // - A dev build logs each failure, each wait, a send that gets no answer for
 //   STUCK_SEND_MS, and a lane that waits behind a send in flight, so the Metro log
@@ -46,8 +47,10 @@ import type {
   PromptSendResult,
   UploadId,
 } from "@/lib/protocol/generated";
+import { FILE_GONE } from "../../../../modules/efr-files/src/EfrFiles.types";
 import { missingUploadsSchema } from "./attachments-schemas";
-import { UPLOAD_LOST } from "./attachments-format";
+import { UPLOAD_LOST, fileGoneLine } from "./attachments-format";
+import { nativeErrorCode } from "./native-error";
 import {
   drainPlan,
   laneOf,
@@ -271,9 +274,20 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     uploads: OutboxUploads,
     chunk: number,
   ): Promise<void> => {
+    const read = async (offset: number, length: number): Promise<string> => {
+      try {
+        return await uploads.readChunk(file.uri, offset, length);
+      } catch (error) {
+        // A new try cannot find the file either.
+        if (nativeErrorCode(error) === FILE_GONE) {
+          throw new FinalError({ code: "upload", message: fileGoneLine(file.name) });
+        }
+        throw error;
+      }
+    };
     const put = async (offset: number): Promise<AttachmentPutResult> => {
       const length = Math.max(0, Math.min(chunk, file.bytes - offset));
-      const data = length > 0 ? await uploads.readChunk(file.uri, offset, length) : "";
+      const data = length > 0 ? await read(offset, length) : "";
       return uploads.put({
         upload_id: file.uploadId,
         name: file.name,

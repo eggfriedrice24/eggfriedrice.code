@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { FakeClock, flush } from "@/lib/net/testing";
 import { MemoryKeyValue } from "@/lib/store/testing";
+import { MICROPHONE_DENIED } from "../../../../modules/efr-speech/src/EfrSpeech.types";
 import { createDrafts, draftKey } from "./drafts";
 import { CONVERSATION_A, CONVERSATION_B, DESKTOP } from "./outbox-testing";
 import {
   MAX_RECORDING_MS,
-  MICROPHONE_DENIED,
   createVoice,
   stopLabel,
   trailingWhileVoice,

@@ -22,7 +22,8 @@ import { RADII, SPACING, TILE } from "@/theme/metrics";
 import { roles } from "@/theme/roles";
 
 import { testAttach, type TestAttach } from "../../model/attachments-testing";
-import { MICROPHONE_DENIED, VOICE_LINES, createVoice } from "../../model/voice";
+import { MICROPHONE_DENIED } from "../../../../../modules/efr-speech/src/EfrSpeech.types";
+import { VOICE_LINES, createVoice } from "../../model/voice";
 import { FakeSpeech } from "../../model/voice-testing";
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";

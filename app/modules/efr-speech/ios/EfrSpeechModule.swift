@@ -327,6 +327,8 @@ private final class SpeechUnavailableException: Exception {
   }
 }
 
+// Expo makes the code `ERR_MICROPHONE_DENIED` from this name, and the app reads that code
+// (`MICROPHONE_DENIED` of src/EfrSpeech.types.ts). A new name breaks the app.
 private final class MicrophoneDeniedException: Exception {
   override var reason: String {
     "efr may not use the microphone. Allow it in the iOS Settings of efr"

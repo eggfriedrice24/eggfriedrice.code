@@ -1,7 +1,13 @@
 // The functions of the native module EfrFiles (ios/EfrFilesModule.swift). A uri is a
 // `file://` uri in the caches or the temporary directory of the app, where the pickers of
 // iOS put their copies; any other uri is refused. A file that is gone gives an error with
-// the code `ERR_FILE_GONE`.
+// the code FILE_GONE.
+
+/**
+ * The code of the error for a file that is gone, such as a copy that iOS purged from the
+ * caches. Expo makes it from the name of the Swift class `FileGoneException`.
+ */
+export const FILE_GONE = "ERR_FILE_GONE";
 
 /** What `prepareImage` wrote: the JPEG to upload and the preview of its tile. */
 export interface PreparedImage {

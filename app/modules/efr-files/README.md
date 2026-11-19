@@ -31,7 +31,9 @@ All bytes cross to JavaScript as standard base64 strings.
 | `remove(uri)`                         | Removes the file; a missing file is not an error                |
 | `quickLook(uri, title)`               | Shows the file full screen in Quick Look, with `title` on top   |
 
-A file that is gone gives an error with the code `ERR_FILE_GONE`.
+A file that is gone gives an error with the code `ERR_FILE_GONE` (`FILE_GONE` of
+`src/EfrFiles.types.ts`). The outbox then fails the prompt at once and names the file,
+because a new try cannot find it either.
 
 ## Checks on an EAS build
 

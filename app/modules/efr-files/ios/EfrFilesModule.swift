@@ -297,6 +297,8 @@ private final class NotAppFileException: GenericException<String> {
   }
 }
 
+// Expo makes the code `ERR_FILE_GONE` from this name, and the app reads that code
+// (`FILE_GONE` of src/EfrFiles.types.ts). A new name breaks the app.
 private final class FileGoneException: GenericException<String> {
   override var reason: String {
     "The file '\(param)' is not there any more"

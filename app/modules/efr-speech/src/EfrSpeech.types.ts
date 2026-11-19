@@ -4,6 +4,12 @@
 
 import type { EventSubscription } from "expo";
 
+/**
+ * The code of the error of `start` when iOS denies the microphone. Expo makes it from the
+ * name of the Swift class `MicrophoneDeniedException`.
+ */
+export const MICROPHONE_DENIED = "ERR_MICROPHONE_DENIED";
+
 /** `model` while iOS gets the speech model of the language, then `recording`. */
 export type SpeechPhase = "model" | "recording";
 

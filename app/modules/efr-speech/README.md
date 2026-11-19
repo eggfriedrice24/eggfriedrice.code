@@ -11,7 +11,9 @@ module sends nothing, writes no audio file, and no audio leaves the phone.
   then shows no microphone, and the dictation key of the iOS keyboard stays.
 - `start()` asks for the microphone. The first time for a language, it gets the speech
   model through AssetInventory and sends the event `phase` with `model`. Then it records
-  and sends `phase` with `recording`.
+  and sends `phase` with `recording`. When iOS denies the microphone, `start()` fails
+  with the code `ERR_MICROPHONE_DENIED` (`MICROPHONE_DENIED` of
+  `src/EfrSpeech.types.ts`), and the app shows the line that opens the iOS settings.
 - AVAudioEngine gives the buffers of the microphone. The module converts them to the
   format of the analyzer and gives them to it live.
 - Each result sends the event `transcript` with the whole text so far: the final parts,

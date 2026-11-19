@@ -118,6 +118,11 @@ export function overLimitLine(name: string, bytes: number, limit: number): strin
 /** The sentence of a prompt whose upload failed after its last try. */
 export const UPLOAD_LOST = "The upload did not arrive.";
 
+/** The sentence of a prompt whose file iOS removed from the caches before its upload. */
+export function fileGoneLine(name: string): string {
+  return `${name} is no longer on this iPhone.`;
+}
+
 /**
  * The VoiceOver label of a tile: the kind, the name, the size and the state, such as
  * "Photo, IMG_2044.jpg, 2.4 MB, uploading 40 percent". An image from another place says

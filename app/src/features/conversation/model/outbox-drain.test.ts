@@ -5,7 +5,8 @@ import { backoffDelayMs } from "@/lib/net/backoff";
 import { ConnectionError, ServerError } from "@/lib/net/errors";
 import { FakeClock, flush } from "@/lib/net/testing";
 import type { ErrorCode, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
-import { UPLOAD_LOST } from "./attachments-format";
+import { FILE_GONE } from "../../../../modules/efr-files/src/EfrFiles.types";
+import { UPLOAD_LOST, fileGoneLine } from "./attachments-format";
 import {
   MAX_REUPLOADS,
   MAX_SEND_ATTEMPTS,
@@ -633,6 +634,29 @@ describe("the uploads of a prompt", () => {
       state: "failed",
       reuploads: MAX_REUPLOADS,
       error: { code: "upload", message: UPLOAD_LOST },
+    });
+  });
+
+  it("fails the prompt at once and names the file when iOS purged its copy", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const gone = Object.assign(new Error("The file is not there any more"), { code: FILE_GONE });
+    const uploads = { ...fakeUploads(efrd), readChunk: () => Promise.reject(gone) };
+    const drain = uploadDrain(outbox, efrd, uploads, clock);
+    outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 4)],
+    });
+    drain.start();
+    await drainRounds();
+    expect(efrd.uploads.puts).toEqual([]);
+    expect(efrd.calls).toHaveLength(0);
+    expect(outbox.store.get().entries[0]).toMatchObject({
+      state: "failed",
+      error: { code: "upload", message: fileGoneLine("shot.jpg") },
     });
   });
 
