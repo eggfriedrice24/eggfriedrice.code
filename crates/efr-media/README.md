@@ -2,11 +2,32 @@
 
 ## Purpose
 
-The images and PDFs of efr's attachments (ADR 0026), as pure functions of their bytes:
-the size from the header, the decode check, the strip of EXIF, GPS, XMP and comment
-metadata, the downscale, the thumbnail and the facts of a PDF. efrd calls it from the
-intake of an attachment. The functions come with lane L1 of 0.0.13; this crate holds
-the dependencies for them now.
+The images and PDFs of efr's attachments (ADR 0026), as pure functions of their bytes.
+efrd calls it from the intake of an attachment (`crates/efr-daemon/src/attachments/intake.rs`),
+which decides what goes to a model.
+
+- `probe`: `Probe`, the type and the size of a PNG, JPEG, GIF or WebP image from its
+  header, with no decode. `MAX_PIXELS` (50 megapixels) is the largest image that efrd decodes: a 48 MP
+  photo of a phone still fits.
+- `strip`: the metadata strip of a PNG, JPEG, GIF or WebP. It walks the JPEG segments,
+  the PNG chunks, the GIF blocks or the RIFF chunks, drops EXIF, XMP, comment and text
+  data, and keeps the pixel data as it is. A WebP loses its `EXIF` and `XMP ` chunks,
+  the two flags of `VP8X` and so its orientation; a GIF keeps the loop count of
+  `NETSCAPE2.0` and `ANIMEXTS1.0`. For a GIF or a WebP the walk is the check: each block
+  and chunk must have a size that fits in the file.
+- `decode`: `Decoded`, the whole image of a PNG or JPEG, decoded once. `turned()` is
+  true when the EXIF orientation of a JPEG turns the image, so efrd encodes it again
+  upright: the strip drops that tag.
+- `scale`: `Prepared`, an image whose longer edge is at most the edge that efrd gives,
+  with a triangle filter: a JPEG at quality `JPEG_QUALITY` (85), or a PNG when the
+  image has alpha.
+- `thumbnail`: a PNG of at most `THUMB_WIDTH` x `THUMB_HEIGHT` (512 x 256) pixels from
+  the same decode.
+- `pdf_facts`: `PdfFacts`, whether a PDF has `/Encrypt` and the largest `/Count` of a
+  `/Type /Pages` object, in plain objects and in object streams. It is no PDF parser.
+  It inflates object streams up to `PDF_INFLATE_MAX` (64 MiB) in all; past that, the
+  count is unknown. The largest count is never under the real count of a correct file.
+- `MediaError`: why a file failed.
 
 ## Tier
 
@@ -18,9 +39,11 @@ Tier 1.
 links this crate (`efr-daemon -> efr-media`), so the image library stays out of `efr`
 and `efr-sbx`.
 
-Third-party crates: `image` with the `png` and `jpeg` features only, and `miniz_oxide`,
-which inflates the object streams of a PDF. The probe build of 0.0.13 measured
-0.62 MB of efrd for `image`.
+Third-party crates: `image` with the `png` and `jpeg` features only, `miniz_oxide`,
+which inflates the object streams of a PDF (the version that `png` brings already),
+and `thiserror`. The probe build of 0.0.13 measured 0.62 MB of efrd for `image`. The
+lean set (`png`, `zune-jpeg` and `jpeg-encoder`, 0.53 MB) has a JPEG crate with the IJG
+licence, which `cargo deny` refuses.
 
 ## Invariant
 
@@ -34,3 +57,7 @@ Run the tests of this crate alone, without the rest of the workspace:
 ```sh
 cargo nextest run -p efr-media
 ```
+
+The tests build their images in memory (`src/testing.rs`). Property tests feed cut and
+changed images to `strip` and cut and changed PDFs to `pdf_facts`, and check that
+neither panics.

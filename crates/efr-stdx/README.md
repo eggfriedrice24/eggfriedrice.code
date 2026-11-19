@@ -41,7 +41,14 @@ Modules, in the order of the milestone 1 file map:
   `NOTICE_BODY_MAX` (200) characters. efrd (the wake of a waiting prompt) and `efr`
   (the notice of a wait and of the end of a turn) both use it, with the two phrases
   that they share: `QUESTION_WAITS` (`a question waits`) and `INPUT_WAITS` (`a command
-  waits for input`).
+  waits for input`). From v0.0.13 also the texts that efrd and `efr` both write:
+  `span(seconds)` (`4m 12s`), `notice_ended(place, took, failed)` (the body of the end
+  of a turn), `byte_size(bytes)` (`14 KB`, `2.1 MB`, for the label of an attachment
+  and its row) and `omitted_marker(n)` (`[... N bytes omitted ...]`, the one marker of
+  a cut output).
+- `media`: `sniff(head)`, the type of a file from its first bytes (PNG, JPEG, GIF, WebP
+  or PDF), with `MediaType::as_str`: the one table of magic bytes of `efr-tools`,
+  `efr-media` and efrd.
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
 - `panic`: `quiet(f)` runs `f` with the panic message hidden on its thread, and
   `install_quiet_hook()` puts a hook before the current one that, inside `quiet`,

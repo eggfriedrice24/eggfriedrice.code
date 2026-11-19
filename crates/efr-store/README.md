@@ -41,7 +41,7 @@ across a restart:
   result) of the turns that the caller names. SQLite never copies such an event out,
   the event still counts towards the limit, and every event of the page is the event
   of the log.
-- `conversations`, `approvals`, `shells`, `compactions`, `jobs`, `waits`: projections of the log for
+- `conversations`, `approvals`, `shells`, `compactions`, `jobs`, `waits`, `attachments`: projections of the log for
   listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
   `compactions::latest` reads the newest `conversation_compacted` with a summary and
   the newest of any kind with a query of their own, so the page of newest events never
@@ -229,6 +229,25 @@ across a restart:
   scope. The store does not check the key's point or derive the fingerprint; efrd
   does. Not a projection: no event holds a device, and a rebuild leaves the table
   alone.
+- `device_push` (migration 16, ADR 0028): the Expo push token of each device, in a
+  table of its own, so `devices` stays as it is. `WriterHandle::device_push_set` sets
+  the token of an active device, or deletes it with no token; `device_push_drop`
+  deletes it only when the row still holds the token of a push that Expo called dead,
+  so a newer token stays. `device_revoke` deletes the row in the same transaction.
+  `device_push::targets` lists the active devices with a token, oldest pairing first
+  (with `seen_since`, only those that proved their key since then), and
+  `device_push::devices` the ids that have one. The token is a `SecretText`; no log
+  holds it. Not a projection.
+- `attachments` (migration 15, ADR 0026): one row for each attachment of a
+  conversation (`a1`, `a2`, ...), with its SHA-256 and its `efr_protocol::Attachment`
+  as JSON, a projection of `prompt_queued`, `tool_call_completed`,
+  `attachments_withheld` (which sets `withheld`) and `prompt_withdrawn` (which removes
+  the rows of the prompt). `attachments::summary` gives a `Summary` (the highest
+  number and the withheld ids) for the actor at its start; `Summary::new` builds one.
+  `attachments::names_blob` says whether a row still names a blob file, for the
+  delete of a withdrawn prompt. The conversation delete drops the rows. No bytes go
+  into the table. Migration 15 rebuilds nothing: no event before 0.0.13 holds an
+  attachment, so the table is right when it is empty.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

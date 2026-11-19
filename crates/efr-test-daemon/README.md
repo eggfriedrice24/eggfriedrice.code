@@ -61,6 +61,13 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   loopback. Without `remote()`, `remote.tailscaled_socket` names a socket in the
   temporary tree that nothing binds, also when a test turns `remote.enabled` on by
   hand, so a test daemon never reaches the machine's tailscaled.
+  `fake_phone::PairedPhone::pair` pairs a new phone with such a daemon (a terminal
+  opens the pairing and says yes, and the phone enrolls and proves its key), and
+  `PairedPhone::reconnect` opens a new proven connection of the same device, for the
+  tests of uploads and pushes.
+- `TestDaemonBuilder::expo_push(url)` sends the pushes of the daemon to a fake Expo
+  push server of the test. Without it, a test daemon sends them to
+  `http://127.0.0.1:9`, where nothing answers, so a test never reaches `exp.host`.
 - `TestDaemonBuilder::bus_proxy(system, session)` turns the bus filter on with the
   test's own bus sockets, and `bus_proxy_program` names the `xdg-dbus-proxy` to run.
   Without them the daemon keeps `dbus.proxy = false` across reloads and has no bus at

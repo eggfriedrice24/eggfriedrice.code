@@ -51,12 +51,18 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   picks the table from the locale; `RenderOptions::glyphs` gives it. No other file of
   this crate or of the CLI writes one of these glyphs as a literal (a test of the CLI
   checks it; the files of today are listed there until the slices move them).
-- `text_width` and `display_width`: the columns of text (painted text without its
-  escape sequences) by code point or by grapheme cluster. `display_rows`: the rows of
+- `text_width` and `display_width`: the columns of text by code point or by grapheme
+  cluster. Painted text loses its CSI sequences and its control strings: OSC, DCS and
+  APC, each to BEL or `ESC \`. A string with no end takes the rest of the line, so a
+  cut image never counts as text. The count and the cut share one grammar. `display_rows`: the rows of
   one painted line as the terminal wraps it (a wide character that does not fit at the
   end of a row starts the next row). `last_rows`: the last rows of one painted line,
   with the colours and the hyperlink that are open where they start, for a caller that
   clips the live zone by rows. `Update::live_tail` clips the live zone the same way.
+- `file_url_exact`: the `file://` target of an OSC 8 link to a file whose name is
+  exact, such as the copy of an attachment. The link of a path in a reply cuts a
+  `:line` from its end; this form does not, so a name that ends in `:12` stays whole.
+  Both forms share the percent encoding.
 
 Colour roles and their defaults in 16 colours:
 
@@ -264,7 +270,8 @@ with overrides and with a hex palette in truecolor and in 16 colours; and the
 widths of ZWJ emoji, flags and variation selectors both ways, the live-zone row count
 with them, the rows of a line with wide characters at the end of a row, the colours
 and the link that `last_rows` opens again, and that the rows of a diff fit the width
-and read back as its lines. Stream tests check that a long paragraph line and a long
+and read back as its lines. They also check that the width, the rows and `last_rows`
+skip the APC of an image and a DCS, also a cut one. Stream tests check that a long paragraph line and a long
 table show their partial line at once, that a long quote with a code block keeps its
 live zone until the line ends, and that the start of the next item after a long fence
 shows at once, and that each line of a fence in a list item or a quote, with a

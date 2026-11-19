@@ -88,8 +88,11 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   input only through this function, so both forms work the same. The member name
   must equal `efr_provider::FREEFORM_INPUT`; a test in `efr-daemon` checks it.
 - `truncate_middle`: the head and the tail of a long output with a
-  `[... N bytes omitted ...]` line between them, cut on character boundaries and near
-  line ends; `DEFAULT_OUTPUT_LIMIT` is 32 KiB.
+  `[... N bytes omitted ...]` line between them (`efr_stdx::text::omitted_marker`),
+  cut on character boundaries and near line ends; `DEFAULT_OUTPUT_LIMIT` is 32 KiB.
+  It calls the crate-private `truncate_around(text, limit, gap)` with no gap. The
+  shell tool calls `truncate_around` with the `OutputGap` of the shell's own cut, so the
+  model sees one marker with the sum of both cuts. `Truncated::omitted` is a `u64`.
 
 The tools:
 
@@ -225,6 +228,14 @@ The tools:
 - `ReadFileTool` (`read_file`) reads a text file, whole or a range of lines (`offset`
   from 1, `limit`). It declares the path for reading and refuses a file over 16 MiB, a
   binary file (a NUL byte in the first 8 KiB) and anything that is not a regular file.
+  It also reads a PNG, JPEG, GIF or WebP image (v0.0.13, ADR 0026), when the daemon
+  turns that on (`attachments.enabled`): it sniffs the first bytes of the open file
+  (`efr_stdx::media::sniff`) before the size check, so the same 16 MiB limit holds,
+  and returns the bytes in `ToolResult::media` (`ToolMedia { path, bytes }`) with the
+  text `shot.png: PNG image, 2.1 MB`. `offset` and `limit` do not apply to an image.
+  The daemon gives each image to the intake of an attachment. With the flag off, an
+  image is a binary file, as before. The description names images, the same text for
+  every model, so the tool list and the prompt cache stay the same.
 - `WriteFileTool` (`write_file`) writes the whole content of a file, creating missing
   parent directories. It declares the path for writing. Before it writes, it records
   the original in the context's `WriteJournal` as a `JournalEntry` with a

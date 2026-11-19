@@ -101,6 +101,18 @@ Modules:
   sent, and an answer that says the model is not served becomes
   `ProviderError::UnknownModel`. Every model outside the catalog gets the function
   form of a freeform tool, which every model with function calls takes.
+  `ModelInfo::inputs` comes from `input_modalities` of an entry: a model reads images
+  when the list has `image` or when the entry has no list, as Codex reads it. A model
+  of the API key backend that reads images reads PDFs too; the subscription backend
+  gets a PDF as a path.
+- Attachments: `convert` writes the label of `efr_provider::label` as `input_text`
+  around each part with data: an image as `input_image` with a data URL and
+  `detail: "high"` (at most 2,048 pixels and 2,500 patches, so the cost is stable), a
+  PDF as `input_file` with `filename` and `file_data`. A part with no data is its label
+  alone. A tool result with attachments sends `output` as a list of `input_text` and
+  `input_image`; with none it stays the string of before, so the bytes of old turns do
+  not change. The base64 text goes from the `Arc<str>` of the part into the body with
+  one copy.
 - `convert`: canonical `Request` and `Message` to the Responses body and `input`
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
@@ -546,6 +558,10 @@ Modules:
   not built and the call fails with `UnknownModel`: efr guesses no model fact. A model
   that the list does not hold first needs a key: without one, the call fails with
   `NotLoggedIn`, because a missing login is also why no list came.
+- Attachments: the label of `efr_provider::label` as text blocks around an `image`
+  block or a PDF as a `document` block, when the part has data; else the label alone.
+  `tool_result.content` becomes a list of `text` and `image` blocks only when the
+  result has attachments. The text after the results stays after them.
 - Effort: `Request::effort`, else the model's default effort from the catalog
   (`DEFAULT_EFFORT` when the model lists it), because the API's own default differs
   by model. A model without such an effort, such as one whose `capabilities.effort`
@@ -833,7 +849,8 @@ private text.
   `efforts` from `capabilities.effort` (each level whose `supported` is true, from
   `low` to `max`, then any new level by name), `default_effort` `DEFAULT_EFFORT` when
   the model takes it, `edit_tool` `EditTool::Replace`, no freeform tools, no
-  WebSockets.
+  WebSockets. `inputs` from `capabilities.image_input.supported` and
+  `capabilities.pdf_input.supported`; a missing value reads as false.
 - `AnthropicProvider::models` lays the models of the config over the catalog: an
   entry of the same id sets the window and the output limit, each up to the catalog's
   limit, and any other entry comes after the catalog's models.
@@ -888,7 +905,7 @@ at `message_stop`.
 | 401 `authentication_error` | `Unauthorized { message }`, at once | no |
 | any other 402 `billing_error`, 403 `permission_error` | `Api` | no |
 | 404 `not_found_error` for the model | `UnknownModel` | no |
-| 413 `request_too_large` | `Api` (not `ContextOverflow`: a body over 32 MB) | no |
+| 413 `request_too_large` | `Api` (not `ContextOverflow`: a body over 128 MB) | no |
 | 429 with `error.details.error_code` `enforced_spend_limit_reached` | `LimitReached` (`spend_limit`) | no |
 | any other 429 | `RateLimited { retry_after, limit }`; `limit` is the empty bucket of the `anthropic-ratelimit-<bucket>-remaining` headers (`requests`, `tokens`, `input-tokens`, `output-tokens`) with the RFC 3339 time of its `-reset` header | yes, after `retry-after` |
 | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
@@ -923,8 +940,8 @@ Tier 2.
 `efr-provider`, `efr-http`, `efr-protocol` and `efr-stdx`; `xtask/src/deps.rs` holds
 the allowlist. The crate uses `efr-provider` (the trait and the canonical types),
 `efr-http` (the client, the retry policy, the SSE parser and the WebSocket client) and
-`efr-stdx` (the `Clock` and the `Rng`). `efr-protocol` is allowed but not needed:
-nothing here touches the wire types of the daemon's socket.
+`efr-stdx` (the `Clock` and the `Rng`). `efr-protocol` is a dev-dependency only: the
+converter tests build attachments with its types.
 
 It must never depend on `efr-oauth-openai`: tokens and keys arrive through
 `efr_provider::TokenSource`. The OpenAI provider gets an `AccessToken` with its account

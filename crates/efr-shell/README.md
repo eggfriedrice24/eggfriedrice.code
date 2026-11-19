@@ -392,8 +392,15 @@ so far of a run left running at its timeout:
 
 - The run keeps at most `output_limit` bytes: the first half from the start of the
   output, the second half from its end. When bytes were dropped, the head and the
-  tail are read apart and a line `[... N bytes omitted ...]` joins them, so no reader
-  holds more than the kept bytes.
+  tail are read apart and a line `[... N bytes omitted ...]`
+  (`efr_stdx::text::omitted_marker`) joins them, so no reader holds more than the kept
+  bytes. The kept tail starts outside any escape sequence: the capture keeps the start
+  of a sequence that is still open over the bytes that leave the window
+  (`OpenSequence` in `capture/stream.rs`), skips the tail to its end, and counts the
+  bytes of the skipped sequence as dropped. So the body of a long APC, OSC or DCS
+  never reads as text. `CommandResult::gap` (`OutputGap { at, dropped }`, set with
+  `with_gap`) tells a reader where the marker is and how many bytes it stands for, so
+  the shell tool can cut around it and write one marker with the sum.
 - Output that only prints text, colours, carriage-return progress bars and
   backspaces goes through the byte cleaner: escape sequences dropped, `\r\n` as `\n`,
   the text after a bare `\r` replacing the line, a backspace removing the character
@@ -521,13 +528,22 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   that directory. It puts the user's `ZDOTDIR` back (saved in `_EFR_USER_ZDOTDIR`) or
   unsets it, so zsh reads the user's `.zprofile`, `.zshrc` and `.zlogin` next and child
   shells never see the shim; it sources the user's `.zshenv`, then the integration.
+  Before the user's `.zshenv` runs, it moves `_EFR_HS_AID`, the random id that the
+  session gives each hidden shell, into the readonly parameter `_efr_hs_aid`, which is
+  not exported.
 - `efr-integration.zsh` emits exactly the sequence set of ghostty's zsh integration:
   `OSC 133;A;cl=line` before each primary prompt (precmd), `OSC 133;P;k=s` before a
   continuation prompt and `OSC 133;B` where the input starts (zle-line-init),
   `OSC 133;C` from preexec, `OSC 133;D;<status>` from precmd, a bare `OSC 133;D` after
   a prompt whose line ran nothing, and `OSC 7;kitty-shell-cwd://<host><path>` on every
   change of directory. The directory report goes out before `D`. It is an original
-  script: ghostty's is GPLv3 and is never copied.
+  script: ghostty's is GPLv3 and is never copied. `A`, `P`, `C` and `D` also carry
+  `;aid=<id>` (`_efr_hs_aid_opt`), and `B` carries none. `SessionCore` reads a mark
+  with another id, or with none, as output once a mark with its own id has come, so a
+  mark that a command prints (a nested shell, a recorded session that it `cat`s) moves
+  no state and ends no run. A `B` is its own only after an own `A` or `P`. Bash and the
+  other shells get no id and keep the rule of before. The id is no security boundary: a
+  command in a mode with no sandbox can read it (`docs/sandbox.md`).
 - The hidden shell runs no hook and no prompt code of the user, in every mode (efr's
   auto spec, 5.7). It cd's into directories that a model chose and draws a prompt after
   every call, so a prompt theme or a `chpwd` hook (direnv, nvm, a venv switcher) would

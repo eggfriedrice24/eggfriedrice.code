@@ -1957,6 +1957,77 @@ IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
   tailscaled (`efr_test_support::FakeTailscaled`); the integration tests
   (`tests/it/remote.rs`) get the same through `TestDaemonBuilder::remote`.
 
+### Attachments
+
+`attachments.rs` and `attachments/` (ADR 0026): the files of the prompts and the images
+of `read_file`, behind `DaemonAttachments`, efrd's form of
+`efr_conversation::Attachments`. `attachments::store` builds it with the `Uploads`
+table, `(Arc<dyn Attachments>, Uploads)`, and `attachments::limits` gives the
+capability `attachments` while `attachments.enabled` is on.
+
+- **Uploads** (`attachments/uploads.rs`). `Owner::of` a connection: the device of the
+  proof on the tailnet listener, the connection on the Unix socket. `Uploads` keeps
+  each upload in `<state>/uploads/<upload-id>.part` (0600) by the one result rule of
+  `attachment.put`, checks it after its last chunk, and writes what a model gets of it
+  beside it (`.sent`). It sweeps every part at the start of efrd, drops the uploads of
+  a Unix connection when it closes (`Connections::closed`), and an upload of a device
+  after `UPLOAD_TTL` with no chunk. `UploadError::into_daemon` maps its errors to
+  `invalid`, `forbidden` and `internal`. `prompt.send` asks it for the missing ids and
+  answers `not_found` with `missing_uploads`.
+- **The intake** (`attachments/intake.rs`), one path for every origin, on the blocking
+  pool. `Checked` holds the type from the first bytes, the kind, the bytes that a model
+  gets and a `Note` when an image or a PDF goes as a path: `as a path: the image is
+  broken`, `as a path: the image is too large to send as content`, `as a path: the
+  PDF is too large to send as content` (also over 100 pages), `as a path: the PDF has
+  a password`, `as a path: efr cannot count the pages of this PDF`. A PNG or JPEG is
+  decoded once (`efr_media`); one with an edge over `attachments.max_edge_px`, over
+  `IMAGE_MAX_BYTES` (7.5 MB) or turned by its EXIF tag is made smaller or upright, each
+  other one only loses its metadata. A broken image has the kind `other`. Uploads and
+  the images of a tool share one decode semaphore, so one image decodes at a time.
+- **The blob dir** (`attachments/store.rs`): `<data>/attachments/<conversation-id>/<sha256>`
+  (dir 0700, file 0600), the bytes that a model gets, one file for equal bytes. The
+  conversation delete removes the dir, and `forget` removes each blob of a withdrawn
+  prompt that no row names (`efr_store::attachments::names_blob`).
+- **The cache** (`attachments/cache.rs`): the base64 text of the blobs, at most
+  `CACHE_BYTES` (32 MiB), oldest out first. An entry larger than the cache is never
+  cached.
+- **The copies** (`owned_dir.rs`): `make`, `open`, `write_new` and `remove` of the dirs
+  that efrd owns in `$SCRATCH`, with their markers `.efr-jobs` and `.efr-attachments`.
+  `jobs/output.rs` and the attachments both use it. Each open goes through `openat2`
+  with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, a copy is a new file (`O_EXCL`), and an
+  entry in the way goes aside to `<name>.moved-<n>`.
+- `read_file` gets the flag of `attachments.enabled`; with it off, the tool refuses an
+  image as binary, as before.
+
+### Push
+
+`push.rs` and `push/` (ADR 0028): the pushes to the paired phones through the Expo push
+service, with `efr_http::ExpoPush` on the shared HTTP client.
+
+- **The rule**: something needs the user (a row of `notices::desktop_what`, or the end
+  of a turn that a phone started and that took `notify.after_secs`), `presence.push`
+  is on, `PresenceTable::not_at_terminal` (away, or the origin of the newest input is a
+  phone), no connection of the phone holds a visible lease (`Lease::device`,
+  `Connections::visible_on`), and the phone has a token and proved its key in the last
+  30 days.
+- Two callers hand a row to a queue of 64 rows: the notices follower and
+  `PresenceReader::push` of a question that waits when the user turns away.
+  `push::serve` is a background task that sends each row on a task of its own.
+  `push/repeats.rs` keeps the last 1,024 rows that went out, so one question pushes
+  once.
+- `push/tickets.rs`: at most 1,000 open tickets, the receipts 15 minutes after a send
+  and one more try. `DeviceNotRegistered` deletes the token through
+  `WriterHandle::device_push_drop`; `InvalidCredentials` logs one warning for each
+  start; each other code logs one line with the device id.
+- `push/check.rs`: `admin.push_test` sends `efr: test` to each device with a token and
+  asks for the receipts after 2, 4 and 8 s.
+- `EFR_EXPO_PUSH_URL` replaces `https://exp.host`. `Deps::from_process` reads it once at
+  the start and logs `EFR_EXPO_PUSH_URL is set: pushes go to this server, not to
+  exp.host`; a URL that is not `http` or `https` turns push off with one warning. The
+  test daemons send to `http://127.0.0.1:9` unless a test names its own server.
+- `methods/device_push_set.rs` takes the token of the proven device; `device.list`
+  shows `push`; a revoke deletes the token in its transaction.
+
 ### Recording the streams of model calls
 
 - `EFR_RECORD_STREAMS` (a flag, off by default) is read once by `Deps::from_process`.
@@ -1973,8 +2044,9 @@ IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
   reaches a file; `stream_record/tests.rs` sends secret headers and a token request
   through a recording client and checks every file. `record` only queues; a named
   thread writes. A recording that cannot start logs a warning and efrd runs on.
-- The files hold prompts, tool output and answers: private, never sent, never
-  deleted by efrd (`docs/help/troubleshooting.md`, `docs/storage.md`).
+- The files hold prompts, tool output and answers, and the base64 bytes of each image
+  and PDF that a model reads: private, never sent, never deleted by efrd
+  (`docs/help/troubleshooting.md`, `docs/storage.md`).
 
 ### Features
 
@@ -2017,7 +2089,9 @@ catalog and the key check of a login), `efr-oauth-openai`,
 the probe's report and the plan that `sandbox.explain` reads) and `efr-snapshot` (the
 snapshots before and after each call that can write, the turn's changes and
 `conversation.diff`), `efr-proxy` (the network proxy of the sandbox, as tokio tasks
-of efrd: one listener per contained call). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
+of efrd: one listener per contained call), `efr-media` (the checks, the metadata strip
+and the downscale of the images of attachments, and the facts of a PDF; only efrd
+links it). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,

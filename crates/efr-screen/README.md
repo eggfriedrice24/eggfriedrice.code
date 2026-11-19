@@ -16,7 +16,13 @@ goes through this crate, whichever backend renders it:
 - `text`: `ScreenText`, the scrollback and the visible rows as lines of text: a
   soft-wrapped row joined to the next, no trailing spaces, no blank line at the end,
   and the count of blank lines above the cursor apart. `ScreenText::of` makes it from
-  a snapshot in the wire form.
+  a snapshot in the wire form. `cells_text(screen, limit)` is the default of
+  `Screen::text`: the text from the cells of a snapshot. A backend that formats its
+  text itself keeps it for when its own text fails. The rule of `Screen::text` names
+  the 5 wrap edges where such a backend can differ from the cells: a soft-wrapped row
+  that an erase emptied, a row that only a tab moved over before a wide character
+  wrapped, the empty last cell that a wide character left (with a colour, and with
+  none), and a space in the last column before a wide character.
 - `sink`: the `ScreenSink` trait through which a backend reports PTY replies (DA, DSR,
   DECRQM, OSC 10 and 11 answers), bells and title changes while it processes bytes.
 - `actor`: `ScreenActor::spawn`, which runs one screen on its own named std thread,
@@ -175,6 +181,10 @@ until ADR 0014 folded it into this one.
   top ones into the scrollback.
 - Lines that scroll inside a scroll region (DECSTBM) never enter the scrollback, even
   when the region starts at the top row.
+- A full reset (`ESC c`) clears the title, as libghostty-vt does, also when the two
+  bytes come in two chunks. The screen reports an empty title only when a title was
+  set. The title fixture of the conformance suite has the reset, so both backends
+  must agree.
 - The title follows libghostty-vt's limit of 1024 bytes, and an empty title clears
   it. vte splits an OSC at every `;`, so the recorder joins the pieces of a title
   that holds one; vte keeps 16 pieces with the OSC number, so a title with more than
@@ -244,7 +254,8 @@ cargo nextest run -p efr-screen
 ```
 
 The unit tests of the actor use a small in-crate fake screen that is deliberately
-`!Send`, which proves the actor needs no `Send` screen. The scanner has unit tests per
+`!Send`, which proves the actor needs no `Send` screen. The fake screen handles a full
+reset (RIS) too. The scanner has unit tests per
 file and a proptest that checks that any split of a byte stream yields the same marks.
 The conformance suite runs against the fake screen through a dev-dependency of the
 crate on itself with the `conformance` feature.

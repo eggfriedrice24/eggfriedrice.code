@@ -9,7 +9,12 @@ crate and never sees a provider's API: `efr_providers::openai` and
 Modules:
 
 - `message`: canonical `Message { role, content, provider_raw }` with `Role` (user,
-  assistant) and `ContentBlock` (text, tool call, tool result, reasoning, image).
+  assistant) and `ContentBlock` (text, tool call, tool result, reasoning, attachment).
+  `ContentBlock::Attachment` and the `attachments` of a tool result hold an
+  `AttachmentPart`: the metadata of an `efr_protocol::Attachment`, and `data`, the
+  base64 bytes that only the request copy of a turn holds. `data` is not in the serde
+  form, so the history, `turn_messages` and the cache of a turn never hold bytes. The
+  image block of earlier versions is gone: no code made one.
   `provider_raw` is native passthrough: the provider's own items for an assistant
   message (for the Responses API, the encrypted `reasoning` item and the exact
   `function_call` items), saved verbatim with the turn's messages in `efr-store`
@@ -95,6 +100,20 @@ Modules:
   window that a setting can raise it to, its output limit), the reasoning efforts it
   takes with the backend's default, whether it takes freeform tools, whether the
   backend prefers a WebSocket transport for it, and its `edit_tool`.
+- `attachment` (ADR 0026): `AttachmentPart`, `EncodedBytes` (standard base64 in an
+  `Arc<str>`, so a request copies no bytes; its `Debug` shows only the length),
+  `label` (the one text that every provider writes around an attachment: an
+  `<attachment>` tag with the id, the name, the type, the size, the path and the
+  origin, each value on one line with `"`, `<`, `>` and `&` as `_`; for a file that
+  does not go as content, the line that says so), `fit` (the budget of a request, a
+  pure function: at most `MAX_IMAGE_BLOCKS` = 90 images, `MAX_DATA_BYTES` = 100 MB of
+  base64 and attachments of at most `WINDOW_SHARE_PERCENT` = 50 percent of the window;
+  over a limit, the oldest parts lose their data until the request is at half of that
+  limit) and `attachment_tokens` (the one count of the meter and the prune: an image
+  is `ceil(w/28) * ceil(h/28)` tokens up to 4,784, a PDF 4,500 for each page, or its
+  bytes / 4 with no page count). The PDF limits `PDF_MAX_BYTES` (5 MiB) and
+  `PDF_MAX_PAGES` (100) are here too. `ModelInfo::inputs` (`InputKinds { image, pdf }`)
+  says what a model reads besides text.
 - `unoffered`: `unoffered_call_text` and `unoffered_result_text`, the text in place of
   a tool call, and of its result, when the request does not offer the call's tool
   (`Request::offers`). The conversation puts this text in the canonical messages and
@@ -199,9 +218,11 @@ Tier 1.
 
 ## Allowed dependencies
 
-`efr-protocol` (for `Base64Bytes` and `Usage`) and `efr-stdx`. The crate uses only
-`efr-protocol`: nothing here reads a clock or draws randomness; token refresh timing
-lives in `efr-oauth-openai`. `xtask/src/deps.rs` holds the allowlist.
+`efr-protocol` (for `Base64Bytes`, `Usage` and the attachment types) and `efr-stdx`,
+for `text::one_line` and `text::byte_size` in the label of an attachment, so the label
+of efrd and the row of `efr` write one size text. Nothing here reads a clock or draws
+randomness; token refresh timing lives in `efr-oauth-openai`. `xtask/src/deps.rs` holds
+the allowlist.
 
 Third-party crates: `async-trait`, `futures`, `secrecy`, `serde`, `serde_json` and
 `thiserror`.

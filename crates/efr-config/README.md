@@ -116,14 +116,24 @@ Modules:
   plugin the preamble of a prompt shows. A live key.
 - `tables/presence`: `[presence]` (`PresenceSettings`): `away_after_minutes` (1 to
   1440; no input for so long counts a person away from a conversation),
-  `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
-  client exists yet).
+  `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (default
+  `true`: efrd sends a push to a paired phone that has push on, through the Expo push
+  service, ADR 0028).
 - `tables/notify`: `[notify]` (`NotifySettings`, v0.0.12): `terminal` (`AutoOnOff`,
   default `auto`: the desktop notice of the terminal, OSC 777; `auto` sends it only in
   Ghostty and never through tmux, GNU screen or zellij) and `after_secs` (0 to 86400,
   default 30: the shortest turn whose end sends a notice; 0 is each turn). `terminal` is
   live: efrd writes it into `prompt.tsv` for the zsh plugin, and `efr` reads both keys
-  at each run. The plugin and `efr` are the gates; efrd itself sends no notice.
+  at each run. The plugin and `efr` are the gates; efrd itself sends no desktop notice.
+  `after_secs` is live for efrd too: it is also the shortest turn of the phone whose
+  end sends a push.
+- `tables/attachments`: `[attachments]` (`AttachmentsSettings`, v0.0.13, ADR 0026):
+  `enabled` (default `true`), `max_file_mib` (1 to 50, default 20), `max_per_message`
+  (1 to 20, default 10), `max_edge_px` (256 to 2576, default 2000) and `paste`
+  (`AutoOnOff`, default `auto`: the paste of an image into a `,` line in Ghostty 1.4.0
+  or later, never through a multiplexer; efrd writes it into `prompt.tsv`, and `off`
+  when `enabled` is false). `[render] images` (`AutoOnOff`) is the key of the small
+  pictures of attached images.
 - `[conversation]` also has `ask_user` (default `true`, v0.0.12): `false` takes the
   tool `ask_user` away from the model, from its next turn.
 - `tables/web`: `[web]` (`WebSettings`): `search` (`WebSearch`: `mode`, the default,

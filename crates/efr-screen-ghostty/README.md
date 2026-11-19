@@ -29,6 +29,13 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   about 6.44 MiB to 0.51 MiB (see the bench `bench_perf_idle_compression`).
   libghostty-vt decompresses a page again when a snapshot reads it, and that does not
   change the activity, so a snapshot with scrollback starts a new pass.
+- `Screen::text` comes from libghostty-vt's formatter in one call (plain text,
+  soft-wrapped rows joined, trailing blanks trimmed), the text that Ghostty copies to
+  the clipboard. It reads a cell only for the blank rows next to the cursor. The
+  scrollback is counted first, so a full one costs no text. When libghostty-vt cannot
+  count or format the rows, `efr_screen::cells_text` stands in; the two differ only
+  at the wrap edges that `Screen::text` names, and
+  `the_formatter_and_the_cells_differ_only_at_these_edges` tests each one.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it
@@ -150,7 +157,11 @@ through `efr_test_support::bench`, a dev-dependency.
   It uses the split rule of efr-shell's replay, and reads each screen with
   `Screen::text` and the limit of 1,000 rows, as efr-shell does, and with a snapshot
   of 1,000 rows as a baseline. It reports the time, the screens, and the bytes of
-  text or the history rows.
+  text or the history rows. It fails when the text of the ghostty replay takes
+  `GHOSTTY_TEXT_BUDGET` (30) percent or more of the time of its snapshot baseline;
+  the formatter takes about 15 percent (the cells took about 50). The 5 MiB replay
+  went from 572 ms to 166 ms with the formatter, and the 512 KiB one from 54.9 ms to
+  13.0 ms.
 - `bench_perf_idle_compression` (`src/terminal/tests.rs`): a 160x48 screen with 5000
   lines of build output, then its idle steps until they are done. It reports the
   resident bytes that libghostty-vt counts and the RSS of the process before and

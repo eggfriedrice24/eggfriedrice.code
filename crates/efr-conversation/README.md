@@ -958,6 +958,58 @@ The design:
    this, because without the marker the model can answer that turn's prompt. A steer
    that an interrupt sends again as a prompt follows the marker.
 
+### Attachments
+
+The files of a prompt and the images that `read_file` read (ADR 0026). The history,
+`turn_messages` and the actor's cache hold only their metadata
+(`ContentBlock::Attachment` and the `attachments` of a tool result, with no `data`).
+
+- The store of the bytes is the `Attachments` trait (`attachments.rs`), which efrd
+  implements: `bind` takes a finished upload into the blob dir and its copy into
+  `$SCRATCH/attachments`, `keep` takes an image of a tool, `load` gives the base64 text
+  of a blob, and `forget` removes the files of a prompt that no request will read (its
+  default does nothing). `ConversationDeps::attachments` holds it; `NoAttachments` is
+  the store of a daemon that takes none, and of the tests that need none.
+- One counter of ids for each conversation (`AttachmentIds`, in the actor's shared
+  state): the queue step of a prompt and the images of a running turn both take their
+  ids from it. The actor seeds it from the store's highest number
+  (`efr_store::attachments::summary`) before a bind, and each turn at its start.
+- The queue step of a prompt with uploads claims `$SCRATCH` through the shared
+  `turn::ensure_scratch` and `scratch::naming` (the day and the title of the summary,
+  else today and the first line of the prompt that is not empty), so the copies are in
+  the dir that the turn uses, also after a restart. Then it binds each upload. When a
+  bind fails, it forgets the files that it bound and refuses the prompt with
+  `ConversationError::UploadNotBound`; the uploads stay, so a retry can work.
+  `prompt.withdraw`, a withdraw by an interrupt and a failed append of a bound prompt
+  call `forget`.
+- The prompt message is the preamble, one `Attachment` block for each file, the
+  prompt text and the notices: images stand before the text.
+- `ToolOutcome::media` (`ToolImage`: the path and the bytes) brings the images of a
+  call; the turn keeps each one (`keep`), puts it into the tool result and records it
+  in `tool_call_completed`. The history rebuild reads both events, so a turn that left
+  the cache comes back the same.
+- `TurnAttachments` fills the bytes into the window of a turn once, at its start and
+  when a tool result brings a new image: an image when the model reads images, a PDF
+  when it reads PDFs, never a withheld one, and only when `load` gives the bytes. Each
+  other part goes as its label with the path. The turn strips the bytes from the
+  messages that it keeps. A conversation with no attachment skips this.
+- The withheld set: the ids of the attachments that go as a label from now on, from
+  the `attachments_withheld` events (the column `withheld` of the store at a start).
+  Two rules add to it. The budget: after the fill the turn calls
+  `efr_provider::fit`, and when the request is over a limit it records the oldest
+  parts in one event (`budget`) before the call. The recovery: a model call whose
+  request holds attachment data and that fails with `ProviderError::Api` and the status
+  400 or 413 (`is_refusal`) records the parts that this request sent as content for the
+  first time (`refused`) and sends again; when that fails the same way, it withholds
+  each part with data and sends once more; a third failure ends the turn. A 413 that
+  `ProviderError::api` reads as an overflow of the window goes to compaction, not to
+  the recovery. The actor keeps the ids that a good call carried already, and clears
+  them at a change of model and at a start.
+- A compaction request carries labels only. The prune turns an old tool result with an
+  image into the stub, and its images go as labels from then on.
+- The meter and the prune count `efr_provider::attachment_tokens` for each part with
+  data (`message_tokens`), and `,context` shows the part `attachments`.
+
 ## The index redaction
 
 efrd's search index keeps the user's prompts, the model's answers and the commands

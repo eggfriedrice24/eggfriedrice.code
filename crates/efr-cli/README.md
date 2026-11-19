@@ -47,8 +47,9 @@ state and never writes the daemon's database or credentials.
 | `efr project add [PATH] [--name NAME]` | `admin.project_add` | registers PATH (relative to the current directory; the daemon resolves links), or without PATH the git work tree that holds the current directory, else the directory, which may not be the home directory or `/`; the daemon writes `projects.toml` with its comments and reloads; a reload that fails is a warning on stderr, because the file is written |
 | `efr project remove PATH` | `admin.project_remove` | takes the project with that root out, the same way; a root that no project has exits 1 |
 | `efr device add [--name NAME] [--invert]` | `device.pair_start` (admin scope), then `device.pair_confirm` | pairs a phone with efrd over Tailscale (`commands/device.rs`); it needs a terminal for its question and opens no pairing in a pipe (exit 2); prints the QR code of the `started` item inline, below the command line, as text in half blocks with a quiet zone of 4 modules (`commands/device/qr.rs`, level M, about 55 columns; no colour: a lit module shows in the terminal's foreground, so the code reads dark on light on a dark terminal; `--invert` lights the other modules for a light terminal), then when the token expires; a window that is narrower than the code gets a note; the token shows only in the code; on `pending` it prints the phone's name (with the given `--name` beside it), its Tailscale node and user, its system when Tailscale knows it, and the key's fingerprint, each on one line with control characters made visible, and asks `Pair this phone? [y/N]`: `y` sends `accept: true`, `n`, Enter or Esc sends `accept: false`; the end of the pairing while the question is open (an expiry) ends the question; `paired` prints the start of the new device id with the revoke command; a no prints `nothing was paired` on stderr and exits 0; `expired` and `attempts` exit 1; Ctrl+C drops the request, which ends the pairing and spends nothing more (exit 130); a refusal with `remote` in its data (`off`, `not_listening`) gets a hint: the `efr config set remote.enabled true` and restart, or `tailscale status` |
-| `efr device list [--json]` | `device.list` (admin scope) | one row per device, the oldest first: the first 8 characters of its id, its name, its Tailscale node StableID, `paired <age>`, then `seen <age>`, `never connected` or `revoked <age>`; with none, how to pair one; `--json` prints the answer as it came |
+| `efr device list [--json]` | `device.list` (admin scope) | one row per device, the oldest first: the first 8 characters of its id, its name, `push on` (muted) when efrd has its push token, its Tailscale node StableID, `paired <age>`, then `seen <age>`, `never connected` or `revoked <age>`; with none, how to pair one; `--json` prints the answer as it came |
 | `efr device revoke ID` | `device.list` to match an id start and find the name, `device.revoke` (admin scope) | takes a whole id, or a start of at least 4 characters that matches exactly one device (two or more exit 2, none exits 1); prints the name, the short id and the time of the revoke; a second revoke prints the time of the first; efrd closes the device's open connections |
+| `efr push test` | `admin.push_test` (admin scope) | sends a test notice to each phone that has push on, through the Expo push service (`commands/push.rs`, TM-Commands 0.0.13); efrd answers after the receipts, in about 14 s; one line for each phone, its name padded to the longest, then `sent`, `sent to Expo, no receipt yet`, `not sent: <code>.` with the hint of a known code (`DeviceNotRegistered`, `InvalidCredentials`, `UNAUTHORIZED`, `MessageRateExceeded`, `TOO_MANY_REQUESTS`) or `not sent: no answer from exp.host.`; with no phone, the one muted line `no paired phone has push on` |
 | `efr paths [--json]` | `admin.status` when the daemon runs | each root with its source (`EFR_<ROOT>_DIR`, `EFR_HOME`, XDG, `/run/user`) and whether it exists, `config.toml`, the database, `secrets/` and the socket; then the daemon's roots, with a warning on stderr for each one that differs; a daemon with the sandbox adds the launcher's copy (with its source and whether its SHA-256 matches), bubblewrap and its version, and the sandbox's state and runtime directories |
 
 `efr project` goes through the daemon, because `efr-scope` owns `projects.toml` and the
@@ -915,7 +916,10 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   grapheme cluster), Left and Right (also Ctrl+F; Ctrl+B does not move the cursor), Home and End, Ctrl+A, Ctrl+E, Ctrl+U (to the start
   of the line), Ctrl+K (to its end), Ctrl+W (the word before the cursor), Alt+B and
   Alt+F, Ctrl+J and Alt+Enter (a newline), and a bracketed paste, whose newlines never
-  send. A tab shows as a blank and another control character as its stand-in.
+  send. A tab shows as a blank and another control character as its stand-in. The row
+  drops each OSC, DCS and APC string to its BEL or `ESC \`, and any other control
+  character ends such a string, so a late reply of the terminal, such as a clipboard
+  reply, is never typed into the row.
 - Enter sends `turn.steer` for the followed turn with `if_late` set to queue it as
   `prompt.send` would, with the context, the last command and the settings that the
   plugin handed over. An empty Enter does nothing. Tab sends `prompt.send` to the
@@ -1312,7 +1316,38 @@ a call), `format/ending.rs` (the lines of the end of a turn) and `format/status.
 the `⇄` line of a switch of model, which gives no piece yet. `format::Spacing` has the
 design's kinds `Row`, `Steer` and `End` next to today's: no blank line between rows,
 one between rows and prose, one above and one below a steer, one before the end lines
-and none between them, none after the prompt line.
+and none between them, none after the prompt line. `format::own_line` is the one
+helper of the CLI's own lines, such as those of `efr push test`: painted on a
+terminal, where a line wider than the screen goes on 2 columns further in. The texts
+of a span (`4m 12s`), of the end of a turn and of a size (`2.1 MB`) come from
+`efr_stdx::text`, so efrd and `efr` write the same words.
+
+Attachments (ADR 0026, `docs/use/attachments.md`):
+
+- `attach.rs` reads the `@path` words of a prompt (`@` at the start or after a blank,
+  then an absolute path, `~/`, `./`, `../` or a path relative to the shell's
+  directory; quotes and a backslash escape; a word that names nothing is tried once
+  more without `.,;:!?` at its end). A word that names no regular file stays text, with
+  a note only when it looks like a path. The sent text keeps each word as typed, but a
+  clip file below `CLIPS_DIR` of the state root (`<shell>.<n>.<ext>`) goes as
+  `@paste-<n>.<ext>` (`pasted_name`). A steer reads the words only for the note
+  `attachments go with a prompt, not with a steer`.
+- `attach/upload.rs` uploads each file in chunks of `chunk_bytes` with
+  `attachment.put` (origin `path` with the absolute path, or `clipboard` for a clip),
+  then sends `prompt.send` with the upload ids, all on one connection. On an error
+  after an upload it sends `attachment.discard`. On `not_found` with `missing_uploads`
+  it uploads those files again and sends again, at most 3 times
+  (`CliError::UploadLost`, `the upload did not arrive`). A file that cannot attach
+  sends nothing: `CliError::NotAttached` prints its reason and exits 2 with no more
+  text. It removes a clip file after the prompt went.
+- `format/attach.rs` writes the row of a prompt with attachments (the kind, the name,
+  the pixels of an image, the size, `as a path`) and the rows of
+  `attachments_withheld`. The name is an OSC 8 link to the copy
+  (`efr_render::file_url_exact`), but with OSC 8 off or over SSH (`TermFacts::ssh`, the
+  `SSH_CONNECTION` of the `efr` that prints). `follow/view/ending.rs` holds the row
+  with the `⇄` line of the turn's start, and the follow view starts at the seq before
+  the prompt's event (`Target::after`), so it reads `prompt_queued`. `efr history`
+  writes the same row.
 
 ## Tier
 
@@ -1338,7 +1373,7 @@ handler is installed, without unsafe code), `qrcode` (the pairing code of `efr d
 without its default features, so with no dependency of its own).
 
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX`, `STY`,
-`ZELLIJ`, `WT_SESSION`, `LC_ALL`, `LC_CTYPE` and `LANG` are read in `terminal.rs` with
+`ZELLIJ`, `WT_SESSION`, `SSH_CONNECTION`, `LC_ALL`, `LC_CTYPE` and `LANG` are read in `terminal.rs` with
 `std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `FZF_QUERY` and

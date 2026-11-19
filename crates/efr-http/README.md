@@ -72,6 +72,20 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   `Tailscale-Version` header (each result keeps it) and `MINIMUM_REMOTE` (1.100.0)
   is the oldest tailscaled that efrd's remote listener supports. What efrd admits or
   binds from these answers is the daemon's decision, not this crate's.
+- `expo_push`: `ExpoPush`, a small typed client of the Expo push service for efrd's
+  pushes (ADR 0028), over the shared `HttpClient`. `send` posts at most `MAX_MESSAGES`
+  (100) messages (`PushMessage::new`) to `/--/api/v2/push/send` and gets one `Ticket`
+  for each, in their order; `receipts` asks `/--/api/v2/push/getReceipts` for the
+  `Receipt` of at most `MAX_RECEIPT_IDS` tickets. No gzip, no `accept-encoding` and no
+  access token. The parse reads only `status`, `id`, `details.error` and
+  `errors[].code`: a code stays only as 1 to 64 characters of `[A-Za-z_]`
+  (`PushCode`), a ticket id only as 1 to 64 characters of `[A-Za-z0-9-]` (`TicketId`),
+  and the `message` text, which can quote a token, is never parsed. Each try and each
+  read of an answer ends after 10 s on the injected clock. `EXPO_RETRY` gives 4 tries,
+  with waits of up to 2, 4 and 8 s and a `Retry-After` of up to 60 s, after 429, a
+  5xx, a timeout or no connection, and no try starts after the smallest `ttl` of the
+  messages. No request is `recorded()`, so a recorder never sees a token. The base URL
+  is the caller's: `EXPO_PUSH_BASE`, or a fake server in a test.
 - `redact`: header and URL redaction for logs, errors and transcripts.
 - `recorder`: the `Recorder` hook that receives provider traffic. efrd installs one,
   `stream_record.rs`, when `EFR_RECORD_STREAMS` is on at its start, and writes the
@@ -79,7 +93,8 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
 
 Consumers: `efr_providers::openai` (the streaming Responses API over HTTP and over a
 WebSocket), `efr-oauth-openai`
-(token exchange and refresh), and efrd's remote listener (`LocalApi`).
+(token exchange and refresh), efrd's remote listener (`LocalApi`) and efrd's pushes
+(`ExpoPush`).
 
 ## Tier
 
@@ -110,8 +125,10 @@ are re-exported, so callers need no direct dependency on `http`, `reqwest` or `h
 - A request that is not idempotent is never sent a second time after it may have
   reached the server.
 - The crate knows no model vendor: endpoints, provider headers and event names belong
-  to the provider crates. The one service it knows is tailscaled's LocalAPI, a local
-  daemon on a Unix socket, because the remote listener needs it below `efr-daemon`.
+  to the provider crates. It knows two services: tailscaled's LocalAPI, a local
+  daemon on a Unix socket, because the remote listener needs it below `efr-daemon`,
+  and the Expo push service, whose typed client keeps the parse of a push token's
+  answers in one place.
 - No LocalAPI request sends an `Origin` or `Referer` header, and each one sends
   `Host: local-tailscaled.sock`, which tailscaled requires.
 
