@@ -39,9 +39,11 @@ pub(crate) fn apply(
     conversation_id: ConversationId,
     envelope: &EventEnvelope,
 ) -> Result<(), StoreError> {
-    let id = conversation_id.to_string();
     match &envelope.event {
-        Event::PromptQueued { attachments, .. } | Event::ToolCallCompleted { attachments, .. } => {
+        Event::PromptQueued { attachments, .. } | Event::ToolCallCompleted { attachments, .. }
+            if !attachments.is_empty() =>
+        {
+            let id = conversation_id.to_string();
             let mut insert = conn.prepare(
                 "INSERT INTO attachments (conversation_id, number, sha256, attachment, seq) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -56,7 +58,8 @@ pub(crate) fn apply(
                 ])?;
             }
         }
-        Event::AttachmentsWithheld { attachments, .. } => {
+        Event::AttachmentsWithheld { attachments, .. } if !attachments.is_empty() => {
+            let id = conversation_id.to_string();
             let mut update = conn.prepare(
                 "UPDATE attachments SET withheld = 1 WHERE conversation_id = ?1 AND number = ?2",
             )?;
@@ -69,7 +72,7 @@ pub(crate) fn apply(
                 "DELETE FROM attachments WHERE conversation_id = ?1 AND seq IN \
                  (SELECT seq FROM events WHERE conversation_id = ?1 AND turn_id = ?2 \
                   AND kind = 'prompt_queued')",
-                params![id, turn_id.to_string()],
+                params![conversation_id.to_string(), turn_id.to_string()],
             )?;
         }
         _ => {}
