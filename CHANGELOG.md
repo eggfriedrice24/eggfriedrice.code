@@ -82,6 +82,8 @@ into the GitHub release notes, and it stops when the section is missing.
   waited for your answer to a card.
 - A late reply of the terminal, such as a clipboard reply, no longer puts its text into
   the input row of a turn.
+- The Face ID unlock of the phone app asks for your face again, not for the passcode
+  of the iPhone. The app had lost the Face ID text that iOS needs.
 
 ## [0.0.12] - 2026-11-18
 
