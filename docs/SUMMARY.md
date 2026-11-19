@@ -18,6 +18,7 @@
 - [The hidden shell](use/hidden-shell.md)
 - [Undo and diff](use/undo-and-diff.md)
 - [The turn view and its keys](use/turn-view.md)
+- [Attachments](use/attachments.md)
 - [Models, providers and login](use/models-and-login.md)
 - [The phone app](use/phone.md)
 

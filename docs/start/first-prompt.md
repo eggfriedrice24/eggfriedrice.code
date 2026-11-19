@@ -36,28 +36,19 @@ directory and the model, but no text of the prompt, and it runs no model. To tur
 off, set `EFR_WARM=0`, for example `export EFR_WARM=0` in `.zshrc`. The plugin reads
 the variable for each line, so a change applies from the next line.
 
-### Paste an image
+### Attach a file
 
-In Ghostty 1.4 or later, you can paste an image into a prompt line. Copy the image,
-type `, ` and press the paste key. The line gets an `@` word with the path of a file
-that holds the image, such as `@/home/you/.local/state/efr/clips/4242.1.png`. The image goes
-with the prompt, and the prompt text names it `@paste-1.png`. efr removes the file
-when the prompt went.
+Put `@` and the path of a file in the line, and the file goes with the prompt:
 
-- Text that you paste goes into the line as before. Text over 16 KiB goes as a file.
-- When the clipboard has an image and text, the image goes.
-- The paste works on `,` and `,new` lines, and on each line of sticky mode that does
-  not start with `!`. A `,!` line takes text only, because a steer takes no file. On
-  all other lines, zsh pastes as before.
-- When a paste adds nothing, one line under the prompt tells you why, such as for an
-  image over `attachments.max_file_mib`. After two failed reads in one shell, or when
-  the terminal does not allow clipboard reads (`clipboard-read` of Ghostty), each
-  paste in that shell is text again.
-- `attachments.paste` in [`config.toml`](../config.md#attachments) sets it: `auto`
-  (the default) is on in Ghostty 1.4 or later outside tmux, GNU screen and zellij,
-  `on` is on in each terminal, and `off` is off.
-- In another terminal, type `@` and drop the file on the window: the terminal pastes
-  its path.
+```sh
+, why is the header cut off in @docs/shot.png
+```
+
+In Ghostty 1.4 or later, you can also paste an image into a prompt line. Copy the
+image, type `, ` and press the paste key: the line gets an `@` word with the path of a
+file that holds the image, and the prompt names it `@paste-1.png`. Text that you paste
+goes into the line as before. In another terminal, type `@` and drop the file on the
+window. [Attachments](../use/attachments.md) tells what a model reads and the limits.
 
 ## What you see
 

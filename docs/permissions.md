@@ -940,6 +940,28 @@ records the decision. The rules:
   not asked: `, and nobody is asked. The call still counts as a call of the turn.
 - `conversation.ask_user = false` takes the tool away from the next turn.
 
+## Attachments
+
+A file that you attach to a prompt (an `@path`, a paste or a file of the phone) and an
+image that the model reads with `read_file` are data, never your words and never a
+permission. [ADR
+0026](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0026-attachments.md)
+records the decision. The rules:
+
+- An upload is your own act, so no permission check runs for it. efrd checks the size,
+  the count, the type and the name.
+- efrd refuses an `@path` whose file is in the class Secrets. This is a guard against
+  accidents, not a boundary: the client is your own `efr`.
+- `read_file` on an image declares its path for a read, as each read does, and the
+  engine decides it with no new rule. A file of the phone is in `$SCRATCH`, so its read
+  is free.
+- The naming rule of a guarded exit, the allow rule and the reviewer's record read the
+  text that you typed, never a label, a file name or the content of an attachment. Text
+  in a screenshot can come from anyone.
+- `$SCRATCH/attachments` is read-only in every contained call (see "The auto
+  sandbox").
+- A model-side socket peer has the read-only scope and cannot upload a file.
+
 ## A command left running
 
 A shell call answers the model at its timeout. When its command still runs then, the

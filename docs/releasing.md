@@ -78,7 +78,10 @@ when one of them changes.
    - `version` in `[workspace.package]` of `Cargo.toml`;
    - `Cargo.lock` (run `cargo metadata --format-version 1 > /dev/null`);
    - `pkgver` in `packaging/efr-code/PKGBUILD` and
-     `packaging/efr-code-bin/PKGBUILD`. Keep `pkgrel=1`.
+     `packaging/efr-code-bin/PKGBUILD`. Keep `pkgrel=1`;
+   - `version` in `app/app.json`, before the EAS build of the phone app for this
+     release, so TestFlight shows the version of efr. EAS counts the build number
+     itself.
 
    Then run the gates of `AGENTS.md`, and commit with a message such as
    `release 0.0.2`.

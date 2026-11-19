@@ -2215,6 +2215,7 @@ the config hold of full mode holds it.
 | command lines of other processes | the sandbox reads them, as `ps` does in `cautious` | none; do not put secrets in command lines |
 | a fork bomb or a full disk | the machine slows down or fills up | none yet |
 | a line that you approved in another mode changes the hidden shell | that line has your rights | `auto` calls never run model text in the hidden shell itself; the wrapper check catches a changed wrapper |
+| the id on the shell marks of the hidden shell is no boundary: each hidden zsh writes a random id as `aid=<id>` on its own OSC 133 `A`, `P`, `C` and `D` marks | a command in a mode with no sandbox can read the id (`$_efr_hs_aid`) and print a mark that ends its call early | a mark with another id, or with none, is output; a contained call does not depend on the id: its nonce and its facts end it, and a mark that it prints is plain output that efr does not hold back |
 | the private `/tmp` | wrong paths for you or the model | the prompt text says so; share files through `$SCRATCH` |
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |

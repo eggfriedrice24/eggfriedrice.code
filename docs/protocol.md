@@ -1194,3 +1194,95 @@ No protocol version has shipped yet.
   the batch that waited when the job ended, which no `job_watch_matched` names. The
   `max_wakes` of a `watch` counts notices (batches), not lines. The fixtures
   `events/job_watch_matched.json` and `events/job_ended.json` now set them.
+- Version 1, additive (v0.0.13): attachments (ADR 0026). New wire types: `attachment`
+  (`id` such as `a1`, a number for each conversation; `name`, with no `/` and no
+  control character and at most 240 bytes, `NAME_MAX_BYTES`; `media_type` from the
+  first bytes of the file; `bytes`; `sha256`, lowercase hex; `kind`; `origin`; an
+  optional `copy`, the absolute path of the file in `$SCRATCH/attachments`, absent for
+  an image of a tool; an optional `sent`, what a model gets as content). `kind` and
+  `origin` are objects with their own `kind` member: `{"kind": "image", "width",
+  "height"}`, `{"kind": "pdf", "pages"?}`, `text`, `other` or `unknown`; `{"kind":
+  "path", "path"}`, `clipboard`, `phone`, `{"kind": "tool", "path"}` or `unknown`.
+  `sent_form` (`media_type`, `bytes`, and `width` and `height` for an image),
+  `upload_id` (a UUID that the client makes), `upload_info` (`name`, `media_type`,
+  `kind`, `bytes`, optional `sent`), `attachment_limits` (`max_file_bytes`,
+  `max_per_message`, `chunk_bytes`, `max_edge_px`) and `withheld_reason` (`budget`,
+  `refused`, `unknown`). `efr_protocol::fit_name` cuts a long name: the stem at a
+  character border, and an extension of at most 16 bytes (`KEPT_EXTENSION_BYTES`)
+  stays. A client cuts a name with it; efrd refuses a longer one and does not cut it.
+
+  New capability `attachments`, which only efrd sends while `attachments.enabled` is
+  on: the `attachment_limits` of this efrd (`max_file_bytes` is `max_file_mib` MiB,
+  `chunk_bytes` is 512 KiB, `CHUNK_BYTES`). Without it a client sends no attachment.
+  An efrd before 0.0.13 drops the unknown member of `prompt.send` with no error.
+
+  New method `attachment.put` (scope `operate`, unary): `upload_id`, `name`,
+  `total_bytes`, `offset`, `data` (base64, at most `chunk_bytes`) and an optional
+  `origin`. The result is `received`, the bytes that efrd has, and `upload` (an
+  `upload_info`) after the last chunk; a repeat after the last chunk gives `upload`
+  again. efrd writes a chunk only when `offset` equals `received`. Each other put
+  writes nothing and answers `received`, with no error, so a repeat, a lost answer and
+  a resume are one case. An empty `data` asks for `received`, and an empty file is
+  whole at its first, empty chunk. `invalid`: an empty name, `.`, `..`, a name over
+  240 bytes or with a `/` or a control character; `data` over `chunk_bytes`;
+  `total_bytes` over `max_file_bytes`; a chunk past `total_bytes`; a `name`,
+  `total_bytes` or `origin` that differs from the first chunk of the upload; more than
+  20 open uploads of one owner (`MAX_OPEN_UPLOADS`); an origin that the listener does
+  not allow (a phone sends none and efrd sets `phone`; a local client sends `path` with
+  an absolute path, or `clipboard`); an `@path` of the engine's secret class, with the
+  message `the file of the @path is a secret file`. `forbidden`: an upload of another
+  owner. `internal`: a failed write to the disk. The owner is the connection on the
+  Unix socket, whose uploads go when it closes, and the device of the proof on the
+  tailnet listener, whose upload goes after 1 hour with no chunk and no prompt
+  (`UPLOAD_TTL`). efrd removes every upload at its start.
+
+  New method `attachment.discard` (scope `operate`, unary): `upload_id`. The result is
+  empty. An unknown id is no error; an upload of another owner is `forbidden`.
+
+  `prompt.send` gains `attachments`, a list of `upload_id`, absent when empty. Its
+  check runs after the checks of a blank text and of `new_conversation`, so a blank
+  text with attachments is `invalid` first. `attachments.enabled` off, and more than
+  `max_per_message` ids, are `invalid`. An id that is not a finished upload of this
+  owner is `not_found` with the message `efrd does not have each upload of the prompt`
+  and `data` `{"missing_uploads": [...]}`, in the order of the prompt. That answer
+  records no receipt, so the client uploads those files again from offset 0 and sends
+  again with the same command id. Once the prompt is queued, efrd removes its uploads.
+  A failure of the queue step is `internal`, with no receipt, and the uploads stay.
+
+  `prompt_queued` and `tool_call_completed` gain `attachments` (a list of `attachment`,
+  absent when empty): the files of the prompt, and the images that `read_file` read.
+  `turn_started` gains `unread_attachments` (ids, absent when empty): the attachments
+  of the prompt that the model of this turn gets as a path, not as content. New event
+  `attachments_withheld` `{turn_id?, attachments, reason}`: from this event on, each
+  request of the conversation sends these attachments as a label with the path. An
+  old reader skips it. `context_part_kind` gains `attachments`. New fixtures
+  `attachments.json`, `withheld_reasons.json`, `attachment_put_params.json`,
+  `attachment_put_result.json`, `attachment_discard_params.json`,
+  `attachment_discard_result.json`, `events/attachments_withheld.json`,
+  `errors/missing_uploads.json` and `hello_result_remote_attach.json`;
+  `prompt_send_params.json`, `events/prompt_queued.json`,
+  `events/tool_call_completed.json`, `events/turn_started.json`, `hello_result.json`
+  and `context_part_kinds.json` now set the new members.
+- Version 1, additive (v0.0.13): push (ADR 0028). New method `device.push_set` (scope
+  `read`, unary, on the tailnet listener only and after the proof; it acts on the
+  device of the proof): an optional `token`, the Expo push token of the app,
+  `ExponentPushToken[` and 1 to 128 printable ASCII characters with no blank, `[` or
+  `]`, then `]`; another form is `invalid`. An absent token turns push off for the
+  device. The result is empty. New method `admin.push_test` (scope `admin`, no params):
+  efrd sends `efr: test` to each device with a token and asks for the receipts after
+  2, 4 and 8 s, so the answer comes after about 14 s. The result has `devices`, one row
+  for each device with a token: `name`, `result` (the new wire enum
+  `push_test_result`: `sent`, `no_receipt`, `not_sent`, `unknown`) and an optional
+  `code`, the code of the Expo push service for a `not_sent`, absent when Expo gave no
+  answer. New capability `push`, which efrd sends only on the tailnet listener and only
+  while `presence.push` is on: efrd takes a push token. `device_info` gains `push`,
+  true when the device has a token, absent when false. The phone sends
+  `device.push_set` on each connection to an efrd with the `push` capability: the
+  token while its switch is on and iOS allows notices, else no token, and no token
+  before it forgets the machine. The phone now sends `lease.report` on each
+  connection, at each change of the app state or of the open conversation, and each
+  25 s while it is in front, so efrd sends no push while the user looks at the
+  conversation. New fixtures `device_push_set_params.json`,
+  `device_push_set_result.json`, `admin_push_test_params.json`,
+  `admin_push_test_result.json` and `push_test_results.json`; `device_list_result.json`
+  and `hello_result_remote_attach.json` set the new members.

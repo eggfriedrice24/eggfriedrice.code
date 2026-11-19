@@ -17,12 +17,13 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/snapshots/<root-id>.git`, `<root-id>.index`, `<root-id>.root` | efr's own snapshot store: one bare git repository per project or `$SCRATCH` (`root-id` is the first 16 hex characters of the SHA-256 of the root's canonical path), its persistent index and the root's path. Refs per turn: `refs/efr/<conversation>/<turn>/pre` (written at the turn's first snapshot of the root), `/last` (moved after each call, with the paths that the turn's calls changed), `/post` (at the turn's end) and `/undone` (after an undo). `refs/efr-mirror/<conversation>/<turn>/` holds the project's branches, tags, `refs/stash` and `HEAD` at the turn's start, at most `snapshot.mirror_max_mib` MiB of objects per turn and 4 times that per store. `refs/efr-undo/<conversation>/<undo-id>/` holds the state before an undo (`before`, `started`, `mirror/`), so a redo can take it back. The store holds the project's `.env` files and other small ignored files too, for up to `snapshot.max_age_days` days. The sandbox masks it with the rest of the data root. The collector keeps or drops a turn whole across every store: the newest `snapshot.keep_turns` turns of each conversation. It deletes a store without a snapshot for `snapshot.max_age_days` | `efr-snapshot` |
 | `$XDG_DATA_HOME/efr/snapshots/home.git` | efr's home store: before an approved write outside the project and `$SCRATCH` in `auto`, efrd copies each file that the call can change into it, and after the call it records the state after the call. Ref `refs/efr/<conversation>/<turn>/home/<n>` per copy: a commit "before" and a child commit "after", each with `files/<absolute path>` and a manifest `efr-home.json` (the state of each path, its mode, a link's target, the dirs above a missing path that were missing too). efrd streams the bytes to `git fast-import`, so git never reads a home path. At most 16 MiB per file; a directory with more than `snapshot.home_max_files` files or `snapshot.home_max_mib` MiB gets no copy. The collector keeps it with the turns of the root stores | `efr-snapshot/src/home.rs`, `efr-daemon/src/home.rs` |
 | `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (dirs 0700) | every file that `efr undo` overwrote or removed, written from the store before the write: `root/<root-id>/<path in the root>` and `home/<absolute path without the leading />`. A file keeps its mode without set-id bits. efr's own floor protects it, and the sandbox masks it. The collector deletes an undo dir older than `snapshot.max_age_days` | `efr-daemon/src/tools/undo.rs` |
-| `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records | `efr-credentials/src/file_store.rs` |
+| `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records. Push adds no file here: efrd keeps no push key, and the push token of each phone is in the table `device_push` of the database | `efr-credentials/src/file_store.rs` |
 | `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration. Each start of efrd keeps the newest 2 copies by version (`KEPT_BACKUPS`), with the copy of this start among them, and removes the older ones: a copy holds every conversation of its time, also the ones that you deleted later | `efr-store/src/migrations.rs` |
 | `$XDG_DATA_HOME/efr/file-backups/<conversation>/<turn>/<n>/<file name>`, `meta.json` (dirs 0700, files 0600) | legacy: the copies of floor files from before the home store. efrd writes no new copy here. The collector deletes a turn older than `snapshot.max_age_days`, and the dir when it is empty. An old event keeps its turn-end line `changed <path>; backup at <path>` | `efr-daemon/src/backups.rs` |
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |
 | `$XDG_STATE_HOME/efr/uploads/<upload-id>.part`, `<upload-id>.sent` (dir 0700, files 0600) | the open uploads of `attachment.put`: the bytes of the file, and after the last chunk what a model gets of it. A queued prompt takes them. efrd removes the uploads of a local connection when it closes, an upload of a phone that no chunk and no prompt named for 1 hour, and every upload at its start; the client then uploads the file again | `efr-daemon/src/attachments/uploads.rs` |
-| `$XDG_STATE_HOME/efr/streams/<UTC time>-<pid>/` (0700, files 0600) | only with `EFR_RECORD_STREAMS` on at efrd's start: one directory for each start. For model call `n`, `<n>.request.json` (`transport`, `method`, the URL without its query, and the body as sent: the prompts, the history and the output of tools), `<n>.response.sse` (the answer as it came; for a WebSocket, each message as an SSE event) and one line in `index.jsonl` (`n`, `at`, `transport`, `status`, `end`). Never a header, so no token, key or cookie, and no body of an answer with the status 401 or 403, which can quote a part of the key. Private: efr never sends the files anywhere and never deletes them; delete them yourself | `efr-daemon/src/stream_record.rs` |
+| `$XDG_STATE_HOME/efr/clips/<shell pid>.<n>.<ext>` (dir 0700, files 0600) | the image or the long text of a paste into a `,` line (ADR 0027), at most 10 files for each shell, the oldest out first. `efr` removes a clip after its upload, and a clip older than 1 day | `efr-cli/src/clip.rs`, `attach.rs` |
+| `$XDG_STATE_HOME/efr/streams/<UTC time>-<pid>/` (0700, files 0600) | only with `EFR_RECORD_STREAMS` on at efrd's start: one directory for each start. For model call `n`, `<n>.request.json` (`transport`, `method`, the URL without its query, and the body as sent: the prompts, the history, the output of tools and the base64 bytes of each image and PDF that the model reads), `<n>.response.sse` (the answer as it came; for a WebSocket, each message as an SSE event) and one line in `index.jsonl` (`n`, `at`, `transport`, `status`, `end`). Never a header, so no token, key or cookie, and no body of an answer with the status 401 or 403, which can quote a part of the key. Private: efr never sends the files anywhere and never deletes them; delete them yourself | `efr-daemon/src/stream_record.rs` |
 | `$XDG_STATE_HOME/efr/model_catalog.json` (0600) | the last model catalog that the subscription backend sent, with its base URL, efr's version, the time and the `ETag`; efrd starts with it while the backend does not answer, and replaces it in one step after each fetch | `efr-daemon/src/catalog.rs`, `efr-providers/src/openai/catalog/cache.rs` |
 | `$XDG_STATE_HOME/efr/openai_api_model_catalog.json` (0600) | the last model list that the OpenAI API backend sent for the stored key, in the same form; efrd keeps it apart because both OpenAI lists run at once | `efr-daemon/src/catalog.rs`, `efr-providers/src/openai/catalog/cache.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/tmp/` | the private `/tmp` and `/var/tmp` of the `auto` sandbox, one per conversation | `efr-daemon` makes it, `efr-sbx` binds it |
@@ -111,7 +112,7 @@ conversations or the daemon's socket. The config root stays readable and read-on
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
 - Projections `conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`,
-  `job_notices` and `waits` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
+  `job_notices`, `waits` and `attachments` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
   rebuild matches. They serve listing and paging; they are not a second source of
   truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
@@ -276,6 +277,21 @@ conversations or the daemon's socket. The config root stays readable and read-on
   never comes back. The partial unique index `devices_active_key` allows one device
   that is not revoked per key. Not a projection: no event holds a device, so a
   rebuild leaves the table alone.
+- The push tokens (migration 16): `device_push(device_id, token, updated_at)`, one row
+  for each device that sent its Expo push token with `device.push_set` (ADR 0028). The
+  token is a secret: no log holds it. An absent token in `device.push_set` deletes the
+  row, a revoke deletes it in the same transaction, and a `DeviceNotRegistered` answer
+  of the Expo push service deletes it when it still holds the token of that push. Not
+  a projection.
+- The attachments (migration 15): `attachments(conversation_id, number, sha256,
+  attachment JSON, withheld, seq)`, one row for each attachment of a conversation
+  (ADR 0026), also when two have the same bytes. A projection of `prompt_queued`,
+  `tool_call_completed`, `attachments_withheld` and `prompt_withdrawn`: `withheld` is 1
+  after an `attachments_withheld` event named the row, and a withdrawn prompt removes
+  its rows. The index `attachments_blob` on `(conversation_id, sha256)` tells whether
+  another row still names a blob file. No bytes go into the table, the event log,
+  `turn_messages` or the search index: the bytes are in the blob dir and in
+  `$SCRATCH/attachments`.
 
 ## Migrations
 
@@ -295,9 +311,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   of deleted conversations, v0.0.5), `0011_devices.sql` (the enrolled devices of
   the remote milestone), `0012_search_secure_delete.sql` (the FTS5 option
   `secure-delete` of the search index), `0013_receipts_seq.sql` (the index of the
-  receipts by their sequence number, for the steps of a delete) and `0014_waits.sql`
+  receipts by their sequence number, for the steps of a delete), `0014_waits.sql`
   (`approvals.local_only`, `conversations.attention` and the `waits` projection,
-  v0.0.12). Each step has a flag that says whether it
+  v0.0.12), `0015_attachments.sql` (the `attachments` projection, v0.0.13) and
+  `0016_device_push.sql` (the push tokens, v0.0.13). Each step has a flag that says whether it
   changes a projection. The first start of an efrd with such a migration rebuilds the
   projections from the log once, after the backup copy: about 3 s for 100,000 events in
   a debug build, and 7.4 s for 500,000 events on a busy machine (the bench
@@ -305,8 +322,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   SQL: the rebuild fills the new columns and the new table, so the migrated database
   equals a rebuilt one.
   `0009_search.sql`, `0010_deletes.sql`, `0011_devices.sql`,
-  `0012_search_secure_delete.sql` and `0013_receipts_seq.sql` have no flag, so they
-  rebuild nothing.
+  `0012_search_secure_delete.sql`, `0013_receipts_seq.sql`, `0015_attachments.sql` and
+  `0016_device_push.sql` have no flag, so they rebuild nothing. No event before
+  v0.0.13 holds an attachment, so the new `attachments` table is right when it is
+  empty.
 - `0009_search.sql` creates the search tables empty, with the cursor at 0. After the
   start, efrd's indexer fills them in the background from the log (the backfill): it
   reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and

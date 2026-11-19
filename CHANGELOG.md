@@ -17,17 +17,17 @@ into the GitHub release notes, and it stops when the section is missing.
   that it does not handle, efrd logs one warning for that screen.
 - The model sees an image file that it reads with `read_file` (PNG, JPEG, GIF, WebP),
   when its model reads images. Each other model gets the path of the file.
-- efrd takes the files of a prompt. A client uploads each file in chunks
-  (`attachment.put`) and names the uploads in `prompt.send`. Images and PDFs go to a
-  model that reads them; each other file goes as a path. Each file gets a copy in
-  `$SCRATCH/attachments`, which a contained call can read but not write.
-  `[attachments]` sets the limits.
 - Attach files to a prompt with `@path` in a `,` line, such as `, why is the header cut
-  off in @docs/shot.png`. zsh shows an `@path` that names a file in the accent colour,
-  and Tab after `@` completes a file name. A row at the start of the turn names each
-  file with its kind and its size, and its name links to the copy of the file; `efr
-  history` shows the row too. A row tells you when efr stops to send a file as content. A prompt that names a
-  file that cannot attach does not go, and a note tells you why.
+  off in @docs/shot.png`, or with the plus button of the phone (Photo Library, Take
+  Photo, Choose File). Images and PDFs go to a model that reads them; each other file
+  goes as a path. Each file gets a copy in `$SCRATCH/attachments`, which a contained
+  call can read but not write. `[attachments]` sets the limits. zsh shows an `@path`
+  that names a file in the accent colour, and Tab after `@` completes a file name. A
+  row at the start of the turn names each file with its kind and its size, and its
+  name links to the copy of the file; `efr history` shows the row too. A row tells you
+  when efr stops to send a file as content. A prompt that names a file that cannot
+  attach does not go, and a note tells you why. A client uploads each file in chunks
+  with `attachment.put` and names the uploads in `prompt.send`.
 - In Ghostty 1.4, a paste of an image into a `,` line attaches it: the line gets an
   `@` word with the path of a file, and the prompt names the image `@paste-1.png`.
   Text that you paste goes into the line as before; text over 16 KiB goes as a file.
@@ -35,6 +35,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - Push notifications on the phone when a question waits and you are away (the
   Notifications switch, `efr push test`). The notices go through the Expo push
   service. `efr device list` shows `push on` for a phone that has push on.
+- Voice input on the phone: speech becomes text in the draft, on the iPhone (iOS 26).
+  No audio leaves the iPhone.
 
 ### Changed
 
@@ -42,7 +44,6 @@ into the GitHub release notes, and it stops when the section is missing.
   from PNG, JPEG, GIF and WebP images before a model gets them. A broken image goes as
   a path. If a provider refuses an image, efr sends the request again with its path,
   and later requests send the path too.
-
 - efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the
   scrollback after a resize, for prompts after a resize and for a scrollback line
   limit that was slow. A build from source still needs Zig 0.17.0.
