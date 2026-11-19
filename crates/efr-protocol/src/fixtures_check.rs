@@ -60,14 +60,15 @@ use crate::{
     RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
     SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
-    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, SentForm, Seq,
-    ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, StoredCopyReason, SurfaceChange, Switch,
-    SwitchCost, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
-    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, UploadId, UploadInfo,
-    Usage, UserAnswer, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
-    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer, WithheldReason,
+    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretFile, SecretText,
+    SentForm, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
+    StoredCopyReason, SurfaceChange, Switch, SwitchCost, SwitchedModel, TargetFact, TextRange,
+    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
+    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, UploadId, UploadInfo, Usage, UserAnswer, UserAuthorization, Verdict, Watch,
+    WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    WithheldReason,
 };
 
 /// The directory of the frozen fixtures.
@@ -1899,6 +1900,13 @@ fn answer_fixtures() -> Vec<Fixture> {
             &ErrorBody::new(ErrorCode::NotFound, "an upload of the prompt is missing").with_data(
                 serde_json::to_value(MissingUploads { missing_uploads: vec![upload_id()] })
                     .unwrap_or_else(|err| panic!("the missing uploads do not encode: {err}")),
+            ),
+        ),
+        fixture(
+            "errors/secret_file.json",
+            &ErrorBody::new(ErrorCode::Invalid, "the file of the @path is a secret file").with_data(
+                serde_json::to_value(SecretFile { secret_file: true })
+                    .unwrap_or_else(|err| panic!("the secret file refusal does not encode: {err}")),
             ),
         ),
         fixture(
