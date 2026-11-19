@@ -1,16 +1,19 @@
 //! The uploads of `attachment.put` and the prompts that take them, from `efr` on the
 //! Unix socket and from a paired phone on the tailnet listener: the result rule of a
 //! chunk, the owners, the origins, the limits, the parts that a closed connection or a
-//! restart leaves, and a missing upload that the client sends again.
+//! restart leaves, a missing upload that the client sends again, and the form in which
+//! an image, a PDF and a CSV of one prompt reach each provider.
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use efr_protocol::{
     AttachmentDiscard, AttachmentDiscardResult, AttachmentId, AttachmentOrigin, AttachmentPut,
     AttachmentPutResult, Base64Bytes, CHUNK_BYTES, ErrorCode, Event, MAX_OPEN_UPLOADS, Method,
     MissingUploads, PromptSend, PromptSendResult, ShellContext, TurnSettings, UploadId,
 };
 use efr_test_daemon::{
-    Client, ClientError, MessagesAnswer, MessagesServer, PairedPhone, TTY, TestDaemon,
-    TestDaemonError, command_id, events_until,
+    Client, ClientError, MessagesAnswer, MessagesServer, PairedPhone, ResponsesAnswer,
+    ResponsesServer, TTY, TestDaemon, TestDaemonError, command_id, events_until,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -40,9 +43,24 @@ fn put(
     })
 }
 
+/// The whole file `name` of the working directory of `daemon` as upload `n`, from an
+/// `@path`.
+fn put_whole(daemon: &TestDaemon, n: u128, name: &str, file: &[u8]) -> Method {
+    let mut method = put(n, file, 0, file.len(), Some(at(daemon, name)));
+    if let Method::AttachmentPut(params) = &mut method {
+        name.clone_into(&mut params.name);
+    }
+    method
+}
+
 /// The origin of an `@shot.png` in the working directory of `daemon`.
 fn at_path(daemon: &TestDaemon) -> Option<AttachmentOrigin> {
-    Some(AttachmentOrigin::Path { path: daemon.cwd().join("shot.png") })
+    Some(at(daemon, "shot.png"))
+}
+
+/// The origin of an `@<name>` in the working directory of `daemon`.
+fn at(daemon: &TestDaemon, name: &str) -> AttachmentOrigin {
+    AttachmentOrigin::Path { path: daemon.cwd().join(name) }
 }
 
 /// Prompt `n` with `text` and the uploads `uploads`, from the terminal when `tty`.
@@ -131,6 +149,102 @@ async fn an_upload_in_chunks_goes_with_its_prompt_as_an_image_and_a_copy_of_the_
     no_part_left(&daemon).await;
     drop(client);
     daemon.stop().await.unwrap();
+}
+
+/// A PDF of one page.
+const REPORT_PDF: &[u8] = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+    2 0 obj\n<< /Type /Pages /Kids [] /Count 1 >>\nendobj\n\
+    trailer\n<< /Size 3 /Root 1 0 R >>\n%%EOF\n";
+
+/// A CSV, a text file: it goes as a label with the path of the user's file.
+const TABLE_CSV: &[u8] = b"name,size\nshot,1\n";
+
+/// Sends one prompt of the terminal with `shot.png`, `report.pdf` and `table.csv` from
+/// `@path` words, to the end of its turn.
+async fn three_files(daemon: &TestDaemon) {
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let files: [(&str, &[u8]); 3] =
+        [("shot.png", PIXEL_PNG), ("report.pdf", REPORT_PDF), ("table.csv", TABLE_CSV)];
+    for (n, (name, file)) in (1..).zip(files) {
+        let _: AttachmentPutResult = client.call(put_whole(daemon, n, name, file)).await.unwrap();
+    }
+    let uploads = vec![upload(1), upload(2), upload(3)];
+    let sent: PromptSendResult =
+        client.call(prompt(daemon, 1, "read these", uploads, true)).await.unwrap();
+    let events = ended(daemon, &client, &sent).await;
+    assert!(matches!(events.last(), Some(Event::TurnCompleted { .. })), "{events:#?}");
+    drop(client);
+}
+
+/// The text of the label of the attachment `name` among `texts`.
+fn label_of<'a>(texts: &[&'a str], name: &str) -> &'a str {
+    let member = format!("name=\"{name}\"");
+    texts.iter().find(|text| text.contains(&member)).copied().unwrap_or_default()
+}
+
+/// The note of a label of a text file of an `@path`.
+const USERS_FILE: &str = "[efr: not sent as content. The user's file is at the path.";
+
+/// The note of a label of an attachment that does not go as content.
+const NOT_SENT: &str = "[efr: not sent as content. Open the file at the path.]";
+
+#[tokio::test]
+async fn an_image_a_pdf_and_a_csv_reach_claude_as_an_image_a_document_and_a_label() {
+    let server = MessagesServer::start().await;
+    let mut model = claude(true);
+    model["capabilities"]["pdf_input"] = json!({"supported": true});
+    server.set_models(vec![model]);
+    server.push(MessagesAnswer::text("Read."));
+    let daemon = TestDaemon::builder().messages(&server).start().await.unwrap();
+
+    three_files(&daemon).await;
+    let content = server.received()[0].body["messages"][0]["content"].clone();
+    let blocks = content.as_array().unwrap();
+    let image = json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": pixel()}});
+    let pdf = STANDARD.encode(REPORT_PDF);
+    let document = json!({"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf}});
+    assert!(blocks.contains(&image), "{content:#}");
+    assert!(blocks.contains(&document), "{content:#}");
+    let texts: Vec<&str> = blocks.iter().filter_map(|block| block["text"].as_str()).collect();
+    let csv = label_of(&texts, "table.csv");
+    assert!(csv.contains(USERS_FILE), "{content:#}");
+    assert!(csv.contains(&daemon.cwd().join("table.csv").display().to_string()), "{csv}");
+    assert!(!content.to_string().contains("shot,1"), "the CSV goes as a path only");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_image_a_pdf_and_a_csv_reach_both_openai_backends_in_their_forms() {
+    for subscription in [false, true] {
+        let server = ResponsesServer::start().await;
+        server.push(ResponsesAnswer::text("Read."));
+        let builder = TestDaemon::builder();
+        let builder =
+            if subscription { builder.subscription(&server) } else { builder.responses(&server) };
+        let daemon = builder.start().await.unwrap();
+
+        three_files(&daemon).await;
+        let body = &server.received()[0].body;
+        let input = body["input"].as_array().unwrap();
+        let user = input.iter().rev().find(|item| item["role"] == "user").unwrap();
+        let parts = user["content"].as_array().unwrap();
+        let url = format!("data:image/png;base64,{}", pixel());
+        let image = json!({"type": "input_image", "image_url": url, "detail": "high"});
+        assert!(parts.contains(&image), "{user:#}");
+        let texts: Vec<&str> = parts.iter().filter_map(|part| part["text"].as_str()).collect();
+        let file_data = format!("data:application/pdf;base64,{}", STANDARD.encode(REPORT_PDF));
+        let file = json!({"type": "input_file", "filename": "report.pdf", "file_data": file_data});
+        if subscription {
+            // NOTE: only the API key backend takes a PDF as content.
+            assert!(!parts.iter().any(|part| part["type"] == "input_file"), "{user:#}");
+            assert!(label_of(&texts, "report.pdf").contains(NOT_SENT), "{user:#}");
+        } else {
+            assert!(parts.contains(&file), "{user:#}");
+        }
+        assert!(label_of(&texts, "table.csv").contains(USERS_FILE), "{user:#}");
+        assert!(!user.to_string().contains("shot,1"), "the CSV goes as a path only");
+        daemon.stop().await.unwrap();
+    }
 }
 
 #[tokio::test]
