@@ -43,7 +43,7 @@ export interface PushNative {
    * Expo token. Returns its stop.
    */
   followTokens(listener: () => void): () => void;
-  /** Removes the delivered notices of conversation `id`. */
+  /** Removes the delivered notices of `conversation`. */
   dismiss(conversation: string): Promise<void>;
   /** Opens the iOS settings of the app, where the notices are allowed. */
   openSettings(): void;
@@ -69,11 +69,11 @@ export interface Push {
   /** Sends no token to `machine` now, before the app forgets it. */
   release(machine: MachineId): void;
   /**
-   * Conversation `id` is on screen: its delivered notices go now, and again each time
-   * the app comes back to the foreground on it.
+   * `conversation` is on screen: its delivered notices go now, and again each time the
+   * app comes back to the foreground on it.
    */
   shown(conversation: string): void;
-  /** Conversation `id` left the screen. */
+  /** `conversation` left the screen. */
   left(conversation: string): void;
   openSettings(): void;
   /** Stops every listener. */

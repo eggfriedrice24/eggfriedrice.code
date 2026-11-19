@@ -51,14 +51,15 @@ export function createNoticeTaps(): NoticeTaps {
   let wired:
     | { readonly source: NoticeSource; readonly knows: (machine: MachineId) => Promise<boolean> }
     | undefined;
-  const handled = new Set<string>();
+  // The launch tap and the listener can give the same tap; it opens once.
+  let handled: string | undefined;
   let stop: (() => void) | undefined;
 
   const open = (tap: NoticeTap): void => {
-    if (wired === undefined || handled.has(tap.id)) {
+    if (wired === undefined || handled === tap.id) {
       return;
     }
-    handled.add(tap.id);
+    handled = tap.id;
     wired.source.clear();
     const parsed = noticeDataSchema.safeParse(tap.data);
     if (!parsed.success) {

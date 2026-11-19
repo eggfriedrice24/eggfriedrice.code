@@ -667,7 +667,8 @@ export function createOutbox(deps: OutboxDeps): Outbox {
 
     progress(commandId: CommandId, uploadId: UploadId, received: number, uploaded: boolean): void {
       const files = find(commandId)?.attachments;
-      const file = files?.find((held) => held.uploadId === uploadId);
+      const index = files?.findIndex((held) => held.uploadId === uploadId) ?? -1;
+      const file = files?.[index];
       if (files === undefined || file === undefined) {
         return;
       }
@@ -675,7 +676,7 @@ export function createOutbox(deps: OutboxDeps): Outbox {
         return;
       }
       const attachments = [...files];
-      attachments[files.indexOf(file)] = { ...file, received, uploaded };
+      attachments[index] = { ...file, received, uploaded };
       change(commandId, (entry) => ({ ...entry, attachments }), uploaded && !file.uploaded);
     },
 
@@ -688,12 +689,9 @@ export function createOutbox(deps: OutboxDeps): Outbox {
             return undefined;
           }
           const lost = new Set(missing);
-          const attachments: OutboxAttachment[] = [];
-          for (const file of entry.attachments) {
-            attachments.push(
-              lost.has(file.uploadId) ? { ...file, received: 0, uploaded: false } : file,
-            );
-          }
+          const attachments = entry.attachments.map((file) =>
+            lost.has(file.uploadId) ? { ...file, received: 0, uploaded: false } : file,
+          );
           return { ...entry, attachments, reuploads: reuploads + 1 };
         },
         true,

@@ -45,10 +45,6 @@ export const ATTACH_MENU: readonly (MenuEntry & { readonly id: AttachSource })[]
   { id: "files", title: "Choose File", image: "folder" },
 ];
 
-function isSource(id: string): id is AttachSource {
-  return id === "photos" || id === "camera" || id === "files";
-}
-
 /** Slot B: attach a photo or a file, or nothing when the composer takes none. */
 export function ComposerAttachButton() {
   const attach = use(ComposerContext)?.attach;
@@ -87,8 +83,9 @@ export function ComposerAttachButton() {
       testID="composer-attach-menu"
       entries={ATTACH_MENU}
       onAction={(id) => {
-        if (isSource(id)) {
-          attach.pick(id);
+        const source = ATTACH_MENU.find((entry) => entry.id === id)?.id;
+        if (source !== undefined) {
+          attach.pick(source);
         }
       }}
     >

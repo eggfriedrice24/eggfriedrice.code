@@ -156,8 +156,10 @@ export function versionText(version: string | undefined, build: string | undefin
   return build === undefined || build === "" ? name : `${name} (${build})`;
 }
 
-/** The title of the row "Notifications" and of its group "When you are away". */
+/** The title of the row "Notifications". */
 export const NOTIFICATIONS_TITLE = "Notifications";
+
+/** The header of the group of the row "Notifications". */
 export const AWAY_HEADER = "When you are away";
 
 /** The words of the row "Notifications" (the 0.0.13 frames of the Settings board). */

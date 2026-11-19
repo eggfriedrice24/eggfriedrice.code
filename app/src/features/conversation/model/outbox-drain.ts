@@ -99,7 +99,7 @@ export interface OutboxUploads {
 const UPLOAD_ERROR: OutboxError = { code: "upload", message: UPLOAD_LOST };
 
 /** The error of an entry with files for an efrd that takes none. */
-const NO_ATTACHMENTS: OutboxError = {
+const NO_ATTACHMENT_SUPPORT: OutboxError = {
   code: "upload",
   message: "efrd on this machine takes no attachments.",
 };
@@ -222,6 +222,9 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
   // The heads of the blocked lanes that the log told already.
   const told = new Set<string>();
 
+  const current = (commandId: CommandId): OutboxEntry | undefined =>
+    outbox.store.get().entries.find((held) => held.commandId === commandId);
+
   const settle = (commandId: CommandId, error: unknown, sentIn: number): void => {
     if (error instanceof WithdrawnError) {
       return;
@@ -254,16 +257,12 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
       outbox.fail(commandId, reason);
       return;
     }
-    const entry = outbox.store.get().entries.find((held) => held.commandId === commandId);
-    const attempt = entry?.attempts ?? 0;
+    const attempt = current(commandId)?.attempts ?? 0;
     const asked = error instanceof ServerError ? retryAfterMs(error.body) : undefined;
     const wait = asked ?? backoffDelayMs(attempt, options.random(), backoff);
     devWarn(`prompt ${commandId} tries again in ${wait} ms: ${reason.code}: ${reason.message}`);
     outbox.retryLater(commandId, reason, clock.now() + wait);
   };
-
-  const current = (commandId: CommandId): OutboxEntry | undefined =>
-    outbox.store.get().entries.find((held) => held.commandId === commandId);
 
   // Sends the chunks of `file` from the bytes that efrd has, one at a time, until efrd
   // names the upload. The one result rule of `attachment.put`: efrd writes a chunk only
@@ -324,7 +323,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     const uploads = options.uploads;
     const chunk = uploads?.chunkBytes();
     if (uploads === undefined || chunk === undefined) {
-      throw new FinalError(NO_ATTACHMENTS);
+      throw new FinalError(NO_ATTACHMENT_SUPPORT);
     }
     for (const file of files) {
       if (!file.uploaded) {

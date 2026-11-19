@@ -196,11 +196,13 @@ export function toolStatus(
     return { kind: "failed", detail: "refused" };
   }
   if (call.tool === "read_file" && !call.isError && call.output !== undefined) {
-    const image = call.attachments?.[0]?.kind;
+    const attached = call.attachments?.[0]?.kind;
     return {
       kind: "done",
       detail:
-        image?.kind === "image" ? `image ${image.width}x${image.height}` : lineCount(call.output),
+        attached?.kind === "image"
+          ? `image ${attached.width}x${attached.height}`
+          : lineCount(call.output),
     };
   }
   if (time !== undefined) {

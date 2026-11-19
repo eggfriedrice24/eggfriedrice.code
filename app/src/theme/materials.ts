@@ -41,6 +41,8 @@ export const MATERIALS = {
   },
   /** The dim layer behind an action sheet in the canvas. The real app uses the system dim. */
   dim: withOpacity("surface_0", 0.5),
+  /** The circle of the xmark on a draft tile (board S-Attach), over the photo. */
+  tileMark: withOpacity("surface_0", 0.72),
 } as const;
 
 /** The opacities of states in the design. */

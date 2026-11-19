@@ -10,8 +10,10 @@ const FIXTURES = import.meta.glob<unknown>(
   { eager: true, import: "default" },
 );
 
+/** A JSON object of a fixture. */
 export type Json = Readonly<Record<string, unknown>>;
 
+/** True when `value` is a JSON object, not an array or null. */
 export function isObject(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

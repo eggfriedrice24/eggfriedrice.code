@@ -109,6 +109,8 @@ export const TILE = {
   largeSize: 104,
   glyph: 28,
   mark: 22,
+  /** The xmark in its circle. */
+  markGlyph: 10,
   /** The xmark stands this far in from the top right corner. */
   markInset: 4,
   /** The caption stops growing at this text size. */

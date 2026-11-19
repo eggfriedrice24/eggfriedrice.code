@@ -27,8 +27,8 @@ import { cn } from "@/components/ui/cn";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
 import { SymbolIcon, type SymbolName } from "@/components/ui/symbol";
-import type { TextTone } from "@/components/ui/text-classes";
-import { TEXT_TONE_CLASS } from "@/components/ui/text-classes";
+import { TEXT_TONE_CLASS, type TextTone } from "@/components/ui/text-classes";
+import { MATERIALS } from "@/theme/materials";
 import { SPACING, TILE } from "@/theme/metrics";
 import {
   captionLine,
@@ -190,10 +190,11 @@ function AttachmentTile(props: AttachmentTileProps) {
               right: TILE.markInset,
               width: TILE.mark,
               height: TILE.mark,
+              backgroundColor: MATERIALS.tileMark,
             }}
-            className="absolute items-center justify-center rounded-full bg-surface-0/72"
+            className="absolute items-center justify-center rounded-full"
           >
-            <SymbolIcon name="xmark" size={10} weight="bold" tone="text_bright" />
+            <SymbolIcon name="xmark" size={TILE.markGlyph} weight="bold" tone="text_bright" />
           </Pressable>
         )}
       </View>

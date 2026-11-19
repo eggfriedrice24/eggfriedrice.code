@@ -343,7 +343,11 @@ export function createAttachments(deps: AttachmentsDeps): Attachments {
     },
 
     take(key: DraftKey): readonly DraftAttachment[] | undefined {
-      const held = store.state.drafts.get(key) ?? NO_FILES;
+      const held = store.state.drafts.get(key);
+      if (held === undefined) {
+        // A send with no files changes no state.
+        return NO_FILES;
+      }
       if (held.some((file) => file.bytes === undefined)) {
         return undefined;
       }
