@@ -94,6 +94,8 @@ fn dropped(board: &str, frame: u64) -> bool {
         "TM-Scope" => matches!(frame, 12..=16 | 20),
         // The light frames.
         "TM-Depths" => matches!(frame, 13..=16),
+        // Today's look: the rows that break when the window gets narrower.
+        "TM-Narrow" => matches!(frame, 1 | 2 | 5 | 6 | 9 | 10 | 13 | 14 | 17 | 18 | 21 | 22),
         _ => false,
     }
 }
