@@ -22,7 +22,9 @@
 //!
 //! Other control characters and escape sequences change nothing. The bytes of an OSC,
 //! DCS or APC string (`ESC ]`, `ESC P`, `ESC _` to BEL or `ESC \`), such as a late
-//! clipboard reply, are dropped and never typed into the line. The line holds no
+//! clipboard reply, are dropped and never typed into the line. A string that ends in
+//! another way was typed (Alt+], Alt+Shift+P and Alt+_ send its start), so its text
+//! goes into the line. The line holds no
 //! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
 //! prompt. The follow loop keeps the keys away from it while a call's output shows a
 //! password prompt.
@@ -77,9 +79,9 @@ enum State {
     /// In a bracketed paste: the text so far, and how many bytes of [`PASTE_END`]
     /// came last.
     Paste { text: Vec<u8>, matched: usize },
-    /// In a control string (OSC, DCS or APC), whose bytes are dropped; `escape` after
-    /// an escape byte in it.
-    String { escape: bool },
+    /// In a control string (OSC, DCS or APC): its bytes so far, at most [`MAX_BYTES`],
+    /// and `escape` after an escape byte in it.
+    String { held: Vec<u8>, escape: bool },
 }
 
 /// The text of the input row and its cursor.
@@ -184,7 +186,9 @@ impl RowLine {
             // A paste may hold an escape byte that nothing followed in time.
             (Key::Esc, State::Paste { .. }) => ESC,
             (Key::Esc, _) => {
-                self.state = State::Plain;
+                if let State::String { held, .. } = std::mem::take(&mut self.state) {
+                    self.typed(&held);
+                }
                 self.utf8.clear();
                 return Action::Interrupt;
             }
@@ -207,24 +211,44 @@ impl RowLine {
             }
             State::Ss3 { alt } => self.ss3(byte, alt),
             State::Paste { text, matched } => self.paste(byte, text, matched),
-            State::String { escape } => self.string(byte, escape),
+            State::String { held, escape } => self.string(byte, held, escape),
         }
     }
 
-    /// One byte of a control string. BEL or `ESC \` ends it, and an escape byte with
-    /// another byte ends it and starts a sequence. A reply of the terminal holds no
-    /// other control character, so one of them also ends the string and does nothing
-    /// more: after Alt+Shift+P, which sends `ESC P` too, Enter does not send the text
-    /// before the keys that the string took.
-    fn string(&mut self, byte: u8, escape: bool) -> Action {
+    /// One byte of a control string. BEL or `ESC \` ends a reply of the terminal, which
+    /// is dropped. A reply holds no other control character and no other sequence, so
+    /// a string that ends in another way was typed: Alt+], Alt+Shift+P and Alt+_ send
+    /// the bytes that start a string. Its text then goes into the line, and the byte
+    /// that ended it acts as always.
+    fn string(&mut self, byte: u8, mut held: Vec<u8>, escape: bool) -> Action {
         match byte {
-            b'\\' if escape => {}
-            _ if escape => return self.escape(byte, false),
-            ESC => self.state = State::String { escape: true },
-            0x00..=0x1f | 0x7f => {}
-            _ => self.state = State::String { escape: false },
+            b'\\' if escape => Action::None,
+            _ if escape => {
+                let typed = self.typed(&held);
+                then(typed, self.escape(byte, false))
+            }
+            0x07 => Action::None,
+            ESC => {
+                self.state = State::String { held, escape: true };
+                Action::None
+            }
+            0x00..=0x1f | 0x7f => {
+                let typed = self.typed(&held);
+                then(typed, self.plain(byte))
+            }
+            _ => {
+                if held.len() < MAX_BYTES {
+                    held.push(byte);
+                }
+                self.state = State::String { held, escape: false };
+                Action::None
+            }
         }
-        Action::None
+    }
+
+    /// Adds the text of a control string that was typed, not a reply.
+    fn typed(&mut self, held: &[u8]) -> Action {
+        self.insert(&pasted_text(held))
     }
 
     fn plain(&mut self, byte: u8) -> Action {
@@ -267,7 +291,7 @@ impl RowLine {
             b'[' => self.state = State::Csi { alt, params: Vec::new() },
             b'O' => self.state = State::Ss3 { alt },
             // OSC, DCS, APC: a late reply of the terminal, never text.
-            b']' | b'P' | b'_' => self.state = State::String { escape: false },
+            b']' | b'P' | b'_' => self.state = State::String { held: Vec::new(), escape: false },
             ESC if !alt => self.state = State::Escape { alt: true },
             b'b' | b'B' => return self.move_to(self.word_start()),
             b'f' | b'F' => return self.move_to(self.word_end()),
@@ -552,6 +576,11 @@ fn is_blank(piece: &str) -> bool {
 fn pasted_text(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes).replace("\r\n", "\n").replace('\r', "\n");
     text.chars().filter(|c| matches!(c, '\n' | '\t') || !c.is_control()).collect()
+}
+
+/// The action of a key that took two steps: the second, unless it changed nothing.
+fn then(first: Action, second: Action) -> Action {
+    if second == Action::None { first } else { second }
 }
 
 /// The longest start of `text` of at most `bytes` bytes that ends on a character.

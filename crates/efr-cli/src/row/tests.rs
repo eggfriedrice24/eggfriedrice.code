@@ -215,22 +215,34 @@ fn osc_dcs_and_apc_strings_are_dropped_to_their_end() {
 }
 
 #[test]
-fn a_control_string_ends_at_an_escape_or_a_control_key_that_does_nothing() {
-    // A string cut by the start of a sequence: the sequence counts.
+fn a_control_string_that_no_bel_or_st_ends_was_typed() {
+    // Alt+] and text, cut by the Left arrow: the text is typed, and the arrow counts.
     let mut line = typed(b"ab");
     assert_eq!(feed(&mut line, b"\x1b]0;title\x1b[Dx"), []);
-    assert_eq!(line.text(), "axb");
-    // Alt+Shift+P sends `ESC P`: the keys after it are dropped, and Enter ends the
-    // string and does not steer.
+    assert_eq!(line.text(), "ab0;titlxe");
+    // Alt+Shift+P sends `ESC P`: the keys after it are typed, and Enter steers.
     let mut line = typed(b"fix");
-    assert_eq!(feed(&mut line, b"\x1bPlost\r"), []);
-    assert_eq!(feed(&mut line, b" it\r"), [Action::Steer]);
+    assert_eq!(feed(&mut line, b"\x1bP it\r"), [Action::Steer]);
     assert_eq!(line.text(), "fix it");
-    // Esc still interrupts in a string.
+    // Alt+_ and Tab: the text is typed, and Tab queues.
+    let mut line = RowLine::default();
+    assert_eq!(feed(&mut line, b"\x1b_later\t"), [Action::Queue]);
+    assert_eq!(line.text(), "later");
+    // Esc interrupts in a string, and the text stays.
     let mut line = typed(b"\x1b_Ga=T");
     assert_eq!(line.key(Key::Esc), Action::Interrupt);
     assert_eq!(feed(&mut line, b"y"), []);
-    assert_eq!(line.text(), "y");
+    assert_eq!(line.text(), "Ga=Ty");
+}
+
+#[test]
+fn a_control_string_holds_at_most_the_bytes_of_the_line() {
+    let mut line = RowLine::default();
+    let mut bytes = b"\x1b]".to_vec();
+    bytes.resize(MAX_BYTES + 64, b'x');
+    bytes.push(b'\r');
+    assert_eq!(feed(&mut line, &bytes), [Action::Steer]);
+    assert_eq!(line.text().len(), MAX_BYTES);
 }
 
 #[test]
