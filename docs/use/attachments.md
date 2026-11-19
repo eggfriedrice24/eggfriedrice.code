@@ -125,8 +125,8 @@ its size, and an image also shows its pixels. The name links to the copy of the 
 
 - A model of the ChatGPT plan reads no PDF.
 - efr makes a large PNG or JPEG smaller (`attachments.max_edge_px`, default 2000 px),
-  and removes EXIF, GPS, XMP and comment data from each image. A GIF or WebP that is
-  too large goes as a path.
+  and removes EXIF, GPS, XMP, C2PA and comment data from each image. A GIF keeps only
+  its first frame. A GIF or WebP that is too large, and an animated WebP, go as a path.
 - A cut or broken image, an image over 50 megapixels and a PDF that a provider would
   refuse go as a path. The row of the prompt says `as a path`, and a broken image shows
   as the kind `file`.

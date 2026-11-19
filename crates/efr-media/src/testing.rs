@@ -19,6 +19,34 @@ pub(crate) fn png(width: u32, height: u32, alpha: bool) -> Vec<u8> {
     out
 }
 
+/// A PNG of `width` x `height` with an alpha channel whose values are all full, as many
+/// screenshot tools write it.
+pub(crate) fn png_opaque_alpha(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let image = RgbaImage::from_fn(width, height, |x, y| Rgba([x as u8, y as u8, 0, 255]));
+    PngEncoder::new(&mut out)
+        .write_image(&image, width, height, image::ExtendedColorType::Rgba8)
+        .unwrap();
+    out
+}
+
+/// The PNG colour type of RGBA.
+pub(crate) const PNG_RGBA: u8 = 6;
+
+/// A PNG whose header names `width` x `height` with `depth` bits for each channel of
+/// the colour type `colour`, with the pixel data of a 1 x 1 image.
+pub(crate) fn png_header(width: u32, height: u32, depth: u8, colour: u8) -> Vec<u8> {
+    let mut bytes = png(1, 1, false);
+    bytes[16..20].copy_from_slice(&width.to_be_bytes());
+    bytes[20..24].copy_from_slice(&height.to_be_bytes());
+    bytes[24] = depth;
+    bytes[25] = colour;
+    // NOTE: the CRC of the IHDR chunk covers its type and its 13 bytes of data.
+    let crc = crc32(&bytes[12..29]);
+    bytes[29..33].copy_from_slice(&crc.to_be_bytes());
+    bytes
+}
+
 /// A JPEG of `width` x `height` with a gradient.
 pub(crate) fn jpeg(width: u32, height: u32) -> Vec<u8> {
     let mut out = Vec::new();

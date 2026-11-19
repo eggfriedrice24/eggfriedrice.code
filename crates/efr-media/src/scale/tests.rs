@@ -2,20 +2,23 @@ use efr_stdx::media::MediaType;
 use rstest::rstest;
 
 use super::*;
-use crate::testing::{exif, gif, jpeg, png, with_jpeg_segment};
+use crate::testing::{
+    PNG_RGBA, exif, gif, jpeg, png, png_header, png_opaque_alpha, with_jpeg_segment,
+};
 use crate::{probe, strip};
 
 #[rstest]
 #[case::wide(4000, 3000, 2000, 1500)]
 #[case::tall(1000, 3000, 667, 2000)]
 #[case::small(800, 600, 800, 600)]
+#[case::over_twice_the_edge(5000, 1250, 2000, 500)]
 fn scale_keeps_the_aspect_ratio_and_the_edge_limit(
     #[case] width: u32,
     #[case] height: u32,
     #[case] scaled_width: u32,
     #[case] scaled_height: u32,
 ) {
-    let prepared = scale(&decode(&jpeg(width, height)).unwrap(), 2000).unwrap();
+    let prepared = scale(decode(&jpeg(width, height)).unwrap(), 2000).unwrap();
     assert_eq!((prepared.width, prepared.height), (scaled_width, scaled_height));
     let header = probe(&prepared.bytes).unwrap();
     assert_eq!((header.width, header.height), (scaled_width, scaled_height));
@@ -23,19 +26,26 @@ fn scale_keeps_the_aspect_ratio_and_the_edge_limit(
 
 #[test]
 fn an_image_with_alpha_stays_a_png_and_one_with_none_becomes_a_jpeg() {
-    let alpha = scale(&decode(&png(300, 200, true)).unwrap(), 100).unwrap();
+    let alpha = scale(decode(&png(300, 200, true)).unwrap(), 100).unwrap();
     assert_eq!(alpha.media, MediaType::Png);
     assert_eq!(probe(&alpha.bytes).unwrap().media, MediaType::Png);
 
-    let opaque = scale(&decode(&png(300, 200, false)).unwrap(), 100).unwrap();
+    let opaque = scale(decode(&png(300, 200, false)).unwrap(), 100).unwrap();
     assert_eq!(opaque.media, MediaType::Jpeg);
     assert_eq!(probe(&opaque.bytes).unwrap().media, MediaType::Jpeg);
 }
 
 #[test]
+fn an_image_with_an_alpha_channel_of_only_full_values_becomes_a_jpeg() {
+    let screenshot = scale(decode(&png_opaque_alpha(300, 200)).unwrap(), 100).unwrap();
+    assert_eq!(screenshot.media, MediaType::Jpeg);
+    assert_eq!(probe(&screenshot.bytes).unwrap().media, MediaType::Jpeg);
+}
+
+#[test]
 fn the_scaled_image_holds_no_metadata() {
     let tagged = with_jpeg_segment(&jpeg(300, 200), 0xe1, &exif(1));
-    let prepared = scale(&decode(&tagged).unwrap(), 100).unwrap();
+    let prepared = scale(decode(&tagged).unwrap(), 100).unwrap();
     assert_eq!(strip(&prepared.bytes).unwrap(), prepared.bytes);
 }
 
@@ -46,6 +56,10 @@ fn an_exif_orientation_turns_the_pixels() {
     let decoded = decode(&turned).unwrap();
     assert!(decoded.turned());
     assert_eq!((decoded.width(), decoded.height()), (200, 300));
+    let prepared = scale(decoded, 2000).unwrap();
+    assert_eq!((prepared.width, prepared.height), (200, 300));
+    let header = probe(&prepared.bytes).unwrap();
+    assert_eq!((header.width, header.height), (200, 300));
 
     let upright = decode(&with_jpeg_segment(&jpeg(300, 200), 0xe1, &exif(1))).unwrap();
     assert!(!upright.turned());
@@ -80,9 +94,18 @@ fn an_image_over_50_megapixels_is_refused_before_the_decode() {
 }
 
 #[test]
+fn a_16_bit_image_over_200_mb_is_refused_before_the_decode() {
+    // NOTE: 25 MP of 16-bit RGBA are 204 MB, under the 50 MP of MAX_PIXELS.
+    let deep = png_header(5_000, 5_100, 16, PNG_RGBA);
+    assert!(matches!(decode(&deep), Err(MediaError::TooManyBytes { bytes: 204_000_000 })));
+    let flat = png_header(5_000, 5_100, 8, PNG_RGBA);
+    assert!(!matches!(decode(&flat), Err(MediaError::TooManyBytes { .. })));
+}
+
+#[test]
 fn a_48_megapixel_photo_decodes() {
     let photo = jpeg(8000, 6000);
     let decoded = decode(&photo).unwrap();
     assert_eq!(decoded.edge(), 8000);
-    assert_eq!(scale(&decoded, 2000).unwrap().width, 2000);
+    assert_eq!(scale(decoded, 2000).unwrap().width, 2000);
 }

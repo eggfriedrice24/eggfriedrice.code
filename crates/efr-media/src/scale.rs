@@ -15,41 +15,58 @@ use crate::{MediaError, jpeg};
 /// The quality of the JPEG that [`scale`] writes.
 pub const JPEG_QUALITY: u8 = 85;
 
-/// A PNG or JPEG image after one decode, turned as its EXIF orientation says.
+/// The most bytes of one decoded image: 200 MB, a 50 MP image with 8 bits for each of 4
+/// channels. A 16-bit image of the same pixels needs twice that and is refused before
+/// its decode.
+pub const MAX_DECODE_BYTES: u64 = 200_000_000;
+
+/// A PNG or JPEG image after one decode, with its EXIF orientation. The pixels turn
+/// only in [`scale`], after the downscale, so a turn never copies the large image.
 #[derive(Debug)]
 pub struct Decoded {
     image: DynamicImage,
-    turned: bool,
+    orientation: Orientation,
 }
 
 impl Decoded {
     /// The width in pixels, after the turn.
     pub fn width(&self) -> u32 {
-        self.image.width()
+        if self.swaps() { self.image.height() } else { self.image.width() }
     }
 
     /// The height in pixels, after the turn.
     pub fn height(&self) -> u32 {
-        self.image.height()
+        if self.swaps() { self.image.width() } else { self.image.height() }
     }
 
     /// The longer edge in pixels.
     pub fn edge(&self) -> u32 {
-        self.width().max(self.height())
+        self.image.width().max(self.image.height())
     }
 
-    /// True when the EXIF orientation turned or flipped the pixels: the file then
-    /// shows right only with its EXIF block, which [`strip`](crate::strip) removes, so
-    /// a model must get the image of [`scale`].
+    /// True when the EXIF orientation turns or flips the pixels: the file then shows
+    /// right only with its EXIF block, which [`strip`](crate::strip) removes, so a model
+    /// must get the image of [`scale`].
     pub fn turned(&self) -> bool {
-        self.turned
+        self.orientation != Orientation::NoTransforms
+    }
+
+    /// True when the turn swaps the width and the height.
+    fn swaps(&self) -> bool {
+        matches!(
+            self.orientation,
+            Orientation::Rotate90
+                | Orientation::Rotate270
+                | Orientation::Rotate90FlipH
+                | Orientation::Rotate270FlipH
+        )
     }
 }
 
 /// An image that [`scale`] wrote for a model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prepared {
-    /// The type of `bytes`: PNG for an image with alpha, else JPEG.
+    /// The type of `bytes`: PNG for an image with a pixel that is not opaque, else JPEG.
     pub media: MediaType,
     /// The encoded image, with no metadata.
     pub bytes: Vec<u8>,
@@ -65,9 +82,10 @@ pub struct Prepared {
 /// # Errors
 ///
 /// [`MediaError::WrongType`] for a GIF, a WebP and each other file;
-/// [`MediaError::TooManyPixels`] over [`MAX_PIXELS`], before any decode;
-/// [`MediaError::Broken`] for a JPEG with no end mark after its image data, and
-/// [`MediaError::Codec`] for each image that the library cannot decode.
+/// [`MediaError::TooManyPixels`] over [`MAX_PIXELS`] and [`MediaError::TooManyBytes`]
+/// over [`MAX_DECODE_BYTES`], before any decode; [`MediaError::Broken`] for a JPEG with
+/// no end mark after its image data, and [`MediaError::Codec`] for each image that the
+/// library cannot decode.
 pub fn decode(bytes: &[u8]) -> Result<Decoded, MediaError> {
     let header = probe(bytes)?;
     let format = match header.media {
@@ -84,41 +102,60 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, MediaError> {
     let mut decoder = ImageReader::with_format(Cursor::new(bytes), format)
         .into_decoder()
         .map_err(MediaError::Codec)?;
+    let needed = decoder.total_bytes();
+    if needed > MAX_DECODE_BYTES {
+        return Err(MediaError::TooManyBytes { bytes: needed });
+    }
     let orientation = decoder.orientation().map_err(MediaError::Codec)?;
-    let mut image = DynamicImage::from_decoder(decoder).map_err(MediaError::Codec)?;
-    let turned = orientation != Orientation::NoTransforms;
-    image.apply_orientation(orientation);
-    Ok(Decoded { image, turned })
+    let image = DynamicImage::from_decoder(decoder).map_err(MediaError::Codec)?;
+    Ok(Decoded { image, orientation })
 }
 
-/// True when the JPEG `bytes` has an end mark after the start of its image data. The
+/// True when the walk of the JPEG `bytes` reaches an end mark after its image data. The
 /// decoder of the library fills a cut scan with grey and gives no error, so this is
-/// the check of a cut JPEG. An end mark cannot occur inside the data, because each
-/// `0xff` byte there is followed by `0x00` or a restart marker.
+/// the check of a cut JPEG.
 fn jpeg_ends(bytes: &[u8]) -> bool {
-    let scan = jpeg::segments(bytes).find_map(|segment| match segment {
-        Ok(segment) if segment.marker == jpeg::SOS => Some(Some(segment.end)),
-        Ok(_) => None,
-        Err(_) => Some(None),
-    });
-    let Some(Some(data)) = scan else { return false };
-    bytes[data..].windows(2).any(|pair| pair == [0xff, jpeg::EOI])
+    jpeg::whole(bytes).any(|segment| segment.is_ok_and(|segment| segment.marker == jpeg::EOI))
 }
 
-/// `decoded` as a model gets it: with its longer edge at most `max_edge` pixels (a
-/// triangle filter keeps the aspect ratio), and encoded with no metadata, as a PNG when
-/// it has alpha, else as a JPEG of quality [`JPEG_QUALITY`].
+/// `decoded` as a model gets it: turned upright, with its longer edge at most
+/// `max_edge` pixels with the same aspect ratio, and encoded with no metadata, as a PNG
+/// when a pixel is not opaque, else as a JPEG of quality [`JPEG_QUALITY`].
+///
+/// An image of more than twice `max_edge` shrinks with a box filter, which allocates
+/// only its output; a smaller one with a triangle filter, whose buffer of 16 bytes for
+/// each pixel of the source width and the new height stays under 32 x `max_edge`² bytes
+/// (128 MB at 2000 px).
 ///
 /// # Errors
 ///
 /// [`MediaError::Codec`] when the encoder fails.
-pub fn scale(decoded: &Decoded, max_edge: u32) -> Result<Prepared, MediaError> {
-    let resized = (decoded.edge() > max_edge)
-        .then(|| decoded.image.resize(max_edge, max_edge, FilterType::Triangle));
-    let image = resized.as_ref().unwrap_or(&decoded.image);
-    let media = if image.color().has_alpha() { MediaType::Png } else { MediaType::Jpeg };
-    let bytes = encode(image, media)?;
+pub fn scale(decoded: Decoded, max_edge: u32) -> Result<Prepared, MediaError> {
+    let Decoded { image, orientation } = decoded;
+    let edge = image.width().max(image.height());
+    let mut image = if edge / 2 > max_edge {
+        image.thumbnail(max_edge, max_edge)
+    } else if edge > max_edge {
+        image.resize(max_edge, max_edge, FilterType::Triangle)
+    } else {
+        image
+    };
+    image.apply_orientation(orientation);
+    let media = if opaque(&image) { MediaType::Jpeg } else { MediaType::Png };
+    let bytes = encode(&image, media)?;
     Ok(Prepared { media, bytes, width: image.width(), height: image.height() })
+}
+
+/// True when each pixel of `image` is opaque: an image with an alpha channel of only
+/// full values, such as most screenshots, goes as a JPEG, which is far smaller.
+fn opaque(image: &DynamicImage) -> bool {
+    match image {
+        DynamicImage::ImageRgba8(buffer) => buffer.pixels().all(|pixel| pixel.0[3] == u8::MAX),
+        DynamicImage::ImageLumaA8(buffer) => buffer.pixels().all(|pixel| pixel.0[1] == u8::MAX),
+        DynamicImage::ImageRgba16(buffer) => buffer.pixels().all(|pixel| pixel.0[3] == u16::MAX),
+        DynamicImage::ImageLumaA16(buffer) => buffer.pixels().all(|pixel| pixel.0[1] == u16::MAX),
+        other => !other.color().has_alpha(),
+    }
 }
 
 /// `image` as a PNG or a JPEG of 8 bits for each channel, converted only when the

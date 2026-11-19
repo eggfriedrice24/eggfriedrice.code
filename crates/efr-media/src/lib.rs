@@ -22,5 +22,5 @@ mod testing;
 pub use error::MediaError;
 pub use pdf::{PDF_INFLATE_MAX, PdfFacts, pdf_facts};
 pub use probe::{MAX_PIXELS, Probe, probe};
-pub use scale::{Decoded, JPEG_QUALITY, Prepared, decode, scale};
+pub use scale::{Decoded, JPEG_QUALITY, MAX_DECODE_BYTES, Prepared, decode, scale};
 pub use strip::strip;

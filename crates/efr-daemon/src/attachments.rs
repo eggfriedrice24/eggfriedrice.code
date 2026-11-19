@@ -76,8 +76,8 @@ pub(crate) fn limits(settings: &Settings) -> Option<AttachmentLimits> {
 pub(crate) struct DaemonAttachments {
     blobs: Blobs,
     cache: Cache,
-    /// One decode at a time: an image of 50 megapixels takes about 200 MB while it is
-    /// decoded.
+    /// One decode at a time: a decoded image holds up to `efr_media::MAX_DECODE_BYTES`
+    /// (200 MB), and its downscale up to 128 MB more at the default edge.
     decode: Arc<Semaphore>,
     settings: watch::Receiver<Arc<Settings>>,
     uploads: Uploads,

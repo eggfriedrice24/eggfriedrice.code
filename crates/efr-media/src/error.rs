@@ -28,6 +28,15 @@ pub enum MediaError {
         /// The height in pixels.
         height: u32,
     },
+    /// The image is an animated WebP, of which no frame can be cut out with no decoder.
+    #[error("the image is animated")]
+    Animated,
+    /// The image needs more memory to decode than efr gives one decode.
+    #[error("the image needs {bytes} bytes to decode, more than efr gives one decode")]
+    TooManyBytes {
+        /// The bytes of the decoded image.
+        bytes: u64,
+    },
     /// The image library could not decode or encode the image.
     #[error("the image library refused the image")]
     Codec(#[source] image::ImageError),

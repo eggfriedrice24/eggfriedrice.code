@@ -10,17 +10,22 @@ which decides what goes to a model.
   header, with no decode. `MAX_PIXELS` (50 megapixels) is the largest image that efrd decodes: a 48 MP
   photo of a phone still fits.
 - `strip`: the metadata strip of a PNG, JPEG, GIF or WebP. It walks the JPEG segments,
-  the PNG chunks, the GIF blocks or the RIFF chunks, drops EXIF, XMP, comment and text
-  data, and keeps the pixel data as it is. A WebP loses its `EXIF` and `XMP ` chunks,
-  the two flags of `VP8X` and so its orientation; a GIF keeps the loop count of
-  `NETSCAPE2.0` and `ANIMEXTS1.0`. For a GIF or a WebP the walk is the check: each block
-  and chunk must have a size that fits in the file.
-- `decode`: `Decoded`, the whole image of a PNG or JPEG, decoded once. `turned()` is
-  true when the EXIF orientation of a JPEG turns the image, so efrd encodes it again
-  upright: the strip drops that tag.
-- `scale`: `Prepared`, an image whose longer edge is at most the edge that efrd gives,
-  with a triangle filter: a JPEG at quality `JPEG_QUALITY` (85), or a PNG when the
-  image has alpha.
+  the PNG chunks, the GIF blocks or the RIFF chunks and keeps only the parts that show
+  the first image, with the pixel data as it is. It is an allow list: a JPEG keeps
+  APP0, APP2 with an ICC profile and APP14 of its APP segments and ends at its first
+  end mark (an MPF image or the video of a motion photo after it goes); a PNG keeps its
+  critical chunks and the colour and transparency chunks; a WebP keeps `VP8X`, `VP8 `,
+  `VP8L`, `ALPH` and `ICCP`, loses the EXIF and XMP flags of `VP8X` and so its
+  orientation; a GIF keeps its first image with its graphic control extension. An
+  animated WebP is `MediaError::Animated`. For a GIF or a WebP the walk is the check:
+  each block and chunk must have a size that fits in the file.
+- `decode`: `Decoded`, the whole image of a PNG or JPEG, decoded once, with no more
+  than `MAX_DECODE_BYTES` (200 MB). `turned()` is true when the EXIF orientation of a
+  JPEG turns the image, so efrd encodes it again upright: the strip drops that tag.
+- `scale`: `Prepared`, the decoded image turned upright, with its longer edge at most
+  the edge that efrd gives: a box filter for more than twice that edge, which allocates
+  only its output, else a triangle filter. It is a JPEG at quality `JPEG_QUALITY` (85),
+  or a PNG when a pixel is not opaque.
 - `pdf_facts`: `PdfFacts`, whether a PDF has `/Encrypt` and the largest `/Count` of a
   `/Type /Pages` object, in plain objects and in object streams. It is no PDF parser.
   It inflates object streams up to `PDF_INFLATE_MAX` (64 MiB) in all; past that, the

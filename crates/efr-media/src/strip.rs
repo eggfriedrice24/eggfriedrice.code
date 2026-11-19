@@ -1,5 +1,6 @@
-//! The strip of EXIF, GPS, XMP and comment metadata from an image, with no decode: a
-//! walk of the parts of its container that copies each part but the metadata.
+//! The strip of EXIF, GPS, XMP, C2PA and comment metadata from an image, with no decode:
+//! a walk of the parts of its container that copies only the parts that a viewer needs
+//! to show the first image.
 //!
 //! The walk is also the check of a GIF or WebP file, which efrd cannot decode: each part
 //! must have a size that fits in the file. The pixel data stays as it is.
@@ -9,23 +10,49 @@ use efr_stdx::media::{MediaType, sniff};
 use crate::probe::{be32, le32};
 use crate::{MediaError, jpeg};
 
-/// `bytes` with no EXIF (and so no GPS tag), XMP, comment or text metadata, for a PNG,
-/// JPEG, GIF or WebP image.
+/// The ancillary PNG chunks that the strip keeps: transparency, colour and pixel size.
+/// Each critical chunk stays too.
+const PNG_KEPT: [&[u8; 4]; 11] = [
+    b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"iCCP", b"sBIT", b"cICP", b"mDCV", b"cLLI", b"pHYs",
+    b"bKGD",
+];
+
+/// The WebP chunks that the strip keeps: the header, the frame, its alpha and the colour
+/// profile.
+const WEBP_KEPT: [&[u8; 4]; 5] = [b"VP8X", b"VP8 ", b"VP8L", b"ALPH", b"ICCP"];
+
+/// The flag of `VP8X` for an animation.
+const WEBP_ANIMATION: u8 = 0x02;
+
+/// `bytes` with only the parts that show its first image, for a PNG, JPEG, GIF or WebP
+/// image: no EXIF (and so no GPS tag), XMP, IPTC, C2PA, comment or text metadata, and
+/// no data after the image.
 ///
-/// A JPEG loses its APP1 (EXIF, XMP), APP13 (IPTC) and COM segments, a PNG its `eXIf`,
-/// `tEXt`, `zTXt` and `iTXt` chunks, a WebP its `EXIF` and `XMP ` chunks and their two
-/// flags in `VP8X`, a GIF its comments and each application extension but the loop
-/// count (`NETSCAPE2.0`, `ANIMEXTS1.0`). The orientation of an EXIF block goes too: the
-/// caller turns the pixels of an image that needs it before the strip.
+/// A JPEG keeps its segments but COM and the APP segments, of which only APP0 (JFIF),
+/// APP2 with an ICC profile and APP14 (Adobe colour) stay, and ends at its first end
+/// mark. A PNG keeps its critical chunks and the ancillary chunks of [`PNG_KEPT`], so
+/// an animated PNG shows its default image. A WebP keeps the chunks of [`WEBP_KEPT`]
+/// and loses the EXIF and XMP flags of `VP8X`. A GIF keeps its first image with its
+/// graphic control extension (the transparency) and loses each other block. The
+/// orientation of an EXIF block goes too: the caller turns the pixels of an image that
+/// needs it before the strip.
 ///
 /// # Errors
 ///
-/// [`MediaError::WrongType`] for each other file, [`MediaError::Broken`] when a part does
-/// not fit in the file or the file ends before its end mark.
+/// [`MediaError::WrongType`] for each other file, [`MediaError::Animated`] for an
+/// animated WebP, whose frames cannot be cut with no decoder, and
+/// [`MediaError::Broken`] when a part does not fit in the file or the file ends before
+/// its end mark.
 pub fn strip(bytes: &[u8]) -> Result<Vec<u8>, MediaError> {
     let media = sniff(bytes)
         .filter(|media| media.is_image())
         .ok_or(MediaError::WrongType { expected: "PNG, JPEG, GIF or WebP image" })?;
+    if media == MediaType::Webp
+        && bytes.get(12..16) == Some(b"VP8X")
+        && bytes.get(20).is_some_and(|flags| flags & WEBP_ANIMATION != 0)
+    {
+        return Err(MediaError::Animated);
+    }
     let mut out = Vec::with_capacity(bytes.len());
     let walked = match media {
         MediaType::Png => png(bytes, &mut out),
@@ -49,7 +76,8 @@ fn png(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
         let end = usize::try_from(length).ok().and_then(|length| at.checked_add(length + 12));
         let chunk = end.and_then(|end| bytes.get(at..end)).ok_or(at)?;
         let kind = chunk.get(4..8).ok_or(at)?;
-        if !matches!(kind, b"eXIf" | b"tEXt" | b"zTXt" | b"iTXt") {
+        // NOTE: an upper-case first letter marks a critical chunk.
+        if kind[0].is_ascii_uppercase() || PNG_KEPT.iter().any(|kept| kind == *kept) {
             out.extend_from_slice(chunk);
         }
         if kind == b"IEND" {
@@ -59,28 +87,34 @@ fn png(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
     }
 }
 
-/// The JPEG segments to the start of the image data, then the rest as it is. `Err`
-/// holds the offset of the segment that does not fit.
+/// The JPEG segments to the first end mark, with no metadata segment. The bytes after
+/// the end mark, such as the second image of an MPF file or the video of a motion photo,
+/// go. `Err` holds the offset of the segment that does not fit.
 fn jpeg(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
     out.extend_from_slice(bytes.get(..2).ok_or(0_usize)?);
-    for segment in jpeg::segments(bytes) {
+    for segment in jpeg::whole(bytes) {
         let segment = segment?;
-        if segment.marker == jpeg::SOS {
-            // NOTE: the first scan: the image data and each later segment go as they
-            // are; each writer puts the metadata before it.
-            out.extend_from_slice(&bytes[segment.start..]);
-            return Ok(());
+        let part = &bytes[segment.start..segment.end];
+        let kept = match segment.marker {
+            // NOTE: APP0 is JFIF, APP14 the colour transform of Adobe.
+            0xe0 | 0xee => true,
+            0xe2 => part.get(4..).is_some_and(|data| data.starts_with(b"ICC_PROFILE\0")),
+            0xe1..=0xef | 0xfe => false,
+            _ => true,
+        };
+        if kept {
+            out.extend_from_slice(part);
         }
-        // NOTE: APP1 holds EXIF and XMP, APP13 the IPTC data of Photoshop, COM a comment.
-        if !matches!(segment.marker, 0xe1 | 0xed | 0xfe) {
-            out.extend_from_slice(&bytes[segment.start..segment.end]);
+        if segment.marker == jpeg::EOI {
+            return Ok(());
         }
     }
     Err(bytes.len())
 }
 
-/// The GIF header, the screen and its colour table, then each block to the trailer.
-/// `Err` holds the offset of the block that does not fit.
+/// The GIF header, the screen and its colour table, then the first image with its
+/// graphic control extension and the trailer. `Err` holds the offset of the block that
+/// does not fit.
 fn gif(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
     const SCREEN: usize = 13;
     let flags = *bytes.get(10).ok_or(0_usize)?;
@@ -95,28 +129,25 @@ fn gif(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
                 return Ok(());
             }
             0x21 => {
+                // NOTE: the graphic control extension holds the transparent colour of the
+                // next image; comments, text and application data go.
+                const GRAPHIC_CONTROL: u8 = 0xf9;
                 let label = *bytes.get(at + 1).ok_or(at)?;
                 let end = sub_blocks(bytes, at + 2).ok_or(start)?;
-                let keep = match label {
-                    0xfe => false,
-                    // NOTE: the first sub-block of an application extension is its id.
-                    0xff => {
-                        matches!(bytes.get(at + 3..at + 14), Some(b"NETSCAPE2.0" | b"ANIMEXTS1.0"))
-                    }
-                    _ => true,
-                };
-                if keep {
+                if label == GRAPHIC_CONTROL {
                     out.extend_from_slice(&bytes[start..end]);
                 }
                 at = end;
             }
             0x2c => {
                 // NOTE: the descriptor of 10 bytes, a local colour table, the minimum code
-                // size, then the data as sub-blocks.
+                // size, then the data as sub-blocks. A model sees only the first image,
+                // so each later frame goes.
                 let flags = *bytes.get(at + 9).ok_or(at)?;
                 let end = sub_blocks(bytes, at + 10 + colour_table(flags) + 1).ok_or(start)?;
                 out.extend_from_slice(&bytes[start..end]);
-                at = end;
+                out.push(0x3b);
+                return Ok(());
             }
             _ => return Err(at),
         }
@@ -161,13 +192,15 @@ fn webp(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
         // NOTE: a chunk of an odd size has a pad byte.
         let next = (at + 8).checked_add(size + (size & 1)).filter(|&next| next <= end).ok_or(at)?;
         match &bytes[at..at + 4] {
-            b"EXIF" | b"XMP " => {}
             b"VP8X" if size > 0 => {
                 out.extend_from_slice(&bytes[at..at + 8]);
                 out.push(bytes[at + 8] & !(FLAG_EXIF | FLAG_XMP));
                 out.extend_from_slice(&bytes[at + 9..next]);
             }
-            _ => out.extend_from_slice(&bytes[at..next]),
+            kind if WEBP_KEPT.iter().any(|kept| kind == *kept) => {
+                out.extend_from_slice(&bytes[at..next]);
+            }
+            _ => {}
         }
         at = next;
     }

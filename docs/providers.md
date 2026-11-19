@@ -218,11 +218,16 @@ other call stays the text that it was.
 Before a model gets an image, efr checks it and makes it ready:
 
 - A PNG or JPEG with an edge over `attachments.max_edge_px` (default 2000) or with more
-  than 7.5 MB becomes smaller: a JPEG of quality 85, or a PNG when the image has alpha.
-  An image whose EXIF data turns it is turned in its pixels.
-- EXIF (with GPS), XMP and comment data go from each image. Your file stays as it is.
+  than 7.5 MB becomes smaller: a JPEG of quality 85, or a PNG when a pixel is not
+  opaque. An image whose EXIF data turns it is turned in its pixels.
+- EXIF (with GPS), XMP, C2PA and comment data go from each image, and so does each
+  byte after the first image, such as the video of a motion photo. Your file stays as
+  it is.
+- A GIF keeps only its first frame, because a model sees only that one. An animated
+  WebP goes as a path.
 - A GIF or WebP that is too large cannot become smaller, and goes as a path. A cut or
-  broken image, and an image over 50 megapixels, go as a path too.
+  broken image, and an image over 50 megapixels or 200 MB when decoded, go as a path
+  too.
 - A PDF goes as content only with at most 5 MiB and 100 pages, and with no password.
 
 The limits of one request: at most 90 images, 100 MB of base64, and attachments of at

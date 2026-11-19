@@ -43,6 +43,8 @@ pub(crate) enum Note {
     /// The image has more pixels than efrd decodes, or more bytes or a longer edge than
     /// a model takes, and efrd cannot make it smaller.
     TooLarge,
+    /// The image is an animated WebP.
+    Animated,
     /// The PDF has more bytes or pages than a model takes as content.
     PdfTooLarge,
     /// The PDF has a password.
@@ -57,6 +59,7 @@ impl Note {
         match self {
             Note::Broken => "as a path: the image is broken",
             Note::TooLarge => "as a path: the image is too large to send as content",
+            Note::Animated => "as a path: the image is animated",
             Note::PdfTooLarge => "as a path: the PDF is too large to send as content",
             Note::PdfPassword => "as a path: the PDF has a password",
             Note::PdfPages => "as a path: efr cannot count the pages of this PDF",
@@ -89,17 +92,20 @@ fn decoded(bytes: &[u8], media: MediaType, max_edge: u32) -> Checked {
     }
     let image = match decode(bytes) {
         Ok(image) => image,
-        Err(MediaError::TooManyPixels { .. }) => return too_large(media, header),
+        Err(MediaError::TooManyPixels { .. } | MediaError::TooManyBytes { .. }) => {
+            return too_large(media, header);
+        }
         Err(_) => return broken(media),
     };
-    let kind = AttachmentKind::Image { width: image.width(), height: image.height() };
+    let (width, height) = (image.width(), image.height());
+    let kind = AttachmentKind::Image { width, height };
     // NOTE: a turned image needs its pixels turned, because the strip drops the EXIF
     // block that turns it.
     let fits = image.edge() <= max_edge && bytes.len() <= IMAGE_MAX_BYTES && !image.turned();
     let prepared = if fits {
-        strip(bytes).map(|stripped| (media, stripped, image.width(), image.height()))
+        strip(bytes).map(|stripped| (media, stripped, width, height))
     } else {
-        scale(&image, max_edge)
+        scale(image, max_edge)
             .map(|prepared| (prepared.media, prepared.bytes, prepared.width, prepared.height))
     };
     match prepared {
@@ -119,8 +125,13 @@ fn decoded(bytes: &[u8], media: MediaType, max_edge: u32) -> Checked {
 /// A GIF or WebP: the walk of its container is the check and the strip. One that is too
 /// large cannot be made smaller.
 fn walked(bytes: &[u8], media: MediaType, max_edge: u32) -> Checked {
-    let (Ok(header), Ok(stripped)) = (probe(bytes), strip(bytes)) else {
-        return broken(media);
+    let Ok(header) = probe(bytes) else { return broken(media) };
+    let stripped = match strip(bytes) {
+        Ok(stripped) => stripped,
+        Err(MediaError::Animated) => {
+            return Checked { note: Some(Note::Animated), ..too_large(media, header) };
+        }
+        Err(_) => return broken(media),
     };
     if header.edge() > max_edge || stripped.len() > IMAGE_MAX_BYTES {
         return too_large(media, header);

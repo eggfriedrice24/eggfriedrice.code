@@ -5,8 +5,8 @@ use efr_stdx::media::{MediaType, sniff};
 use crate::{MediaError, jpeg};
 
 /// The most pixels of an image that efr decodes: 50 megapixels, so that a 48 MP photo
-/// of a current phone camera decodes and the peak memory of one decode stays near
-/// 200 MB.
+/// of a current phone camera decodes. [`MAX_DECODE_BYTES`](crate::MAX_DECODE_BYTES)
+/// limits the bytes of the decoded image.
 pub const MAX_PIXELS: u64 = 50_000_000;
 
 /// What the header of an image says.

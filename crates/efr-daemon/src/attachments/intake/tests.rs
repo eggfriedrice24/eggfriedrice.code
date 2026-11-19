@@ -73,6 +73,17 @@ fn a_gif_loses_its_comment_and_one_wider_than_the_edge_goes_as_a_path() {
 }
 
 #[test]
+fn an_animated_webp_goes_as_a_path_with_its_size() {
+    // NOTE: RIFF, a VP8X chunk with the animation flag and a canvas of 40 x 30, and an
+    // ANIM chunk.
+    let mut webp = b"RIFF\x24\0\0\0WEBPVP8X\x0a\0\0\0\x02\0\0\0\x27\0\0\x1d\0\0".to_vec();
+    webp.extend_from_slice(b"ANIM\x06\0\0\0\0\0\0\0\0\0");
+    let checked = check(&webp, 2000);
+    assert_eq!(checked.kind, AttachmentKind::Image { width: 40, height: 30 });
+    assert_eq!((checked.sent, checked.note), (None, Some(Note::Animated)));
+}
+
+#[test]
 fn a_pdf_goes_as_content_within_the_limits_and_as_a_path_with_its_note() {
     let small = check(&pdf(3, ""), 2000);
     assert_eq!(small.kind, AttachmentKind::Pdf { pages: Some(3) });
