@@ -128,8 +128,9 @@ A file in a conversation is different from text in four ways:
 ## Deferred
 
 0.0.13 has no thumbnail: efrd makes none, `efr` draws none, and the config has no
-`render.images` key. The thumbnail was the first item to cut. The build that adds it
-will follow this rule:
+`render.images` key. The chip is enough: its name is a link, and Ctrl+click opens the
+file in the image viewer of the system. No build plans a thumbnail. A build that adds
+one must follow this rule:
 
 - efrd will make a small picture (a PNG of at most 512 x 256 px) of a PNG or JPEG of a
   prompt, from the one decode of the intake, beside its blob.
@@ -148,5 +149,5 @@ will follow this rule:
   copies and one SHA-256 for each request, for no gain in efrd's own data dir.
 - A prompt that goes with a note when a named file cannot attach: it costs a turn that
   cannot answer. `efr` sends nothing and says why.
-- An image library in `efr`: the deferred thumbnail will come from efrd, so `efr` gets
+- An image library in `efr`: a thumbnail would come from efrd, so `efr` gets
   no decoder and the picture works over SSH.
