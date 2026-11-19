@@ -693,7 +693,7 @@ async fn a_pruned_image_result_stays_pruned_in_the_next_turn() {
         matches!(&result.content[0], ContentBlock::ToolResult { output, .. } if output == PRUNED_OUTPUT_STUB),
         "{result:?}"
     );
-    assert!(crate::attachments::parts_mut(result).is_empty());
+    assert_eq!(crate::attachments::parts_mut(result).count(), 0);
 }
 
 /// An interrupt sent an unread steer again as a prompt of its own: the rebuilt history

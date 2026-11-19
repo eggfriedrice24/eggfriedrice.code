@@ -49,15 +49,16 @@ fn a_model_reads_only_its_kinds_and_never_a_withheld_part_or_one_with_no_blob() 
 #[test]
 fn the_next_id_follows_the_highest_one_that_the_store_or_a_taker_had() {
     let ids = AttachmentIds::default();
+    assert!(!ids.any());
     ids.seen(5);
+    assert!(ids.any());
     ids.seen(3);
     assert_eq!(ids.next(), AttachmentId::nth(6));
     ids.seen(2);
     assert_eq!(ids.next(), AttachmentId::nth(7), "a lower number from the store changes nothing");
-    let mut turn = TurnAttachments::new(&Summary::default(), both());
-    assert!(!turn.any());
-    turn.seen([&AttachmentId::nth(7)]);
-    assert!(turn.any());
+    let taken = AttachmentIds::default();
+    taken.next();
+    assert!(taken.any(), "a taken id is an attachment of the conversation");
 }
 
 #[test]
@@ -147,11 +148,11 @@ fn a_pruned_result_has_no_part_that_can_go_as_content_and_strip_drops_every_data
         ],
     );
     let ids: Vec<AttachmentId> =
-        parts_mut(&mut message).into_iter().map(|part| part.attachment.id.clone()).collect();
+        parts_mut(&mut message).map(|part| part.attachment.id.clone()).collect();
     assert_eq!(ids, [AttachmentId::nth(1), AttachmentId::nth(2)]);
 
     clear(std::iter::once(&mut message), &[AttachmentId::nth(2)]);
-    assert_eq!(super::with_data(std::iter::once(&mut message)), [AttachmentId::nth(1)]);
+    assert_eq!(super::with_data(std::iter::once(&message)), [AttachmentId::nth(1)]);
     strip(&mut message);
     let mut all = message.clone();
     let none = all.content.iter_mut().all(|block| match block {
@@ -254,6 +255,8 @@ impl Attachments for FakeAttachments {
         self.loads.fetch_add(1, Ordering::Relaxed);
         Some(EncodedBytes::new("AAAA"))
     }
+
+    async fn forget(&self, _conversation_id: ConversationId, _attachments: &[Attachment]) {}
 }
 
 /// A model that reads `inputs`, answers each request with the next answer of its

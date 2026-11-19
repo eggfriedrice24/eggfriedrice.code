@@ -104,16 +104,29 @@ impl AttachmentPart {
     pub fn new(attachment: Attachment) -> Self {
         AttachmentPart { attachment, data: None }
     }
+
+    /// The media type of the bytes that a model gets: that of the form that efrd made,
+    /// else that of the file.
+    pub fn sent_media_type(&self) -> &str {
+        let attachment = &self.attachment;
+        attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type)
+    }
 }
 
-/// The text that a provider writes around an attachment ([`label`]).
+/// The text that a provider writes around an attachment ([`label`]): `open`, the
+/// content, then [`LABEL_CLOSE`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     /// The opening tag. For an attachment that does not go as content, it ends with the
-    /// line that says so, and a provider writes `open` and `close` as one text.
+    /// line that says so, and a provider writes the label [`alone`](Self::alone).
     pub open: String,
-    /// The closing tag.
-    pub close: &'static str,
+}
+
+impl Label {
+    /// The label with no content between its tags, as one text.
+    pub fn alone(&self) -> String {
+        format!("{}\n{LABEL_CLOSE}", self.open)
+    }
 }
 
 /// The closing tag of every label.
@@ -163,7 +176,7 @@ pub fn label(attachment: &Attachment, as_content: bool) -> Label {
         open.push('\n');
         open.push_str(if users_file.is_some() { USERS_FILE_NOTE } else { NOT_SENT_NOTE });
     }
-    Label { open, close: LABEL_CLOSE }
+    Label { open }
 }
 
 /// The line of a label whose attachment does not go as content.
@@ -211,13 +224,28 @@ pub fn attachment_tokens(message: &Message) -> u64 {
         .sum()
 }
 
+/// The attachment parts of `block`: the part of an attachment block, or the parts of a
+/// tool result; none for each other block.
+pub fn block_parts(block: &ContentBlock) -> &[AttachmentPart] {
+    match block {
+        ContentBlock::Attachment(part) => std::slice::from_ref(part),
+        ContentBlock::ToolResult { attachments, .. } => attachments,
+        _ => &[],
+    }
+}
+
+/// [`block_parts`] of `block`, to change.
+pub fn block_parts_mut(block: &mut ContentBlock) -> &mut [AttachmentPart] {
+    match block {
+        ContentBlock::Attachment(part) => std::slice::from_mut(part),
+        ContentBlock::ToolResult { attachments, .. } => attachments,
+        _ => &mut [],
+    }
+}
+
 /// The parts of `message`, of its own blocks and of its tool results, in their order.
 fn parts(message: &Message) -> impl Iterator<Item = &AttachmentPart> {
-    message.content.iter().flat_map(|block| match block {
-        ContentBlock::Attachment(part) => std::slice::from_ref(part),
-        ContentBlock::ToolResult { attachments, .. } => attachments.as_slice(),
-        _ => &[],
-    })
+    message.content.iter().flat_map(block_parts)
 }
 
 /// The tokens of `attachment` when a model gets it as content, by the rule of
@@ -258,12 +286,8 @@ pub fn fit<'a>(messages: impl IntoIterator<Item = &'a Message>, window: u64) -> 
     let mut candidates: Vec<Candidate<'_>> = Vec::new();
     for (at, message) in messages.iter().enumerate() {
         for block in &message.content {
-            let (in_prompt, list) = match block {
-                ContentBlock::Attachment(part) => (true, std::slice::from_ref(part)),
-                ContentBlock::ToolResult { attachments, .. } => (false, attachments.as_slice()),
-                _ => continue,
-            };
-            for part in list {
+            let in_prompt = matches!(block, ContentBlock::Attachment(_));
+            for part in block_parts(block) {
                 let Some(data) = &part.data else { continue };
                 let image = matches!(part.attachment.kind, AttachmentKind::Image { .. });
                 candidates.push(Candidate {

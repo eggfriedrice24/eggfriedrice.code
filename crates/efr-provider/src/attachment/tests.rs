@@ -85,12 +85,24 @@ fn an_image_of_a_path_names_its_copy_and_the_users_file() {
              from=\"/home/u/Pictures/shot-1.png\">"
         )
     );
-    assert_eq!(shown.close, LABEL_CLOSE);
     let not_sent = label(&image(1, 1920, 1080), false);
     assert_eq!(
         not_sent.open,
         format!("{}\n[efr: not sent as content. Open the file at the path.]", shown.open)
     );
+    assert_eq!(not_sent.alone(), format!("{}\n{LABEL_CLOSE}", not_sent.open));
+}
+
+#[test]
+fn the_media_type_of_a_part_is_that_of_the_bytes_that_the_model_gets() {
+    let mut part = AttachmentPart::new(image(1, 1920, 1080));
+    assert_eq!(part.sent_media_type(), "image/png");
+    if let Some(sent) = &mut part.attachment.sent {
+        sent.media_type = "image/jpeg".to_owned();
+    }
+    assert_eq!(part.sent_media_type(), "image/jpeg");
+    part.attachment.sent = None;
+    assert_eq!(part.sent_media_type(), part.attachment.media_type);
 }
 
 #[test]

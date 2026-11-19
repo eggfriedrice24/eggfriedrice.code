@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use async_trait::async_trait;
 use efr_protocol::{Attachment, AttachmentId, AttachmentKind, ConversationId, UploadId};
 use efr_provider::{
-    AttachmentPart, ContentBlock, EncodedBytes, InputKinds, Message, ProviderError,
+    AttachmentPart, ContentBlock, EncodedBytes, InputKinds, Message, ProviderError, block_parts_mut,
 };
 use efr_store::attachments::Summary;
 
@@ -60,9 +60,8 @@ pub trait Attachments: Send + Sync + fmt::Debug {
 
     /// Removes the files of `attachments`, which no request will read: those of a
     /// prompt that was withdrawn before it ran, or that was not recorded. Each blob that
-    /// another attachment of the conversation names stays. A store that keeps no files
-    /// has nothing to do.
-    async fn forget(&self, _conversation_id: ConversationId, _attachments: &[Attachment]) {}
+    /// another attachment of the conversation names stays.
+    async fn forget(&self, conversation_id: ConversationId, attachments: &[Attachment]);
 }
 
 /// The numbers of the attachments of one conversation, which the queue step of a
@@ -74,6 +73,12 @@ impl AttachmentIds {
     /// Takes `last`, the highest number that the store has, as given.
     pub(crate) fn seen(&self, last: u32) {
         self.0.fetch_max(last, Ordering::Relaxed);
+    }
+
+    /// True when the conversation has an attachment, so a request must be walked for
+    /// its parts.
+    pub(crate) fn any(&self) -> bool {
+        self.0.load(Ordering::Relaxed) > 0
     }
 
     /// The id of the next attachment of the conversation.
@@ -118,15 +123,16 @@ impl Attachments for NoAttachments {
     ) -> Option<EncodedBytes> {
         None
     }
+
+    async fn forget(&self, _conversation_id: ConversationId, _attachments: &[Attachment]) {}
 }
 
-/// What one turn knows of the attachments of its conversation: whether it has any,
-/// what its model reads, what goes as a label from now on, and what a good call of the
-/// model carried already. The ids come from the [`AttachmentIds`] of the conversation.
+/// What one turn knows of the attachments of its conversation: what its model reads,
+/// what goes as a label from now on, and what a good call of the model carried
+/// already. Whether the conversation has any, and the ids, come from the
+/// [`AttachmentIds`] of the conversation.
 #[derive(Debug, Default)]
 pub(crate) struct TurnAttachments {
-    /// The highest number of an attachment of the conversation so far.
-    last: u32,
     /// What the turn's model reads as content besides text.
     inputs: InputKinds,
     /// The attachments that go as a label from now on (`attachments_withheld`).
@@ -140,24 +146,10 @@ impl TurnAttachments {
     /// The state of a turn whose model reads `inputs`, in a conversation of `summary`.
     pub(crate) fn new(summary: &Summary, inputs: InputKinds) -> Self {
         TurnAttachments {
-            last: summary.last,
             inputs,
             withheld: summary.withheld.iter().cloned().collect(),
             carried: HashSet::new(),
         }
-    }
-
-    /// True when the conversation has an attachment, so a request must be walked for
-    /// its parts.
-    pub(crate) fn any(&self) -> bool {
-        self.last > 0
-    }
-
-    /// Takes `ids` as attachments that the conversation already has, such as those of
-    /// the turn's prompt.
-    pub(crate) fn seen<'a>(&mut self, ids: impl IntoIterator<Item = &'a AttachmentId>) {
-        let highest = ids.into_iter().filter_map(AttachmentId::number).max().unwrap_or(0);
-        self.last = self.last.max(highest);
     }
 
     /// True when the turn's model gets `attachment` as content: efrd keeps the bytes
@@ -221,40 +213,26 @@ pub(crate) fn is_refusal(error: &ProviderError) -> bool {
     matches!(error, ProviderError::Api { status: Some(400 | 413), .. })
 }
 
+/// True for a tool result that a prune cut: its attachments go as labels.
+fn pruned(block: &ContentBlock) -> bool {
+    matches!(block, ContentBlock::ToolResult { output, .. } if output == PRUNED_OUTPUT_STUB)
+}
+
 /// The parts of `block` that can go as content: an attachment block, or the attachments
 /// of a tool result that a prune did not cut.
 pub(crate) fn block_parts(block: &ContentBlock) -> &[AttachmentPart] {
-    match block {
-        ContentBlock::Attachment(part) => std::slice::from_ref(part),
-        ContentBlock::ToolResult { output, attachments, .. } if output != PRUNED_OUTPUT_STUB => {
-            attachments
-        }
-        _ => &[],
-    }
+    if pruned(block) { &[] } else { efr_provider::block_parts(block) }
 }
 
-/// The parts of `message` that can go as content: those of the message itself and of
-/// each tool result that a prune did not cut, whose attachments go as labels.
-pub(crate) fn parts_mut(message: &mut Message) -> Vec<&mut AttachmentPart> {
-    let mut parts = Vec::new();
-    for block in &mut message.content {
-        match block {
-            ContentBlock::Attachment(part) => parts.push(part),
-            ContentBlock::ToolResult { output, attachments, .. }
-                if output != PRUNED_OUTPUT_STUB =>
-            {
-                parts.extend(attachments.iter_mut());
-            }
-            _ => {}
-        }
-    }
-    parts
+/// The parts of `message` that can go as content ([`block_parts`]), to change.
+pub(crate) fn parts_mut(message: &mut Message) -> impl Iterator<Item = &mut AttachmentPart> {
+    message.content.iter_mut().filter(|block| !pruned(block)).flat_map(block_parts_mut)
 }
 
 /// The ids of the parts of `messages` that have data, in their order.
-pub(crate) fn with_data<'a>(messages: impl Iterator<Item = &'a mut Message>) -> Vec<AttachmentId> {
+pub(crate) fn with_data<'a>(messages: impl Iterator<Item = &'a Message>) -> Vec<AttachmentId> {
     messages
-        .flat_map(parts_mut)
+        .flat_map(|message| message.content.iter().flat_map(block_parts))
         .filter(|part| part.data.is_some())
         .map(|part| part.attachment.id.clone())
         .collect()
@@ -294,15 +272,8 @@ pub(crate) const NOT_KEPT: &str = "[efr: efr could not keep the image, so you do
 /// Drops the data of every part of `message`, of a pruned tool result too: the history,
 /// the saved messages and a compaction request hold only the metadata.
 pub(crate) fn strip(message: &mut Message) {
-    for block in &mut message.content {
-        let parts = match block {
-            ContentBlock::Attachment(part) => std::slice::from_mut(part),
-            ContentBlock::ToolResult { attachments, .. } => attachments.as_mut_slice(),
-            _ => continue,
-        };
-        for part in parts {
-            part.data = None;
-        }
+    for part in message.content.iter_mut().flat_map(block_parts_mut) {
+        part.data = None;
     }
 }
 

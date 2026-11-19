@@ -92,8 +92,8 @@ mod breakpoints;
 use std::io;
 
 use efr_provider::{
-    AttachmentPart, ContentBlock, EncodedBytes, FREEFORM_INPUT, HostedTool, Message, ModelInfo,
-    ProviderError, Request, Role, content_tokens, label, unoffered_call_text,
+    AttachmentPart, ContentBlock, EncodedBytes, FREEFORM_INPUT, HostedTool, LABEL_CLOSE, Message,
+    ModelInfo, ProviderError, Request, Role, content_tokens, label, unoffered_call_text,
 };
 use efr_stdx::media::MediaType;
 use serde::de::IgnoredAny;
@@ -353,9 +353,9 @@ enum Block {
     },
 }
 
-/// The content of a `tool_result`: the text of today, or a list of text and image
-/// blocks only for a result with attachments, so the bytes of older turns stay the
-/// same.
+/// The content of a `tool_result`: a text, or a list of text and image blocks only for
+/// a result with attachments, so the bytes of a result with no attachment stay the
+/// same and the prompt cache reads them.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 enum ResultContent {
@@ -892,18 +892,16 @@ fn attachment_blocks(blocks: &mut Vec<Block>, part: &AttachmentPart) {
     let attachment = &part.attachment;
     let label = label(attachment, part.data.is_some());
     let Some(data) = &part.data else {
-        let text = format!("{}\n{}", label.open, label.close);
-        blocks.push(Block::Text { text, cache_control: None });
+        blocks.push(Block::Text { text: label.alone(), cache_control: None });
         return;
     };
-    let media_type =
-        attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type).clone();
+    let media_type = part.sent_media_type().to_owned();
     let pdf = media_type == MediaType::Pdf.as_str();
     let tokens = content_tokens(attachment);
     let source = Source { kind: "base64", media_type, data: Base64(data.clone()), tokens };
     blocks.push(Block::Text { text: label.open, cache_control: None });
     blocks.push(if pdf { Block::Document { source } } else { Block::Image { source } });
-    blocks.push(Block::Text { text: label.close.to_owned(), cache_control: None });
+    blocks.push(Block::Text { text: LABEL_CLOSE.to_owned(), cache_control: None });
 }
 
 /// Adds a text block, unless the text is empty: the API refuses an empty text block.

@@ -672,7 +672,6 @@ impl Turn {
         self.settings = Some(settings.clone());
         self.attachments =
             TurnAttachments::new(&snapshot.attachments, model_inputs(&*provider, &settings.model));
-        self.attachments.seen(self.spec.attachments.iter().map(|attachment| &attachment.id));
         shared.attachment_ids.seen(snapshot.attachments.last);
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
@@ -812,11 +811,11 @@ impl Turn {
         if let Some(first) = self.transcript.first_mut() {
             first.clone_from(&prompt);
         }
-        if self.attachments.any() {
+        if self.shared.attachment_ids.any() {
             self.fill(window.placed.iter_mut().map(|placed| &mut placed.message)).await;
             // NOTE: what the history sent as content, the same model read before.
             if self.switched_from.is_none() {
-                let sent = window.placed.iter_mut().map(|placed| &mut placed.message);
+                let sent = window.placed.iter().map(|placed| &placed.message);
                 self.attachments.carried(attachments::with_data(sent));
             }
             self.fill(std::iter::once(&mut prompt)).await;
@@ -873,7 +872,7 @@ impl Turn {
                 self.user_messages.steered(&steer.text);
                 self.push(&mut window, Message::user(steer.text));
             }
-            if self.attachments.any() {
+            if self.shared.attachment_ids.any() {
                 let messages = window.placed.iter().map(|placed| &placed.message);
                 let over = fit(messages, self.limits().window);
                 if !over.is_empty() {
@@ -891,7 +890,7 @@ impl Turn {
             efr_stdx::mark::hit("turn.guard");
             let request = with_window(&base, &window);
             efr_stdx::mark::hit("turn.request");
-            let response = if self.attachments.any() {
+            let response = if self.shared.attachment_ids.any() {
                 self.respond_with_attachments(&base, &mut window, request).await?
             } else {
                 self.respond(request).await?
@@ -947,7 +946,7 @@ impl Turn {
                 }
             }
             let mut results = Message::new(Role::User, results);
-            if self.attachments.any() {
+            if self.shared.attachment_ids.any() {
                 self.fill(std::iter::once(&mut results)).await;
             }
             self.push(&mut window, results);
@@ -1190,7 +1189,6 @@ impl Turn {
         let mut kept = Vec::with_capacity(media.len());
         for ToolImage { path, bytes } in media {
             let id = self.shared.attachment_ids.next();
-            self.attachments.seen([&id]);
             let store = &self.shared.deps.attachments;
             let note = match store.keep(self.shared.conversation_id, id, &path, bytes).await {
                 Some(attachment) => {
@@ -1219,9 +1217,9 @@ impl Turn {
         &mut self,
         base: &Request,
         window: &mut Window,
-        mut request: Request,
+        request: Request,
     ) -> Result<Response, ConversationError> {
-        let mut sent = attachments::with_data(request.messages.iter_mut());
+        let mut sent = attachments::with_data(request.messages.iter());
         let mut response = self.respond(request).await?;
         let mut first = true;
         // NOTE: a 400 can have another cause. The attachments go as labels for good
@@ -1239,7 +1237,7 @@ impl Turn {
             cleared.extend(refused);
             let mut request = with_window(base, window);
             attachments::clear(request.messages.iter_mut(), &cleared);
-            sent = attachments::with_data(request.messages.iter_mut());
+            sent = attachments::with_data(request.messages.iter());
             response = self.respond(request).await?;
         }
         if matches!(response, Response::Done(_)) {

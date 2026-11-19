@@ -45,8 +45,8 @@
 use std::collections::HashSet;
 
 use efr_provider::{
-    AttachmentPart, ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, ModelInfo,
-    Request, Role, ToolDefinition, WebAccess, label,
+    AttachmentPart, ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, LABEL_CLOSE, Message,
+    ModelInfo, Request, Role, ToolDefinition, WebAccess, label,
 };
 use efr_stdx::media::MediaType;
 use serde::Serialize;
@@ -611,12 +611,10 @@ fn push_attachment(content: &mut Vec<Value>, part: &AttachmentPart) {
     let attachment = &part.attachment;
     let label = label(attachment, part.data.is_some());
     let Some(data) = &part.data else {
-        content.push(
-            json!({"type": "input_text", "text": format!("{}\n{}", label.open, label.close)}),
-        );
+        content.push(json!({"type": "input_text", "text": label.alone()}));
         return;
     };
-    let media = attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type);
+    let media = part.sent_media_type();
     // NOTE: the one copy of the bytes for this request.
     const SCHEME: &str = "data:";
     const BASE64: &str = ";base64,";
@@ -638,7 +636,7 @@ fn push_attachment(content: &mut Vec<Value>, part: &AttachmentPart) {
         item.insert("detail".to_owned(), Value::from("high"));
     }
     content.push(Value::Object(item));
-    content.push(json!({"type": "input_text", "text": label.close}));
+    content.push(json!({"type": "input_text", "text": LABEL_CLOSE}));
 }
 
 fn flush(items: &mut Vec<Value>, role: &str, content: &mut Vec<Value>) {

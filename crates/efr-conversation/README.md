@@ -967,13 +967,16 @@ The files of a prompt and the images that `read_file` read (ADR 0026). The histo
 - The store of the bytes is the `Attachments` trait (`attachments.rs`), which efrd
   implements: `bind` takes a finished upload into the blob dir and its copy into
   `$SCRATCH/attachments`, `keep` takes an image of a tool, `load` gives the base64 text
-  of a blob, and `forget` removes the files of a prompt that no request will read (its
-  default does nothing). `ConversationDeps::attachments` holds it; `NoAttachments` is
+  of a blob, and `forget` removes the files of a prompt that no request will read
+  (each store must say what it does, so a new store cannot skip it).
+  `ConversationDeps::attachments` holds it; `NoAttachments` is
   the store of a daemon that takes none, and of the tests that need none.
 - One counter of ids for each conversation (`AttachmentIds`, in the actor's shared
   state): the queue step of a prompt and the images of a running turn both take their
   ids from it. The actor seeds it from the store's highest number
-  (`efr_store::attachments::summary`) before a bind, and each turn at its start.
+  (`efr_store::attachments::summary`) before a bind, and each turn at its start. It is
+  also the one answer to whether a conversation has an attachment
+  (`AttachmentIds::any`).
 - The queue step of a prompt with uploads claims `$SCRATCH` through the shared
   `turn::ensure_scratch` and `scratch::naming` (the day and the title of the summary,
   else today and the first line of the prompt that is not empty), so the copies are in

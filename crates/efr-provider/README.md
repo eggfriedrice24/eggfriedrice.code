@@ -105,7 +105,11 @@ Modules:
   `label` (the one text that every provider writes around an attachment: an
   `<attachment>` tag with the id, the name, the type, the size, the path and the
   origin, each value on one line with `"`, `<`, `>` and `&` as `_`; for a file that
-  does not go as content, the line that says so), `fit` (the budget of a request, a
+  does not go as content, the line that says so; `Label::alone` is the label with no
+  content, and `LABEL_CLOSE` its end), `AttachmentPart::sent_media_type` (the type of
+  the bytes that a model gets), `block_parts` and `block_parts_mut` (the one walk of
+  the parts of a block: an attachment block or the attachments of a tool result),
+  `fit` (the budget of a request, a
   pure function: at most `MAX_IMAGE_BLOCKS` = 90 images, `MAX_DATA_BYTES` = 100 MB of
   base64 and attachments of at most `WINDOW_SHARE_PERCENT` = 50 percent of the window;
   over a limit, a part that is over it alone loses its data first, then the oldest
@@ -113,8 +117,9 @@ Modules:
   `attachment_tokens` (the one count of the meter and the prune, over the parts with
   data, by `content_tokens` of each: an image is `ceil(w/28) * ceil(h/28)` tokens up
   to 4,784, a PDF 4,500 for each page, or its bytes / 4 with no page count). The PDF
-  limits `PDF_MAX_BYTES` (5 MiB) and `PDF_MAX_PAGES` (100) are here too. `ModelInfo::inputs` (`InputKinds { image, pdf }`)
-  says what a model reads besides text.
+  limits `PDF_MAX_BYTES` (5 MiB) and `PDF_MAX_PAGES` (100) are here too.
+  `ModelInfo::inputs` (`InputKinds { image, pdf }`) says what a model reads besides
+  text.
 - `unoffered`: `unoffered_call_text` and `unoffered_result_text`, the text in place of
   a tool call, and of its result, when the request does not offer the call's tool
   (`Request::offers`). The conversation puts this text in the canonical messages and
