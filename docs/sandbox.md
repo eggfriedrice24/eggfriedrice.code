@@ -2175,9 +2175,9 @@ of efr's settings through the settings tool still asks, in every mode.
 `[classifier]` controls the reviewer: `enabled` (`true`, the default, lets it decide
 each exit alone; `false` asks you about every exit),
 `model`, `fallback_to_turn_model`, `effort` and `timeout_secs`. `[presence]` controls
-when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (no phone
-client exists yet, so it does nothing today). Each key applies from the next
-question, and none needs a restart.
+when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (a push to
+a paired phone that has push on, see [The phone app](use/phone.md#push-notifications)).
+Each key applies from the next question, and none needs a restart.
 
 `[network]` holds `netview` (default `true`): `false` makes `ss`, `ip` read forms,
 `nstat` and reads of `/proc/net` `host_view` exits for the reviewer again. It also

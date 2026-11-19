@@ -123,7 +123,8 @@ Add `Environment=EFR_RECORD_STREAMS=1` under `[Service]`, then run
 model call `n` there are three entries:
 
 - `<n>.request.json`: the URL without its query, and the body of the request: your
-  prompt, the system prompt, the history and the output of tools.
+  prompt, the system prompt, the history, the output of tools, and the bytes of each
+  image and PDF that the model reads.
 - `<n>.response.sse`: the answer of the model as it came.
 - one line in `index.jsonl`: the time, the transport, the status and how the answer
   ended: `complete` when the last event of the answer came, `failed` for an error,
