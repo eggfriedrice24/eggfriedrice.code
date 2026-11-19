@@ -50,7 +50,7 @@ use efr_store::user_messages;
 
 use crate::ConversationError;
 use crate::compaction::{Cut, Placed, Window, gap_note, summary_message};
-use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB, json_len};
+use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB, json_len, prunes_result};
 
 /// What the model reads for a tool call whose result was never recorded, as when the
 /// daemon stopped while the call ran or waited for approval.
@@ -670,11 +670,11 @@ pub(crate) fn omitted_note(omitted: usize) -> String {
     }
 }
 
-/// Gives each tool result of `message` whose output is longer than the stub the stub.
+/// Gives each tool result of `message` that a prune cuts ([`prunes_result`]) the stub.
 fn stub_results(message: &mut Message) {
     for block in &mut message.content {
-        if let ContentBlock::ToolResult { output, .. } = block
-            && output.len() > PRUNED_OUTPUT_STUB.len()
+        if let ContentBlock::ToolResult { output, attachments, .. } = block
+            && prunes_result(output, attachments)
         {
             PRUNED_OUTPUT_STUB.clone_into(output);
         }

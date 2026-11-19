@@ -22,6 +22,7 @@ use crate::attachments::strip;
 use crate::context::{
     ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
     SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens, json_len,
+    prunes_result,
 };
 use crate::gap::{self, CallGap};
 use crate::interrupt::Interrupt;
@@ -194,9 +195,7 @@ pub(crate) fn prune(placed: &[Placed]) -> Pruning {
         let mut stubbed = false;
         for block in &mut item.message.content {
             if let ContentBlock::ToolResult { output, attachments, .. } = block
-                && output != PRUNED_OUTPUT_STUB
-                && (output.len() > PRUNED_OUTPUT_STUB.len()
-                    || attachments.iter().any(|part| part.data.is_some()))
+                && prunes_result(output, attachments)
             {
                 PRUNED_OUTPUT_STUB.clone_into(output);
                 attachments.iter_mut().for_each(|part| part.data = None);
@@ -413,8 +412,15 @@ pub(crate) fn with_window(base: &Request, window: &Window) -> Request {
 /// sends as content. The count is the [`request_tokens`] of the request that
 /// [`with_window`] builds.
 pub(crate) fn window_tokens(base: &Request, window: &Window) -> u64 {
-    let attachments: u64 = window.iter().map(attachment_tokens).sum();
-    estimate_tokens(parts_len(base, &window.head, &window.placed)).saturating_add(attachments)
+    parts_tokens(base, &window.head, &window.placed)
+}
+
+/// The estimate of the request of `base` with the messages of `head` and `placed`: its
+/// JSON bytes, and the attachments that go as content by their patches and pages.
+fn parts_tokens(base: &Request, head: &[Message], placed: &[Placed]) -> u64 {
+    let messages = head.iter().chain(placed.iter().map(|placed| &placed.message));
+    let attachments: u64 = messages.map(attachment_tokens).sum();
+    estimate_tokens(parts_len(base, head, placed)).saturating_add(attachments)
 }
 
 /// The length as JSON of the request of `base` with the messages of `head` and
@@ -487,8 +493,7 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     if job.trigger == CompactionTrigger::Auto
         && job.window.omitted == 0
         && pruning.worth_it()
-        && estimate_tokens(parts_len(job.base, &job.window.head, &pruning.placed))
-            < job.limits.trigger
+        && parts_tokens(job.base, &job.window.head, &pruning.placed) < job.limits.trigger
     {
         return Outcome::Pruned(pruning);
     }

@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, CommandId, ConversationId,
-    ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId, Scope, Seq, TurnId, TurnSettings,
+    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, CommandId, Compaction,
+    CompactionId, CompactionTrigger, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope,
+    Origin, PtyId, Scope, SentForm, Seq, TurnId, TurnSettings,
 };
 use efr_provider::{AttachmentPart, ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
@@ -20,6 +21,7 @@ use super::{
     Snapshot, UNFINISHED_CALL, close_open_calls, decode, drop_orphan_results, rebuild,
 };
 use crate::compaction::Placed;
+use crate::context::PRUNED_OUTPUT_STUB;
 
 mod bodies;
 mod covered;
@@ -633,6 +635,75 @@ async fn only_finished_turns_other_than_the_current_one_count() {
             Message::user(FAILED_MARKER),
         ]
     );
+}
+
+/// A prune cut a tool result with a short output and an image that went as content: the
+/// next turn rebuilds it with the stub, so its image goes as a label and no fill loads
+/// it again.
+#[tokio::test]
+async fn a_pruned_image_result_stays_pruned_in_the_next_turn() {
+    let (a, current, c) = (turn(2), turn(3), call(4));
+    let mut read = finished(a, c, "img-1.png: PNG image, 9 KB");
+    if let Event::ToolCallCompleted { attachments, .. } = &mut read {
+        let mut sent = image(1);
+        sent.sent = Some(SentForm {
+            media_type: "image/png".to_owned(),
+            bytes: 9_000,
+            width: Some(64),
+            height: Some(32),
+        });
+        attachments.push(sent);
+    }
+    let end = Event::TurnCompleted {
+        turn_id: a,
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    };
+    let body = vec![started(a, c, "read_file"), read, completed(a, 0, "A plot.")];
+    let pruned = Event::ConversationCompacted(Compaction {
+        compaction_id: CompactionId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(7))),
+        turn_id: None,
+        trigger: CompactionTrigger::Auto,
+        focus: None,
+        model: "m".to_owned(),
+        window: 100_000,
+        limit: 76_000,
+        tokens_before: 80_000,
+        tokens_after: 20_000,
+        through_turn: a,
+        through_message: None,
+        kept_turns: 0,
+        pruned_outputs: 1,
+        pruned_tokens: 3_000,
+        omitted_turns: 0,
+        omitted_messages: 0,
+        fresh: None,
+        summary: None,
+        usage: None,
+    });
+    let next = whole_turn(current, "and now?", Vec::new(), completed(current, 0, "x"));
+    let store = store_with(vec![whole_turn(a, "look", body, end), vec![pruned], next]).await;
+
+    let mut history = snapshot(&store, HistoryLimits::default()).await.history(
+        current,
+        &HashMap::new(),
+        &key("replay", "m"),
+        HistoryLimits::default(),
+    );
+    let result = history
+        .iter_mut()
+        .find(|message| {
+            message.content.iter().any(|block| matches!(block, ContentBlock::ToolResult { .. }))
+        })
+        .expect("the result");
+    assert!(
+        matches!(&result.content[0], ContentBlock::ToolResult { output, .. } if output == PRUNED_OUTPUT_STUB),
+        "{result:?}"
+    );
+    assert!(crate::attachments::parts_mut(result).is_empty());
 }
 
 /// An interrupt sent an unread steer again as a prompt of its own: the rebuilt history

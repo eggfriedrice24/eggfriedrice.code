@@ -7,7 +7,7 @@
 //! for `conversation.context`.
 
 use efr_protocol::{ContextUse, ErrorBody, ErrorCode, Event, EventEnvelope};
-use efr_provider::{Message, Request, attachment_tokens};
+use efr_provider::{AttachmentPart, Message, Request, attachment_tokens};
 
 pub(crate) mod breakdown;
 
@@ -53,6 +53,16 @@ pub const BREAKER_TRIES: u32 = 2;
 pub const PRUNED_OUTPUT_STUB: &str = "[efr removed this output to make room in the context. \
                                       The full output stays in efr's recording of the call; \
                                       run the command again if you need it.]";
+
+/// True when a prune gives a tool result with `output` and `attachments` the stub: its
+/// output is longer than the stub, or it has an attachment that a model gets as
+/// content. A prune and the rebuild of a pruned history share it, and it reads no
+/// data, which only a filled window has.
+pub(crate) fn prunes_result(output: &str, attachments: &[AttachmentPart]) -> bool {
+    output != PRUNED_OUTPUT_STUB
+        && (output.len() > PRUNED_OUTPUT_STUB.len()
+            || attachments.iter().any(|part| part.attachment.sent.is_some()))
+}
 
 /// When a conversation compacts its context on its own (`[compaction]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
