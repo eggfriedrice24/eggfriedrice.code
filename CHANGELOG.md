@@ -23,6 +23,9 @@ into the GitHub release notes, and it stops when the section is missing.
   you. Before, the agent never heard of the end. A job of that second turn still waits
   for your next prompt, and the agent now knows this, so it does not promise you a
   report that never comes.
+- In `auto`, the value of an option of `ping`, `traceroute`, `tracepath` or `mtr`, such
+  as the interval of `ping -i 0.2`, is no longer read as the host that the command
+  reaches.
 
 ## [0.0.13] - 2026-11-19
 

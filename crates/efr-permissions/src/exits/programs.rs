@@ -1136,6 +1136,48 @@ const RAW_NETWORK_PROGRAMS: &[&str] = &[
     "ftp",
 ];
 
+/// The short options of the raw network programs that take a value, so the value of
+/// `ping -i 0.2` or `-I 10.0.0.5` is no host. A value that names a host the program
+/// reaches, such as the gateway of `traceroute -g`, is not here: it stays a host.
+const RAW_NETWORK_VALUE_LETTERS: &[(&str, &str)] = &[
+    ("ping", "cIilmMpQsStTwWeF"),
+    ("ping6", "cIilmMpQsStTwWeF"),
+    ("traceroute", "fimNptlwqszMOP"),
+    ("tracepath", "lmp"),
+    ("mtr", "FafmUPLsBiGQIcoyZM"),
+];
+
+/// The short options of the raw network program `program` that take a value.
+fn raw_network_value_letters(program: &str) -> &'static str {
+    RAW_NETWORK_VALUE_LETTERS
+        .iter()
+        .find(|(name, _)| *name == program)
+        .map_or("", |(_, letters)| letters)
+}
+
+/// The words of `args` without the values of the short options of `values`: a cluster
+/// that ends with such a letter takes the next word as its value (`-c 3`); in a cluster
+/// with more letters after it, the rest of the word is the value (`-c3`).
+fn past_short_values<'a>(
+    args: &'a [String],
+    values: &'a str,
+) -> impl Iterator<Item = &'a String> + 'a {
+    let mut value_next = false;
+    args.iter().filter(move |word| {
+        if std::mem::take(&mut value_next) {
+            return false;
+        }
+        if let Some(letters) = word
+            .strip_prefix('-')
+            .filter(|letters| !letters.is_empty() && !letters.starts_with('-'))
+        {
+            let takes = letters.char_indices().find(|(_, letter)| values.contains(*letter));
+            value_next = takes.is_some_and(|(at, letter)| at + letter.len_utf8() == letters.len());
+        }
+        true
+    })
+}
+
 /// Programs that fetch over HTTP whatever their words say: package runners and
 /// downloaders. Under the proxy they follow the host list ([`Network::host`]).
 const HTTP_NETWORK_PROGRAMS: &[&str] =
@@ -1917,9 +1959,10 @@ pub(super) fn line_hosts(words: &[String]) -> Vec<String> {
         "ssh" | "mosh" | "autossh" => hosts.extend(ssh_destination(program, args)),
         // NOTE: a raw network program names its host as a plain operand, such as
         // `nslookup github.com` or `dig @1.1.1.1 x.test`; a word with no dot, such as a
-        // port or a count, names none.
+        // port or a count, names none, and nor does the value of an option, such as
+        // the interval of `ping -i 0.2`.
         program if RAW_NETWORK_PROGRAMS.contains(&program) => hosts.extend(
-            args.iter()
+            past_short_values(args, raw_network_value_letters(program))
                 .map(|arg| arg.trim_start_matches('@'))
                 .filter(|arg| !arg.starts_with(['-', '+']) && !arg.contains("://"))
                 .filter(|arg| arg.contains('.') || *arg == "localhost")
