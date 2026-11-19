@@ -204,7 +204,12 @@ async fn shell_a_command_runs_in_a_real_zsh_and_its_output_is_recorded() {
             other => panic!("a resume from offset 0 replays the recording: {other:?}"),
         }
     }
-    assert!(recorded.windows(8).any(|window| window == b"\x1b]133;C\x07"));
+    assert!(
+        recorded
+            .windows(8)
+            .any(|window| window.starts_with(b"\x1b]133;C") && matches!(window[7], b'\x07' | b';')),
+        "the recording holds the C mark, with or without options"
+    );
     drop((stream, follow, client));
     daemon.stop().await.unwrap();
 }
