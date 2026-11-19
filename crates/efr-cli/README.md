@@ -1386,9 +1386,9 @@ handler is installed, without unsafe code), `qrcode` (the pairing code of `efr d
 without its default features, so with no dependency of its own).
 
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX`, `STY`,
-`ZELLIJ`, `WT_SESSION`, `SSH_CONNECTION`, `LC_ALL`, `LC_CTYPE` and `LANG` are read in `terminal.rs` with
-`std::env::var_os`,
-and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
+`ZELLIJ`, `WT_SESSION`, `SSH_CONNECTION`, `LC_ALL`, `LC_CTYPE` and `LANG` are read in
+`terminal.rs` with `std::env::var_os`, and `VISUAL`, `EDITOR` and `HOME` in
+`context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `FZF_QUERY` and
 `FZF_PREVIEW_COLUMNS` are read in `context.rs` too: fzf exports them to the commands of
 the picker of `,resume`, and the query reaches `efr search` there, never in its

@@ -1969,10 +1969,10 @@ capability `attachments` while `attachments.enabled` is on.
   proof on the tailnet listener, the connection on the Unix socket. `Uploads` keeps
   each upload in `<state>/uploads/<upload-id>.part` (0600) by the one result rule of
   `attachment.put`, checks it after its last chunk, and writes a prepared image beside
-  it (`.sent`); a PDF that goes as content stays in its part. It sweeps every part at the start of efrd, drops the uploads of
-  a Unix connection when it closes (`Methods::closed`), the uploads of a revoked
-  device (`remote::live::follow`), and an upload of a device after `UPLOAD_TTL` with no
-  chunk, at the next put or the next look of `gc::collect`. A bind or a tool image
+  it (`.sent`); a PDF that goes as content stays in its part. It sweeps every part at
+  the start of efrd, drops the uploads of a Unix connection when it closes
+  (`Methods::closed`), the uploads of a revoked device (`remote::live::follow`), and an
+  upload of a device after `UPLOAD_TTL` with no chunk, at the next put or the next look of `gc::collect`. A bind or a tool image
   whose bytes have a blob in the conversation takes the `sent` form of the first row
   that names it (`efr_store::attachments::blob_attachment`), with no intake, because
   the blob holds the bytes of that form. `UploadError::into_daemon` maps its errors to
@@ -2029,9 +2029,10 @@ service, with `efr_http::ExpoPush` on the shared HTTP client.
 - `push/check.rs`: `admin.push_test` sends `efr: test` to each device with a token and
   asks for the receipts after 2, 4 and 8 s.
 - `EFR_EXPO_PUSH_URL` replaces `https://exp.host`. `Deps::with_process_flags` reads it
-  once at the start, after the telemetry, and logs `EFR_EXPO_PUSH_URL is set: pushes go to this server, not to
-  exp.host`; a URL that is not `http` or `https` turns push off with one warning. The
-  test daemons send to `http://127.0.0.1:9` unless a test names its own server.
+  once at the start, after the telemetry, and logs
+  `EFR_EXPO_PUSH_URL is set: pushes go to this server, not to exp.host`; a URL that is
+  not `http` or `https` turns push off with one warning. The test daemons send to
+  `http://127.0.0.1:9` unless a test names its own server.
 - `methods/device_push_set.rs` takes the token of the proven device; `device.list`
   shows `push`; a revoke deletes the token in its transaction.
 
@@ -2099,8 +2100,8 @@ snapshots before and after each call that can write, the turn's changes and
 `conversation.diff`), `efr-proxy` (the network proxy of the sandbox, as tokio tasks
 of efrd: one listener per contained call), `efr-media` (the checks, the metadata strip
 and the downscale of the images of attachments, and the facts of a PDF; only efrd
-links it). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
-and only from `tests/`.
+links it). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only
+dev-dependent, and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
 `futures` (the stream of a model call, whose answers say whether a stored key works),

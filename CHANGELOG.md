@@ -16,7 +16,7 @@ into the GitHub release notes, and it stops when the section is missing.
   your shell: set `EFR_LOG=info,libghostty=debug`. When libghostty-vt fails in a way
   that it does not handle, efrd logs one warning for that screen.
 - The model sees an image file that it reads with `read_file` (PNG, JPEG, GIF, WebP),
-  when its model reads images. Each other model gets the path of the file.
+  when the model reads images. Each other model gets the path of the file.
 - Attach files to a prompt with `@path` in a `,` line, such as `, why is the header cut
   off in @docs/shot.png`, or with the plus button of the phone (Photo Library, Take
   Photo, Choose File). Images and PDFs go to a model that reads them; each other file
@@ -35,9 +35,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `@` word with the path of a file, and the prompt names the image `@paste-1.png`.
   Text that you paste goes into the line as before; text over 16 KiB goes as a file.
   `attachments.paste` turns it on or off.
-- Push notifications on the phone when a question waits and you are away (the
-  Notifications switch, `efr push test`). The notices go through the Expo push
-  service. `efr device list` shows `push on` for a phone that has push on.
+- Push notifications on the phone when you are away and something needs you, such as
+  a question that waits, and at the end of a long turn that the phone started (the
+  Notifications switch, `presence.push`, `efr push test`). The notices go through the
+  Expo push service. `efr device list` shows `push on` for a phone that has push on.
 - Voice input on the phone: speech becomes text in the draft, on the iPhone (iOS 26).
   No audio leaves the iPhone.
 

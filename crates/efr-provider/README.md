@@ -112,8 +112,8 @@ Modules:
   parts lose their data until the request is at half of that limit) and
   `attachment_tokens` (the one count of the meter and the prune, over the parts with
   data, by `content_tokens` of each: an image is `ceil(w/28) * ceil(h/28)` tokens up
-  to 4,784, a PDF 4,500 for each page, or its bytes / 4 with no page count). The PDF limits `PDF_MAX_BYTES` (5 MiB) and
-  `PDF_MAX_PAGES` (100) are here too. `ModelInfo::inputs` (`InputKinds { image, pdf }`)
+  to 4,784, a PDF 4,500 for each page, or its bytes / 4 with no page count). The PDF
+  limits `PDF_MAX_BYTES` (5 MiB) and `PDF_MAX_PAGES` (100) are here too. `ModelInfo::inputs` (`InputKinds { image, pdf }`)
   says what a model reads besides text.
 - `unoffered`: `unoffered_call_text` and `unoffered_result_text`, the text in place of
   a tool call, and of its result, when the request does not offer the call's tool

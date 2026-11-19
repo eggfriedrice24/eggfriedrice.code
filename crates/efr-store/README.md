@@ -41,8 +41,8 @@ across a restart:
   result) of the turns that the caller names. SQLite never copies such an event out,
   the event still counts towards the limit, and every event of the page is the event
   of the log.
-- `conversations`, `approvals`, `shells`, `compactions`, `jobs`, `waits`, `attachments`: projections of the log for
-  listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
+- `conversations`, `approvals`, `shells`, `compactions`, `jobs`, `waits`,
+  `attachments`: projections of the log for listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
   `compactions::latest` reads the newest `conversation_compacted` with a summary and
   the newest of any kind with a query of their own, so the page of newest events never
   decides what the model sees. A turn ends

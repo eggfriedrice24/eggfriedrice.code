@@ -112,8 +112,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
 - Projections `conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`,
-  `job_notices`, `waits` and `attachments` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
-  rebuild matches. They serve listing and paging; they are not a second source of
+  `job_notices`, `waits` and `attachments` are rebuilt from events by
+  `cargo xtask rebuild-projections`, and a test asserts the rebuild matches. They serve listing and paging; they are not a second source of
   truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
   `command_id` returns the stored result; a rejected one stays rejected; nothing is

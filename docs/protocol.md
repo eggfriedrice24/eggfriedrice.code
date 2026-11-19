@@ -1232,11 +1232,10 @@ No protocol version has shipped yet.
   an absolute path, or `clipboard`); an `@path` of the engine's secret class, with the
   message `the file of the @path is a secret file` and the `data`
   `{"secret_file": true}` (`SecretFile`), so a client can say so in its own words.
-  `forbidden`: an upload of another
-  owner. `internal`: a failed write to the disk. The owner is the connection on the
-  Unix socket, whose uploads go when it closes, and the device of the proof on the
-  tailnet listener, whose upload goes after 1 hour with no chunk and no prompt
-  (`UPLOAD_TTL`). efrd removes every upload at its start.
+  `forbidden`: an upload of another owner. `internal`: a failed write to the disk. The
+  owner is the connection on the Unix socket, whose uploads go when it closes, and the
+  device of the proof on the tailnet listener, whose upload goes after 1 hour with no
+  chunk and no prompt (`UPLOAD_TTL`). efrd removes every upload at its start.
 
   New method `attachment.discard` (scope `operate`, unary): `upload_id`. The result is
   empty. An unknown id is no error; an upload of another owner is `forbidden`.
