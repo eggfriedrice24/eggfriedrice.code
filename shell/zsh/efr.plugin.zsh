@@ -2090,12 +2090,12 @@ _efr_probe_background() {
 
 # --- the @path words of a prompt line ---------------------------------------------
 
-# 0 when BUFFER is a prompt line: its first word is `,`, `,new` or `,!` and a blank or
-# the end of the line follows it, or sticky mode is on and the line does not start with
-# `!` or `,`, also when it is empty.
-_efr_prompt_line() {
-  [[ $BUFFER == ,(new|!|)([[:space:]]*|) ]] && return 0
-  (( _efr_sticky )) && [[ $BUFFER != [,!]* ]]
+# 0 when the line $1 is a prompt line: its first word is `,`, `,new` or `,!` and a blank
+# or the end of the line follows it, or sticky mode is on and the line does not start
+# with `!` or `,`, also when it is empty. A caller passes BUFFER, which it read once.
+_efr_is_prompt_line() {
+  [[ $1 == ,(new|!|)([[:space:]]*|) ]] && return 0
+  (( _efr_sticky )) && [[ $1 != [,!]* ]]
 }
 
 # The BUFFER that the colours of its @path words were made for; empty after a change
@@ -2111,17 +2111,18 @@ typeset -g _efr_attach_seen
 # fork. ZLE cannot hold an OSC 8 link, so the line has no link.
 #
 # Each read of the ZLE special BUFFER makes a string of the whole line, so the hook
-# reads it once into `line`, and takes a word with one expansion; only a word with a
-# backslash is walked one character at a time. A pasted prompt of some KB with many `@`
-# words then costs no more than a short line for each key.
+# reads it once into `line`, first, and takes a word with one expansion; only a word
+# with a backslash is walked one character at a time. A pasted prompt of some KB with
+# many `@` words then costs no more than a short line for each key.
 _efr_attach_colour() {
-  [[ $BUFFER == "$_efr_attach_seen" ]] && return 0
-  _efr_attach_seen=$BUFFER
+  local line=$BUFFER
+  [[ $line == "$_efr_attach_seen" ]] && return 0
+  _efr_attach_seen=$line
   region_highlight=(${region_highlight:#*memo=efr-attach})
-  [[ $CONTEXT == start && $BUFFER == *@* ]] || return 0
-  _efr_prompt_line || return 0
+  [[ $CONTEXT == start && $line == *@* ]] || return 0
+  _efr_is_prompt_line $line || return 0
   emulate -L zsh -o extended_glob
-  local REPLY file quote rest line=$BUFFER
+  local REPLY file quote rest
   local -a ends
   integer at=1 end last n=${#line} marks
   while (( at <= n )); do
@@ -2197,7 +2198,7 @@ typeset -gi _efr_clip_event_max=8192 _efr_clip_event_secs=1
 typeset -g _efr_clip_stopped='efr: the clipboard read stopped. Nothing was added.'
 typeset -g _efr_clip_again='efr: the clipboard read failed again. Pastes on , lines are text again in this shell.'
 
-# Runs before each redraw. When the line becomes a prompt line (_efr_prompt_line) and
+# Runs before each redraw. When the line becomes a prompt line (_efr_is_prompt_line) and
 # _efr_paste_wanted allows it, it turns mode 5522 on, so that a paste comes as an event
 # (OSC 5522) for _efr_clip_event and not as text. When the line stops being one, it
 # turns the mode off. It acts only when that changed, with no fork.
@@ -2206,7 +2207,7 @@ _efr_paste_line() {
   emulate -L zsh
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   integer line=0
-  [[ $CONTEXT == start ]] && _efr_prompt_line && line=1
+  [[ $CONTEXT == start ]] && _efr_is_prompt_line $BUFFER && line=1
   (( line == _efr_paste_prompt )) && return 0
   _efr_paste_prompt=line
   if (( line )) && _efr_paste_wanted; then
@@ -2375,7 +2376,7 @@ _efr_complete_prompt() {
 # so the words go to _efr_complete_prompt as they do with the default options; then it
 # runs the widget that Tab had before (_efr_tab_widget).
 _efr_complete_word() {
-  if [[ -o interactive_comments ]] && _efr_prompt_line; then
+  if [[ -o interactive_comments ]] && _efr_is_prompt_line $BUFFER; then
     setopt local_options no_interactive_comments
   fi
   zle ${_efr_tab_widget:-expand-or-complete}
