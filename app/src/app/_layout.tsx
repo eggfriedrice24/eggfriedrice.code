@@ -2,20 +2,20 @@ import "../../global.css";
 
 import Constants from "expo-constants";
 
-import { EfrSpeech } from "../../modules/efr-speech";
 import { appStorage } from "@/lib/native/kv";
 import { AccessibilityInfo, ActionSheetIOS, Keyboard } from "react-native";
 
 import { appPhase, followAppPhase, followAppState } from "@/lib/native/app-state";
 import { systemClock } from "@/lib/native/clock";
 import { newCommandId, openAppDatabase, openEventCaches } from "@/lib/native/database";
-import { haptic, setHapticsEnabled } from "@/lib/native/haptics";
+import { setHapticsEnabled } from "@/lib/native/haptics";
 import { checkOwner, hasPasscode, ownerFacts } from "@/lib/native/owner-check";
 import { blurSearchBars } from "@/lib/native/search-bars";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
 import { nativeAttach } from "@/features/conversation/native/attach";
+import { nativeVoice } from "@/features/conversation/native/voice";
 import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
 import { LockGate, LockOverlay } from "@/features/navigation/components/lock-overlay";
@@ -97,7 +97,7 @@ const services = createAppServices({
   push: nativePush(),
   noticeTaps,
   attach: nativeAttach(),
-  voice: EfrSpeech === null ? null : { speech: EfrSpeech, haptic: () => haptic("light") },
+  voice: nativeVoice(),
 });
 
 function machineMenu(machine: string) {
