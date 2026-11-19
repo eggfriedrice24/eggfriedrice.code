@@ -212,6 +212,17 @@ import is allowed. oxlint enforces it.
 - A link opens only through `lib/native/links.ts`: the app asks first, then opens it in
   SFSafariViewController.
 - Offsets of text count bytes of UTF-8, never UTF-16 units (`lib/stream/utf8.ts`).
+- A native part (attach, voice and push of 0.0.13) shows only when `NATIVE_PARTS` of
+  `lib/native/native-parts.ts` has it, so an older dev build still runs the newer
+  JavaScript. A package of Expo whose native module is missing throws when it loads.
+  So the code of a part requires its package only when `NATIVE_PARTS` has the part,
+  never with an `import` of its values at the top of a file (a type import is fine).
+  `features/settings/native/push.ts` and `features/conversation/native/attach.ts` show
+  how.
+- The app sends attachments (0.0.13) through `attachment.put` and the outbox. The
+  pickers, the camera, Quick Look and the plus menu are iOS parts. The tile row
+  (`features/conversation/components/attachment-row.tsx`) is the one part of attach
+  that efr draws.
 
 ## Tests
 

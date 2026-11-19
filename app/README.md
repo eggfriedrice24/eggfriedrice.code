@@ -48,8 +48,17 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   the drafts, the machine registry and its supervisors, the queries, the pairing flow,
   the pacer of the streamed text, the replay of the recordings of efrd, and the
   components and screens in jest-expo.
-- Written, but not built yet: the Swift module of the device key and the native
-  adapters. They need an EAS build.
+- Written, but not built yet: the Swift module of the device key, the native
+  adapters, and the two local Swift modules of 0.0.13, `efr-files` (the photos and
+  files of an attachment) and `efr-speech` (voice input). They need an EAS build.
+- 0.0.13 adds three native parts, each behind its guard: attach (the plus of the
+  composer, the tile row of a draft and of the transcript, the upload in chunks
+  through the outbox), voice (the microphone of the composer, on iOS 26) and push (the
+  row Notifications of Settings, the Expo push token, the tap on a notice). The app
+  now sends `lease.report` on each connection, at each change of the app state or of
+  the conversation on screen, and each 25 s while it is in front, so efrd sends no
+  push while you look at the conversation. The demo machines take attachments too
+  (`features/demo/model/demo-uploads.ts`).
 - A step of web search, which the provider of the model runs, shows as a tool block
   with the verb `web`: a search with its query, an opened page as `open <page>`. The
   status says `✓ 10 results · 6s` (the count only when the provider gives it), `✓ 5s`,
@@ -88,6 +97,8 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
 | `src/lib/native/`        | The adapters of React Native and Expo: socket, clock, database, haptics, clipboard, links.             |
 | `src/theme/`             | The palette, the colour roles, the type scale, the metrics, the materials and the generated theme CSS. |
 | `modules/efr-device-key` | The local Expo module of the Secure Enclave key (Swift). Its README tells what it does.                |
+| `modules/efr-files`      | The local Expo module of attached files (Swift): the JPEG, its preview, the chunks, Quick Look.        |
+| `modules/efr-speech`     | The local Expo module of voice input (Swift): SpeechAnalyzer of iOS 26, on the iPhone only.            |
 | `assets/icon/`           | The app icon, "the yolk". Its README tells how to make the PNG again.                                  |
 | `test/`                  | The rules of the code (dependency graph, effects budget, React Compiler), the codegen and the harness. |
 | `test/recordings/`       | What efrd sends to a phone during scripted turns. The replay tests read it.                            |
@@ -171,6 +182,10 @@ The rules of the code are tests too:
   against `scripts/effect-budget.json`. The budget only goes down.
 - `test/react-compiler-coverage.test.ts`: each component and hook compiles with the
   React Compiler and no bailout.
+- `test/app-config.test.ts`: the resolved config of each variant, as `expo prebuild`
+  writes it, on Linux: the Info.plist texts of the camera, the microphone and speech,
+  the push entitlement, and no text of the photo library. It also checks that
+  autolinking links each local module by the class of its Swift file.
 
 `node scripts/bench-decode.mjs` measures the decoder of the app in Node, with zod, with
 zod in jitless mode and with the old hand-written guard. Run it alone and at nice 19.
@@ -284,12 +299,37 @@ new build. Collect the changes of native code, so that the builds stay few. The 
 modules of the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
 expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown,
 expo-local-authentication (the Face ID unlock, with the Face ID text of `app.json`), the
-effort slider (`@react-native-community/slider`) and the module of the device key. The
+effort slider (`@react-native-community/slider`), the module of the device key, and from
+0.0.13 expo-notifications (push, with the push entitlement and no background mode),
+expo-image-picker (the photo picker of iOS and the camera, with no access to the photo
+library), expo-document-picker (Choose File), and the local modules `efr-files` and
+`efr-speech`. The
 pnpm patch of the slider changes its native code (`RNCSliderComponentView.mm`, the move
 from stop to stop), so a change of that patch needs a new build too. A build without
 the slider still runs the JavaScript of a newer app: the model sheet then draws the
 efforts as buttons. One dev build takes the slider, expo 58.0.25 with the SDK packages
 of `expo install --fix` (React Native 0.88.1) and enriched 1.2.0 together.
+
+`src/lib/native/native-parts.ts` (`NATIVE_PARTS`) is the guard of each native part of
+0.0.13: the plus shows only with `efr-files` and both pickers in the binary, the
+microphone only with `efr-speech`, and the row Notifications only with
+expo-notifications. So an older dev build still runs the newer JavaScript from Metro.
+A package of Expo whose native module is missing throws when it loads, so the code of a
+part requires its package only when `NATIVE_PARTS` has the part (see `app/AGENTS.md`).
+
+Linux cannot compile Swift against the iOS SDK, so the first compile of a local module
+is the `development` build. The Linux binary of expo-modules-macros checks the macros
+of a module, but not its types:
+
+```sh
+node_modules/.pnpm/node_modules/@expo/modules-macros-linux-x64/ExpoModulesMacros \
+  expand --diagnostics-only modules/<module>/ios/
+```
+
+When `efr-speech` fails to build, one line takes it out of the build: put
+`"autolinking": {"exclude": ["efr-speech"]}` in the `expo` object of `package.json`.
+`expo-modules-autolinking resolve` then drops the module, the microphone hides, and
+attach and push still ship.
 
 ## Device checklist
 
@@ -636,6 +676,59 @@ one shared minute timer for every reader. These checks need the iPhone:
 58. Open the conversations sheet right after a cold start and after a return from the
     background: no offline banner flashes while a machine only connects.
 
+### Attach, push and voice (0.0.13)
+
+Do the checks of `modules/efr-files/README.md` and `modules/efr-speech/README.md`,
+section "Checks on an EAS build", first. The boards are S-Attach, S-Voice and the
+Notifications frames of Settings.
+
+59. The Info.plist of the build has `NSCameraUsageDescription` (the shared text),
+    `NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription` and the
+    `aps-environment` entitlement, and no `NSPhotoLibraryUsageDescription`.
+60. The plus opens a native menu with Photo Library, Take Photo and Choose File. The
+    photo picker opens with no permission question and takes up to 10 photos. A photo
+    that is only in iCloud works. The tile shows the copy of the picker while the JPEG
+    is made, then the preview of 512 px.
+61. Take Photo asks for the camera once with the shared text; pairing still scans.
+62. A 48 MP HEIC photo: the tile shows within 1 s, the upload is a JPEG of at most
+    2000 px, and the file that efrd stores has no GPS tag.
+63. Choose File: a PDF from iCloud Drive and a file of 19 MB upload with a moving
+    progress; a file of 21 MB is refused before the upload, with the limit in the text.
+64. A long upload: go Home halfway and come back after 1 minute. The upload goes on
+    where it stopped, and the prompt is sent once. Second case: send a prompt with a
+    file of 19 MB, go Home when the progress is about half, restart efrd on the
+    machine yourself (no agent restarts efrd), come back: the row says "uploading
+    again", the files go again, and the prompt runs once. A pending prompt with files
+    says "sending · withdraw" until all its files are up.
+65. Remove a tile during its upload: efrd keeps no part of it. The files of a draft
+    are gone after iOS ends the app; its text stays. A tap on a sent photo, and Quick
+    Look in the long-press menu of a draft photo, open Quick Look with the name of the
+    file as its title. The previews of the 200 newest prompts with photos stay (the
+    key-value key `efr.previews`).
+66. With the Face ID unlock on, the lock cover does not show over the photo picker,
+    the camera or the file picker.
+67. VoiceOver reads each tile with its kind, size and progress, and "Remove".
+68. Notifications: the switch asks iOS once; denied, the row says so and opens the
+    iOS settings. `efr push test` reaches the dev build first (probe PB1), then the
+    preview and the TestFlight build (each bundle id needs its push key at EAS), and
+    `efr device list` shows `push on`.
+69. Lock the phone during a turn that the phone started: an approval comes as a push
+    within 5 s with the body `<place>: a question waits`. A tap, with the Face ID
+    unlock on, shows the lock first and then the conversation; the same tap with the
+    app killed starts the app, shows the lock and then the conversation. With the app
+    in front for 2 minutes during a turn that asks: no push, no banner and no sound.
+    With input at the terminal in the last 10 minutes: no push.
+70. Voice on iOS 26: the first tap asks for the microphone (write down if iOS also
+    asks for speech recognition). The text goes in at the cursor, nothing is sent, and
+    the draft keeps its text. Voice works in flight mode. A call stops the recording
+    and keeps the text. The microphone shows only on iOS 26 with a language that has a
+    model; on iOS 18, with another language, or with `efr-speech` excluded from the
+    build, the app shows no microphone.
+71. `efr device revoke` of the phone: the next approval sends no push. The switch off:
+    no push. A new install: push works after the next pairing.
+72. The 0.0.12 app from TestFlight against efrd 0.0.13: no error, the plus stays off,
+    no push.
+
 ## Rules of the app
 
 - No image, no video and no raw HTML in Markdown, and no WebView with JavaScript. The app
@@ -644,8 +737,14 @@ one shared minute timer for every reader. These checks need the iPhone:
   a link, and then opens it in SFSafariViewController.
 - The device key never leaves the Secure Enclave. The app keeps the device id and the
   endpoint of each machine in expo-secure-store.
-- The app sends no `input.respond`, no attachments and no "always allow". efrd refuses
-  them from a phone anyway.
+- The app sends no `input.respond` and no "always allow". efrd refuses them from a
+  phone anyway.
+- The app sends attachments (0.0.13) only to an efrd with the capability
+  `attachments`, within its limits. A photo becomes a JPEG on the iPhone first, with
+  no EXIF data, so no GPS position leaves the phone. efrd checks each file again and
+  sets the origin `phone` itself.
+- A push notice starts no action and answers no question. The app trusts only its two
+  ids, and drops a notice of a machine that it does not know.
 - A question that only the terminal can answer (a command that needs a password or
   runs as another user, a background job, a delete that full mode guards) shows why,
   and no answer buttons. A question that offers an "always" rule keeps Allow and Deny,
