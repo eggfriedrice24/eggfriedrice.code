@@ -145,6 +145,9 @@ signed message all depend on them.
 - Later options that keep this design: `wss://` through the HTTPS feature of the
   tailnet or Tailscale Serve, an app capability in the tailnet policy that efrd reads
   from the whois, push through APNs, and image uploads by a method of their own.
+- Note of 0.0.13: the uploads are built (`attachment.put`, ADR 0026). Push is built
+  through the Expo push service, not from efrd to APNs (ADR 0028). Expo carries only
+  the notice; the session stays on the tailnet.
 
 ## Rejected
 

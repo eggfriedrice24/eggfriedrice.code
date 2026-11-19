@@ -31,6 +31,9 @@ sections Context, Decision and Consequences.
 - [0023: In auto, the reviewer decides each exit alone](0023-reviewer-decides-alone.md). Status: accepted, 2026-11-13.
 - [0024: In auto, a tool's login is a grant for one call](0024-logins-as-grants.md). Status: accepted, 2026-11-14.
 - [0025: The model's question: an answer is no permission](0025-the-models-question.md). Status: accepted, 2026-11-17.
+- [0026: Attachments: a reference in the history, bytes in efrd, a copy in `$SCRATCH`](0026-attachments.md). Status: accepted, 2026-11-19.
+- [0027: A terminal read for a paste](0027-a-terminal-read-for-a-paste.md). Status: accepted, 2026-11-19.
+- [0028: Push notifications through the Expo push service](0028-push-through-expo.md). Status: accepted, 2026-11-19.
 
 Record 0005 is still open. efr-render uses syntect for now, and the project can
 change this choice later.
