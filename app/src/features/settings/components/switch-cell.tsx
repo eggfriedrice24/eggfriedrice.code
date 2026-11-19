@@ -9,16 +9,11 @@
 import { Pressable, Switch, Text, View } from "react-native";
 
 import { cn } from "@/components/ui/cn";
+import { TEXT_TONE_CLASS, type TextTone } from "@/components/ui/text-classes";
 import { roles } from "@/theme/roles";
 
 /** The colour of a line under the title. */
-export type CellTone = "text_subtle" | "text_muted" | "state_warning";
-
-const LINE_TONE = {
-  text_subtle: "text-text-subtle",
-  text_muted: "text-text-muted",
-  state_warning: "text-state-warning",
-} as const satisfies Record<CellTone, string>;
+export type CellTone = Extract<TextTone, "text_subtle" | "text_muted" | "state_warning">;
 
 /** One line under the title. */
 export interface CellLine {
@@ -79,11 +74,17 @@ export function SwitchCell(props: SwitchCellProps) {
         >
           {props.title}
         </Text>
-        <Text testID={`${props.id}-line`} className={cn("text-reason", LINE_TONE[props.line.tone])}>
+        <Text
+          testID={`${props.id}-line`}
+          className={cn("text-reason", TEXT_TONE_CLASS[props.line.tone])}
+        >
           {props.line.text}
         </Text>
         {note === undefined ? null : (
-          <Text testID={`${props.id}-note`} className={cn("text-reason", LINE_TONE[note.tone])}>
+          <Text
+            testID={`${props.id}-note`}
+            className={cn("text-reason", TEXT_TONE_CLASS[note.tone])}
+          >
             {note.text}
           </Text>
         )}
