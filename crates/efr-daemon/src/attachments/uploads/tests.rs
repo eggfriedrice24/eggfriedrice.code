@@ -84,6 +84,26 @@ async fn an_image_gets_what_a_model_reads_and_waits_for_a_prompt() {
 }
 
 #[tokio::test]
+async fn the_intake_of_a_whole_upload_waits_for_the_one_decode() {
+    let state = tempfile::tempdir().unwrap();
+    let decode = Arc::new(Semaphore::new(1));
+    let uploads = Uploads::new(state.path(), TestClock::new().shared(), Arc::clone(&decode));
+    let other = decode.acquire().await.unwrap();
+
+    let put = uploads.put(LOCAL, chunk(1, PIXEL_PNG, 0, PIXEL_PNG.len()), 2000);
+    tokio::pin!(put);
+    // NOTE: real time; while another decode runs, the intake never ends.
+    let waited = tokio::time::timeout(Duration::from_millis(200), &mut put).await;
+    assert!(waited.is_err(), "the intake waits while another decode runs");
+    assert!(uploads.finished(upload(1)).is_none());
+
+    drop(other);
+    let done = put.await.unwrap();
+    assert!(done.upload.is_some(), "the intake ends after the other decode");
+    assert_eq!(decode.available_permits(), 1, "the intake gives the decode back");
+}
+
+#[tokio::test]
 async fn an_empty_file_is_whole_at_its_first_chunk() {
     let state = tempfile::tempdir().unwrap();
     let uploads = uploads(state.path(), &TestClock::new());
