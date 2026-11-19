@@ -8,13 +8,17 @@ import { eventItem, promptQueued, run, turnStarted } from "@/lib/stream/testing"
 
 import { UPLOAD_LOST } from "../model/attachments-format";
 import { testAttach } from "../model/attachments-testing";
-import { CONVERSATION_A, DESKTOP, outboxFile, outboxPrompt } from "../model/outbox-testing";
+import {
+  CONVERSATION_A,
+  DESKTOP,
+  FILE_A,
+  FILE_B,
+  outboxFile,
+  outboxPrompt,
+} from "../model/outbox-testing";
 import { outboxPrompts } from "../model/screen-outbox";
 import { InScope, testScope } from "./transcript-testing";
 import { PendingPromptRow, PromptRow, YourMessageView } from "./your-message";
-
-const FILE_A = "0f0f0f0f-0000-4000-8000-00000000000a";
-const FILE_B = "0f0f0f0f-0000-4000-8000-00000000000b";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),

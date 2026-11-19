@@ -25,6 +25,8 @@ import {
   CONVERSATION_A,
   CONVERSATION_B,
   DESKTOP,
+  FILE_A,
+  FILE_B,
   FakeEfrd,
   LAPTOP,
   fakeUploads,
@@ -439,9 +441,6 @@ describe("the outbox drain", () => {
   });
 });
 
-const FILE_A = "0f0f0f0f-0000-4000-8000-00000000000a";
-const FILE_B = "0f0f0f0f-0000-4000-8000-00000000000b";
-
 /**
  * A drain whose prompts go to `efrd`, with `uploads` for their files. `before` runs
  * before each `prompt.send`, as a restart of efrd that loses uploads.
@@ -593,7 +592,7 @@ describe("the uploads of a prompt", () => {
     const drain = uploadDrain(outbox, efrd, fakeUploads(efrd), clock, () => {
       if (!restarted) {
         restarted = true;
-        efrd.uploads.take([FILE_B]);
+        efrd.uploads.discard(FILE_B);
       }
     });
     const entry = outbox.enqueue({
@@ -618,7 +617,7 @@ describe("the uploads of a prompt", () => {
     const { outbox } = testOutbox();
     const efrd = new FakeEfrd(CONVERSATION_A);
     const drain = uploadDrain(outbox, efrd, fakeUploads(efrd), clock, () => {
-      efrd.uploads.take([FILE_A]);
+      efrd.uploads.discard(FILE_A);
     });
     outbox.enqueue({
       machine: DESKTOP,

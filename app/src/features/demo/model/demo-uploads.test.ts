@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { FILE_A as ID } from "@/features/conversation/model/outbox-testing";
 import { base64Encode } from "@/lib/protocol/bytes";
 import { DemoUploads } from "./demo-uploads";
-
-const ID = "0f0f0f0f-0000-4000-8000-00000000000a";
 
 function chunk(offset: number, length: number, name = "IMG_1.jpg", total = 6) {
   return {

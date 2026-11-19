@@ -3,15 +3,23 @@
 
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
+import {
+  CONVERSATION_A as CONVERSATION,
+  CONVERSATION_B,
+} from "@/features/conversation/model/outbox-testing";
+import { DESKTOP } from "@/features/machines/model/testing";
 import { nativePush } from "./push";
 
-const PROJECT_ID = "419d2f79-b2ca-4c12-9a28-b97fc000bbe5";
-const DEFAULT_ACTION = "expo.modules.notifications.actions.DEFAULT";
-const DESKTOP = "019a9b1c-3d00-7a10-8b20-0000000000d1";
-const CONVERSATION = "019a9b1c-3d00-7a10-8b20-000000001001";
+/** The EAS project id of the test app config. */
+const mockProjectId = "00000000-0000-4000-8000-0000000000e5";
+const mockDefaultAction = "expo.modules.notifications.actions.DEFAULT";
+
+/** The date of a notice of the tests, in milliseconds. */
+const NOTICE_DATE = 1_763_500_000_000;
 
 const mockParts = { attach: false, voice: false, push: true };
-// A getter: the adapter reads the parts when it runs, after this file set them.
+// Getters: the adapter reads the parts and the config when it runs, after this file set
+// them.
 jest.mock("@/lib/native/native-parts", () => ({
   get NATIVE_PARTS() {
     return mockParts;
@@ -20,14 +28,16 @@ jest.mock("@/lib/native/native-parts", () => ({
 jest.mock("expo-constants", () => ({
   __esModule: true,
   default: {
-    expoConfig: { extra: { eas: { projectId: "419d2f79-b2ca-4c12-9a28-b97fc000bbe5" } } },
+    get expoConfig() {
+      return { extra: { eas: { projectId: mockProjectId } } };
+    },
   },
 }));
 
 type TokenListener = (token: { type: string; data: string }) => void;
 const mockTokenListeners: TokenListener[] = [];
 const mockNotifications = {
-  DEFAULT_ACTION_IDENTIFIER: "expo.modules.notifications.actions.DEFAULT",
+  DEFAULT_ACTION_IDENTIFIER: mockDefaultAction,
   setNotificationHandler: jest.fn(
     (_handler: { readonly handleNotification: () => Promise<unknown> }) => undefined,
   ),
@@ -50,11 +60,8 @@ function notice(id: string, data: unknown, date = NOTICE_DATE) {
   return { date, request: { identifier: id, content: { data } } };
 }
 
-/** The date of a notice of the tests, in milliseconds. */
-const NOTICE_DATE = 1_763_500_000_000;
-
 /** The response of expo-notifications to a tap with `action` on a notice of `date`. */
-function response(id: string, data: unknown, action = DEFAULT_ACTION, date = NOTICE_DATE) {
+function response(id: string, data: unknown, action = mockDefaultAction, date = NOTICE_DATE) {
   return { actionIdentifier: action, notification: notice(id, data, date) };
 }
 
@@ -94,7 +101,7 @@ describe("nativePush", () => {
     const push = adapter();
     expect(await push.expoToken()).toBe("ExponentPushToken[test-1]");
     expect(mockNotifications.getExpoPushTokenAsync).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
+      projectId: mockProjectId,
       devicePushToken: { type: "ios", data: "apns-1" },
     });
   });
@@ -125,11 +132,11 @@ describe("nativePush", () => {
   it("gives two notices of one conversation, which share their id, two tap ids", () => {
     const data = { d: DESKTOP, c: CONVERSATION };
     mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
-      response(CONVERSATION, data, DEFAULT_ACTION, NOTICE_DATE),
+      response(CONVERSATION, data, mockDefaultAction, NOTICE_DATE),
     );
     const first = adapter().launch();
     mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
-      response(CONVERSATION, data, DEFAULT_ACTION, NOTICE_DATE + 60_000),
+      response(CONVERSATION, data, mockDefaultAction, NOTICE_DATE + 60_000),
     );
     const second = adapter().launch();
     expect(first?.id).not.toEqual(second?.id);
@@ -138,7 +145,7 @@ describe("nativePush", () => {
   it("removes the delivered notices of one conversation only", async () => {
     mockNotifications.getPresentedNotificationsAsync.mockResolvedValueOnce([
       notice("n1", { d: DESKTOP, c: CONVERSATION }),
-      notice("n2", { d: DESKTOP, c: "019a9b1c-3d00-7a10-8b20-000000001002" }),
+      notice("n2", { d: DESKTOP, c: CONVERSATION_B }),
     ]);
     await adapter().dismiss(CONVERSATION);
     expect(mockNotifications.dismissNotificationAsync.mock.calls).toEqual([["n1"]]);

@@ -12,7 +12,8 @@ import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
 import { FakeClock, remoteHello } from "@/lib/net/testing";
-import type { AttachmentLimits, ModelsListResult } from "@/lib/protocol/generated";
+import { DEMO_ATTACHMENT_LIMITS as LIMITS } from "@/features/demo/model/demo-uploads";
+import type { ModelsListResult } from "@/lib/protocol/generated";
 import { FakeCaller } from "@/lib/query/testing";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { StreamState } from "@/lib/stream/reducer";
@@ -149,14 +150,6 @@ interface Setup {
   /** True for efr-speech on an iPhone with speech support for its language. */
   readonly voice?: boolean;
 }
-
-/** The limits of the capability `attachments` of the test efrd. */
-const LIMITS: AttachmentLimits = {
-  chunk_bytes: 524_288,
-  max_edge_px: 2000,
-  max_file_bytes: 20 * 1024 * 1024,
-  max_per_message: 10,
-};
 
 /** A Face ID unlock that is open, or off. */
 function lockState(on: boolean): LockState {

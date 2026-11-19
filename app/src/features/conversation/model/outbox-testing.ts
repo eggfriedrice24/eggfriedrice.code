@@ -3,8 +3,9 @@
 // (idempotent by command id, one result rule of an upload). Only test files import this
 // module.
 
+import { DemoUploads } from "@/features/demo/model/demo-uploads";
 import { ServerError } from "@/lib/net/errors";
-import { base64Decode, base64Encode } from "@/lib/protocol/bytes";
+import { base64Encode } from "@/lib/protocol/bytes";
 import type {
   AttachmentPut,
   AttachmentPutResult,
@@ -20,6 +21,9 @@ export const DESKTOP = "019a9b1c-3d00-7a10-8b20-000000000001";
 export const LAPTOP = "019a9b1c-3d00-7a10-8b20-000000000002";
 export const CONVERSATION_A = "019a9b1c-3d00-7a10-8b20-0000000000a1";
 export const CONVERSATION_B = "019a9b1c-3d00-7a10-8b20-0000000000b2";
+/** The ids of two uploads. */
+export const FILE_A = "0f0f0f0f-0000-4000-8000-00000000000a";
+export const FILE_B = "0f0f0f0f-0000-4000-8000-00000000000b";
 
 /** A function that gives a new v4-shaped UUID on each call: ...-000000000001 and up. */
 export function idMaker(prefix = "00000000"): () => string {
@@ -78,6 +82,8 @@ export class FakeEfrd {
   readonly taken: TakenPrompt[] = [];
   /** Every call, also the retries. */
   readonly calls: PromptSend[] = [];
+  /** The uploads of `attachment.put`; a prompt takes its finished uploads. */
+  readonly uploads = new FakeUploads();
   private readonly receipts = new Map<string, PromptSendResult>();
   private readonly conversations = new Set<ConversationId>();
   private readonly newId = idMaker("0c0c0c0c");
@@ -94,9 +100,6 @@ export class FakeEfrd {
     return this.receipts.has(commandId);
   }
 
-  /** The uploads of `attachment.put`; a prompt takes its finished uploads. */
-  readonly uploads = new FakeUploads();
-
   /** Takes a send, or returns the receipt of its command id. */
   take(params: PromptSend): PromptSendResult {
     this.calls.push(params);
@@ -104,17 +107,15 @@ export class FakeEfrd {
     if (receipt !== undefined) {
       return receipt;
     }
-    const files = params.attachments ?? [];
-    const missing = files.filter((id) => !this.uploads.finished(id));
-    if (missing.length > 0) {
+    const files = this.uploads.take(params.attachments ?? []);
+    if ("missing" in files) {
       // No receipt: the client uploads the files again and sends the same command id.
       throw new ServerError({
         code: "not_found",
         message: "an upload is missing",
-        data: { missing_uploads: missing },
+        data: { missing_uploads: files.missing },
       });
     }
-    this.uploads.take(files);
     let conversationId: ConversationId;
     if (params.new_conversation === true) {
       conversationId = this.newId();
@@ -140,53 +141,19 @@ export class FakeEfrd {
   }
 }
 
-/**
- * The uploads of efrd as `attachment.put` keeps them: efrd writes a chunk only at the
- * offset that it has, and else answers with what it has.
- */
-export class FakeUploads {
+/** The uploads of efrd, by the rule of the demo machines, with each put recorded. */
+export class FakeUploads extends DemoUploads {
   /** Every put, in order. */
   readonly puts: AttachmentPut[] = [];
-  private readonly held = new Map<string, { received: number; total: number }>();
+
+  override put(params: AttachmentPut): AttachmentPutResult {
+    this.puts.push(params);
+    return super.put(params);
+  }
 
   /** The bytes that efrd has of upload `id`, or undefined for none. */
   received(id: string): number | undefined {
-    return this.held.get(id)?.received;
-  }
-
-  /** True when efrd has every byte of upload `id`. */
-  finished(id: string): boolean {
-    const upload = this.held.get(id);
-    return upload !== undefined && upload.received === upload.total;
-  }
-
-  put(params: AttachmentPut): AttachmentPutResult {
-    this.puts.push(params);
-    const upload = this.held.get(params.upload_id) ?? { received: 0, total: params.total_bytes };
-    const bytes = base64Decode(params.data)?.length ?? 0;
-    if (params.offset === upload.received) {
-      upload.received += bytes;
-    }
-    this.held.set(params.upload_id, upload);
-    if (upload.received < upload.total) {
-      return { received: upload.received };
-    }
-    return {
-      received: upload.received,
-      upload: {
-        name: params.name,
-        bytes: upload.total,
-        media_type: "image/jpeg",
-        kind: { kind: "image", width: 2, height: 1 },
-      },
-    };
-  }
-
-  /** Removes uploads, as a restart of efrd or a prompt that takes them. */
-  take(ids: readonly string[]): void {
-    for (const id of ids) {
-      this.held.delete(id);
-    }
+    return this.uploads.get(id)?.received;
   }
 }
 
@@ -207,7 +174,7 @@ export function fakeUploads(
     put: (params) => Promise.resolve(efrd.uploads.put(params)),
     discard: (uploadId) => {
       discards.push(uploadId);
-      efrd.uploads.take([uploadId]);
+      efrd.uploads.discard(uploadId);
     },
     readChunk: (uri, offset, length) => {
       reads.push(`${uri}@${offset}`);

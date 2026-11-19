@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { flush } from "@/lib/net/testing";
+import { CONVERSATION_A as CONVERSATION } from "@/features/conversation/model/outbox-testing";
+import { DESKTOP } from "@/features/machines/model/testing";
 import { FakePushNative } from "@/features/settings/model/testing";
 import { createNoticeTaps } from "./notice-taps";
 
-const DESKTOP = "019a9b1c-3d00-7a10-8b20-0000000000d1";
 const UNKNOWN = "019a9b1c-3d00-7a10-8b20-0000000000d9";
-const CONVERSATION = "019a9b1c-3d00-7a10-8b20-000000001001";
 
 /** Desktop is the one machine that the phone knows. */
 function knows(machine: string): Promise<boolean> {

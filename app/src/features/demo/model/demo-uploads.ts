@@ -1,12 +1,13 @@
-// The uploads of the demo machines (spec 3.1): `attachment.put` with the one result rule
-// of efrd, `attachment.discard`, and the finished uploads that a `prompt.send` takes. The
-// demo keeps only the sizes, never the bytes, and knows the kind of a file by its name.
-// Pure.
+// The uploads of the demo machines (docs/protocol.md, `attachment.put`): the one result
+// rule of efrd, `attachment.discard`, and the finished uploads that a `prompt.send` takes.
+// The demo keeps only the sizes, never the bytes, and knows the kind of a file by its
+// name. The fake efrd of the tests uses the same class, so the rule exists once. Pure.
 
 import { base64Decode } from "@/lib/protocol/bytes";
 import type {
   AttachmentKind,
   AttachmentLimits,
+  AttachmentPut,
   AttachmentPutResult,
   SentForm,
   UploadInfo,
@@ -22,6 +23,9 @@ export const DEMO_ATTACHMENT_LIMITS: AttachmentLimits = {
 
 /** The size of a photo in the demo: efr-files makes no larger one. */
 const DEMO_PHOTO = { width: 2000, height: 1500 } as const;
+
+/** The params of `attachment.put` as the demo reads them: each field can be wrong. */
+type PutParams = { readonly [K in keyof AttachmentPut]?: unknown };
 
 interface Upload {
   readonly name: string;
@@ -58,10 +62,10 @@ function infoOf(upload: Upload): UploadInfo {
 
 /** The uploads of the phone on the demo machines. */
 export class DemoUploads {
-  private readonly uploads = new Map<string, Upload>();
+  protected readonly uploads = new Map<string, Upload>();
 
   /** One chunk: written only at the offset that the demo has, else only answered. */
-  put(params: Readonly<Record<string, unknown>>): AttachmentPutResult {
+  put(params: PutParams): AttachmentPutResult {
     const id = String(params["upload_id"]);
     const total = typeof params["total_bytes"] === "number" ? params["total_bytes"] : 0;
     const upload = this.uploads.get(id) ?? { name: String(params["name"]), total, received: 0 };

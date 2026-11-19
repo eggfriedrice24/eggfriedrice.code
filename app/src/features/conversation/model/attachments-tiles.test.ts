@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Attachment, AttachmentLimits } from "@/lib/protocol/generated";
+import { DEMO_ATTACHMENT_LIMITS as LIMITS } from "@/features/demo/model/demo-uploads";
+import type { Attachment } from "@/lib/protocol/generated";
 import type { PromptView } from "@/lib/stream/reducer";
 import type { DraftAttachment } from "./attachments";
 import { captionLine } from "./attachments-format";
@@ -15,16 +16,7 @@ import {
   type TileView,
 } from "./attachments-tiles";
 import type { OutboxEntry } from "./outbox";
-import { CONVERSATION_A, DESKTOP, outboxFile } from "./outbox-testing";
-
-const LIMITS: AttachmentLimits = {
-  chunk_bytes: 524_288,
-  max_edge_px: 2000,
-  max_file_bytes: 20 * 1024 * 1024,
-  max_per_message: 10,
-};
-
-const ID = "0f0f0f0f-0000-4000-8000-00000000000a";
+import { CONVERSATION_A, DESKTOP, FILE_A as ID, outboxFile } from "./outbox-testing";
 
 function draftFile(change: Partial<DraftAttachment>): DraftAttachment {
   return {
