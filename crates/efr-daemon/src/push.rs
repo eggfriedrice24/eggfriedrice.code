@@ -14,7 +14,8 @@
 //!    started and that took at least `notify.after_secs`.
 //! 2. `presence.push` is on.
 //! 3. You are not at the terminal of that conversation: it is away, or its newest input
-//!    came from a phone (`PresenceTable::not_at_terminal`).
+//!    came from a phone (`PresenceTable::not_at_terminal`). With no input since the
+//!    start of efrd, the away time counts from that start.
 //! 4. No connection of that phone holds a visible lease (`Connections::visible_on`).
 //! 5. The phone has a token and proved its key in the last [`SEEN_WITHIN`].
 //!

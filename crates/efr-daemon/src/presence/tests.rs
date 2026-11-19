@@ -195,6 +195,26 @@ async fn the_newest_input_from_a_phone_or_away_is_not_at_the_terminal() {
     assert!(fixture.table.not_at_terminal(id), "away");
 }
 
+/// After a start of efrd, a conversation with no input of a person counts as away from
+/// the terminal once the start is the away time ago, also when a look of a waiting
+/// question added it.
+#[tokio::test]
+async fn with_no_input_since_the_start_the_away_time_counts_from_the_start() {
+    let fixture = Fixture::new().await;
+    let (looked, unknown) = (fixture.conversation(1).await, fixture.conversation(2).await);
+    fixture.clock.advance(Duration::from_secs(9 * 60));
+    assert_eq!(fixture.table.presence(looked), Presence::Present);
+    assert!(!fixture.table.not_at_terminal(looked), "9 minutes after the start");
+    assert!(!fixture.table.not_at_terminal(unknown));
+
+    fixture.clock.advance(Duration::from_secs(60));
+    assert_eq!(fixture.table.presence(looked), Presence::Present, "the wait counts from its look");
+    assert!(fixture.table.not_at_terminal(looked), "nobody gave input since the start");
+    assert!(fixture.table.not_at_terminal(unknown));
+    fixture.table.input(looked, Origin::Shell).await;
+    assert!(!fixture.table.not_at_terminal(looked));
+}
+
 /// A question that waits with nobody there goes to the push queue, with no record.
 #[tokio::test]
 async fn a_push_of_a_question_goes_to_the_queue() {

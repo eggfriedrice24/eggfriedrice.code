@@ -549,7 +549,8 @@ efrd sends a push to a paired phone when all of these are true:
 - `presence.push` is on in `config.toml`. It is on by default.
 - You are not at the terminal of that conversation: efr counts you away
   (`presence.away_after_minutes`, `efr away`), or your newest input in the
-  conversation came from the phone.
+  conversation came from the phone. After a start of efrd, a conversation with no
+  input since that start counts the away time from the start.
 - The app is not in front on that phone.
 - The phone has push on, and it connected to efrd in the last 30 days.
 

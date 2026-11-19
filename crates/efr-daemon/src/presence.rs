@@ -25,7 +25,9 @@
 //! Each entry also keeps where its newest input came from. You are not at the terminal
 //! of a conversation while it is away or while its newest input came from a phone
 //! ([`PresenceTable::not_at_terminal`]); only then may a question push to the phone
-//! (`push.rs`). The push of a question that a turn finds with nobody there goes to the
+//! (`push.rs`). For that rule, a conversation with no input of a person since efrd
+//! started counts its away time from the start, so a question after an update of efrd
+//! still pushes when nobody is there. The push of a question that a turn finds with nobody there goes to the
 //! push task through [`PushQueue`].
 
 use std::collections::HashMap;
@@ -58,11 +60,20 @@ struct Entry {
     recorded: Presence,
     /// True when the newest input came from a phone.
     phone: bool,
+    /// True once a person gave input since efrd started; false while only a look of
+    /// efrd added the entry.
+    input: bool,
 }
 
 impl Entry {
     fn new(now: Timestamp) -> Self {
-        Entry { last_input: now, set_away: false, recorded: Presence::Present, phone: false }
+        Entry {
+            last_input: now,
+            set_away: false,
+            recorded: Presence::Present,
+            phone: false,
+            input: false,
+        }
     }
 
     /// The presence at `now`, when no input for `away_after` counts as away.
@@ -91,6 +102,9 @@ impl Entry {
 #[derive(Debug)]
 pub(crate) struct PresenceTable {
     entries: Mutex<HashMap<ConversationId, Entry>>,
+    /// When efrd made the table: the last moment that a person can have given input in
+    /// a conversation with no entry of input.
+    started: Timestamp,
     /// The daemon's settings; each look reads `presence.away_after_minutes` from the
     /// latest, so a change reaches the next one.
     settings: watch::Receiver<Arc<Settings>>,
@@ -114,6 +128,7 @@ impl PresenceTable {
     ) -> Self {
         PresenceTable {
             entries: Mutex::default(),
+            started: clock.now(),
             settings,
             clock,
             writer,
@@ -152,14 +167,18 @@ impl PresenceTable {
     }
 
     /// True when you are not at the terminal of `conversation_id`: it is away, or its
-    /// newest input came from a phone. A conversation that the table does not know
-    /// counts as present from the terminal, as [`presence`](PresenceReader::presence)
-    /// counts it.
+    /// newest input came from a phone. In a conversation with no input of a person since
+    /// efrd started, nobody gave input since that start: you are not at the terminal
+    /// once the start is `presence.away_after_minutes` ago, or when you said so.
     pub(crate) fn not_at_terminal(&self, conversation_id: ConversationId) -> bool {
         let (now, away_after) = (self.clock.now(), self.away_after());
-        self.lock()
-            .get(&conversation_id)
-            .is_some_and(|entry| entry.phone || entry.presence(now, away_after) == Presence::Away)
+        let since_start = Duration::try_from(now.duration_since(self.started)).unwrap_or_default();
+        match self.lock().get(&conversation_id) {
+            Some(entry) if entry.input => {
+                entry.phone || entry.presence(now, away_after) == Presence::Away
+            }
+            entry => entry.is_some_and(|entry| entry.set_away) || since_start >= away_after,
+        }
     }
 
     /// Records `changes` in one batch. A failure is logged: the table keeps its state,
@@ -185,6 +204,7 @@ impl PresenceTable {
             } else {
                 entry.set_away = false;
                 entry.last_input = now;
+                entry.input = true;
             }
             changes.extend(entry.record(conversation_id, presence, PresenceSource::User));
         }
@@ -232,6 +252,7 @@ impl PresenceTable {
         entry.set_away = false;
         entry.last_input = now;
         entry.phone = origin == Origin::Phone;
+        entry.input = true;
         changes.extend(entry.record(conversation_id, Presence::Present, PresenceSource::Input));
         changes
     }
