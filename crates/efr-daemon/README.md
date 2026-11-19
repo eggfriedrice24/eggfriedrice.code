@@ -2026,8 +2026,8 @@ service, with `efr_http::ExpoPush` on the shared HTTP client.
   start; each other code logs one line with the device id.
 - `push/check.rs`: `admin.push_test` sends `efr: test` to each device with a token and
   asks for the receipts after 2, 4 and 8 s.
-- `EFR_EXPO_PUSH_URL` replaces `https://exp.host`. `Deps::from_process` reads it once at
-  the start and logs `EFR_EXPO_PUSH_URL is set: pushes go to this server, not to
+- `EFR_EXPO_PUSH_URL` replaces `https://exp.host`. `Deps::with_process_flags` reads it
+  once at the start, after the telemetry, and logs `EFR_EXPO_PUSH_URL is set: pushes go to this server, not to
   exp.host`; a URL that is not `http` or `https` turns push off with one warning. The
   test daemons send to `http://127.0.0.1:9` unless a test names its own server.
 - `methods/device_push_set.rs` takes the token of the proven device; `device.list`
@@ -2035,7 +2035,8 @@ service, with `efr_http::ExpoPush` on the shared HTTP client.
 
 ### Recording the streams of model calls
 
-- `EFR_RECORD_STREAMS` (a flag, off by default) is read once by `Deps::from_process`.
+- `EFR_RECORD_STREAMS` (a flag, off by default) is read once by
+  `Deps::with_process_flags`, after the telemetry, so its warning reaches the log.
   With it, `run.rs` installs `stream_record.rs`'s `StreamRecorder` on the one HTTP
   client of the providers, through `efr_http::Recorder`. It writes
   `<state dir>/streams/<UTC time>-<pid>/` (mode 0700): for model call `n`,

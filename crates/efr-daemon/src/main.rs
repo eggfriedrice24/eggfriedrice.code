@@ -67,7 +67,7 @@ fn daemon(args: Args) -> anyhow::Result<()> {
         return Ok(());
     }
     let (_, log) = efr_daemon::init_telemetry(&config.log);
-    let deps = deps.with_log_filter(log);
+    let deps = deps.with_log_filter(log).with_process_flags();
     let runtime = efr_daemon::build_runtime()?;
     runtime.block_on(async {
         let shutdown = efr_daemon::shutdown_on_signals()?;

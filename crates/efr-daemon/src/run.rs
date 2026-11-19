@@ -249,32 +249,37 @@ impl Deps {
         // NOTE: efrd moves itself only below its own unit `efrd.service`, never below a
         // terminal's scope that happens to be delegated (ADR 0021).
         deps.job_cgroups = deps.unit_cgroup.is_some();
-        // NOTE: only a build with the test seams reads the smoke's test hosts.
-        deps.seams = deps.seams.with_process_env();
-        // NOTE: read once at the start; a value that is not a flag records nothing.
-        deps.record_streams = match efr_stdx::env::flag(Var::RecordStreams) {
+        Ok(deps
+            .with_shell_env(shell_env)
+            .with_root_sources(root_sources)
+            .with_config_watch()
+            .with_reload_on_hangup())
+    }
+
+    /// Reads `EFR_RECORD_STREAMS`, `EFR_EXPO_PUSH_URL` and, in a build with the test
+    /// seams, the test hosts of the smoke from the process once. Their warnings must
+    /// reach the log, so `main` calls it after the telemetry starts.
+    #[must_use]
+    pub fn with_process_flags(mut self) -> Self {
+        self.seams = self.seams.with_process_env();
+        self.record_streams = match efr_stdx::env::flag(Var::RecordStreams) {
             Ok(on) => on,
             Err(error) => {
                 tracing::warn!(error = %error, "EFR_RECORD_STREAMS is not a flag; no stream is recorded");
                 false
             }
         };
-        // NOTE: read once at the start, as the stream recorder is.
-        deps.expo_push_url = match efr_stdx::env::var(Var::ExpoPushUrl) {
+        self.expo_push_url = match efr_stdx::env::var(Var::ExpoPushUrl) {
             Ok(url) => url,
             Err(error) => {
                 tracing::warn!(error = %error, "EFR_EXPO_PUSH_URL is not text; pushes go to exp.host");
                 None
             }
         };
-        if let Some(url) = &deps.expo_push_url {
+        if let Some(url) = &self.expo_push_url {
             tracing::warn!(url = %url, "EFR_EXPO_PUSH_URL is set: pushes go to this server, not to exp.host");
         }
-        Ok(deps
-            .with_shell_env(shell_env)
-            .with_root_sources(root_sources)
-            .with_config_watch()
-            .with_reload_on_hangup())
+        self
     }
 
     /// Says where each root came from.
