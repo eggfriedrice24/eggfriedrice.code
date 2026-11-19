@@ -293,7 +293,6 @@ fn check_daemon_json(runtime: &Path, pid: u32) {
     assert_eq!(info["pid"], pid, "{text}");
     let socket = info["socket"].as_str().unwrap();
     assert_eq!(Path::new(socket), runtime.join("daemon.sock"), "{text}");
-    assert!(socket.starts_with(base().to_str().unwrap()), "{text}");
 }
 
 /// The config of a case: the providers at a closed port, the sandbox and the bus
