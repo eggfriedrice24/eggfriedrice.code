@@ -1,6 +1,6 @@
 //! Characters that a text must not carry onto the user's screen as they are, the body
-//! of a desktop notice, and the texts of a duration, a size and a cut that efrd and
-//! `efr` both write.
+//! of a desktop notice, and the texts of a duration, a size, a cut and hex digits that
+//! efrd and `efr` both write.
 
 use std::time::Duration;
 
@@ -67,6 +67,17 @@ pub fn byte_size(bytes: u64) -> String {
     } else {
         format!("{whole} {unit}")
     }
+}
+
+/// `bytes` as lowercase hex, two digits for each byte.
+pub fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        hex.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    hex
 }
 
 /// The line that stands where a cut left `omitted` bytes of a text out, with a line

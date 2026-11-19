@@ -633,13 +633,7 @@ fn is_placeholder(rationale: &str) -> bool {
 
 /// The SHA-256 of `bytes` in lowercase hex.
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = String::with_capacity(64);
-    for byte in Sha256::digest(bytes) {
-        hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        hex.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
-    }
-    hex
+    efr_stdx::text::hex(&Sha256::digest(bytes))
 }
 
 /// The milliseconds from `from` to `to`, zero when the clock went back.

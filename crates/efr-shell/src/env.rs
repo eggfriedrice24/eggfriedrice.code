@@ -156,7 +156,7 @@ pub(crate) const MARK_ID: &str = "_EFR_HS_AID";
 pub(crate) fn mark_id(rng: &dyn Rng) -> String {
     let mut id = [0; 16];
     rng.fill_bytes(&mut id);
-    efr_sandbox::nonce_hex(&id)
+    efr_stdx::text::hex(&id)
 }
 
 /// The conversation's sandbox dir, for a zsh with the integration. The integration

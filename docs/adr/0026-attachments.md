@@ -7,7 +7,8 @@ Status: accepted, 2026-11-19.
 Before 0.0.13 a model could not see an image. `read_file` refused a binary file, and a
 client could send only text. Users asked for three things: the model reads an image
 file, a prompt takes files (from the terminal and from the phone), and the terminal
-shows a small picture of an attached image.
+shows a small picture of an attached image. 0.0.13 gives the first two. The picture
+waits for a later release (see "Deferred").
 
 A file in a conversation is different from text in four ways:
 
@@ -63,8 +64,9 @@ A file in a conversation is different from text in four ways:
 
 5. **The budget and the recovery keep a conversation alive.** Before each model call,
    a request holds at most 90 images, 100 MB of base64 and attachments of at most half
-   of the model's window (`efr_provider::fit`). Over a limit, the oldest attachments go
-   as labels until the request is at half of that limit. When a provider refuses a
+   of the model's window (`efr_provider::fit`). Over a limit, an attachment that is over
+   it alone goes as a label first. Then the oldest attachments go as labels until the
+   request is at half of that limit. When a provider refuses a
    request that holds attachment data (status 400 or 413 that is not an overflow of
    the window, a limit or a login error), the turn sends it again: first without the
    attachments that this request sent as content for the first time, then without
@@ -105,14 +107,6 @@ A file in a conversation is different from text in four ways:
    uploads again and sends again with the same command id. A withdrawn prompt removes
    its copies and each blob that no other row names (`Attachments::forget`).
 
-10. **The thumbnail rule.** efrd makes a small picture (a PNG of at most 512 x 256 px)
-    of a PNG or JPEG of a prompt, from the one decode of the intake, beside its blob.
-    `efr` reads that one file of efrd's data dir (the path from `hello` and the event,
-    never from its own environment), with a size and a signature check, and shows it
-    only in rows that it never draws again. This read is the one exception to "`efr` is
-    a thin relay". No image goes in the live zone, because `CSI J` erases text and
-    leaves images.
-
 ## Consequences
 
 - The blobs and the copies live as long as their conversation. `efr conversation
@@ -126,13 +120,24 @@ A file in a conversation is different from text in four ways:
 - A WebP loses its orientation with its EXIF data. efrd cannot turn the pixels of a
   WebP.
 - `read_file` reads no PDF. A PDF reaches a model only as an attachment of a prompt.
-- The stream recorder (`EFR_RECORD_STREAMS`) writes request bodies, which now hold the
+- The stream recorder (`EFR_RECORD_STREAMS`) writes request bodies, and these hold the
   bytes of images and PDFs.
 - `efr-media` adds the `image` crate (PNG and JPEG only) and `miniz_oxide` to efrd:
   0.62 MB in the probe build. No other binary links it.
-- 0.0.13 has no thumbnail: efrd makes none, `efr` draws none, and the config has no
-  `render.images` key. They were the first item to cut. Point 10 holds for the build
-  that adds them.
+
+## Deferred
+
+0.0.13 has no thumbnail: efrd makes none, `efr` draws none, and the config has no
+`render.images` key. The thumbnail was the first item to cut. The build that adds it
+will follow this rule:
+
+- efrd will make a small picture (a PNG of at most 512 x 256 px) of a PNG or JPEG of a
+  prompt, from the one decode of the intake, beside its blob.
+- `efr` will read that one file of efrd's data dir (the path from `hello` and the
+  event, never from its own environment), with a size and a signature check. It will
+  show the picture only in rows that it never draws again. This read will be the one
+  exception to "`efr` is a thin relay".
+- No image will go in the live zone, because `CSI J` erases text and leaves images.
 
 ## Rejected
 
@@ -143,5 +148,5 @@ A file in a conversation is different from text in four ways:
   copies and one SHA-256 for each request, for no gain in efrd's own data dir.
 - A prompt that goes with a note when a named file cannot attach: it costs a turn that
   cannot answer. `efr` sends nothing and says why.
-- An image library in `efr`: the thumbnail comes from efrd, so `efr` gets no decoder
-  and the picture works over SSH.
+- An image library in `efr`: the deferred thumbnail will come from efrd, so `efr` gets
+  no decoder and the picture works over SSH.

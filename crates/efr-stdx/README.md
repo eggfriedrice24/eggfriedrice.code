@@ -36,16 +36,17 @@ Modules, in the order of the milestone 1 file map:
   draws nothing or turns the text around it; efr shows a stand-in for it in each
   command, path and model text on the user's screen. `one_line(text, max)` gives one
   line of at most `max` characters: a control character becomes a space, a format
-  character U+FFFD, and a longer text ends with `...`. `notice_body(place, what)` is the one rule of the body of a desktop notice
-  (v0.0.12): `<place>: <what>`, with each control and format character replaced, cut to
-  `NOTICE_BODY_MAX` (200) characters. efrd (the wake of a waiting prompt) and `efr`
-  (the notice of a wait and of the end of a turn) both use it, with the two phrases
-  that they share: `QUESTION_WAITS` (`a question waits`) and `INPUT_WAITS` (`a command
-  waits for input`). From v0.0.13 also the texts that efrd and `efr` both write:
-  `span(seconds)` (`4m 12s`), `notice_ended(place, took, failed)` (the body of the end
-  of a turn), `byte_size(bytes)` (`14 KB`, `2.1 MB`, for the label of an attachment
-  and its row) and `omitted_marker(n)` (`[... N bytes omitted ...]`, the one marker of
-  a cut output).
+  character U+FFFD, and a longer text ends with `...`. `notice_body(place, what)` is
+  the one rule of the body of a desktop notice: `<place>: <what>`, with each control
+  and format character replaced, cut to `NOTICE_BODY_MAX` (200) characters. efrd (the
+  wake of a waiting prompt) and `efr` (the notice of a wait and of the end of a turn)
+  both use it, with the two phrases that they share: `QUESTION_WAITS` (`a question
+  waits`) and `INPUT_WAITS` (`a command waits for input`). The other texts that efrd
+  and `efr` both write: `span(seconds)` (`4m 12s`), `notice_ended(place, took,
+  failed)` (the body of the end of a turn), `byte_size(bytes)` (`14 KB`, `2.1 MB`, for
+  the label of an attachment and its row), `omitted_marker(n)` (`[... N bytes omitted
+  ...]`, the one marker of a cut output) and `hex(bytes)` (lowercase hex, for a
+  SHA-256 and a random id).
 - `media`: `sniff(head)`, the type of a file from its first bytes (PNG, JPEG, GIF, WebP
   or PDF), with `MediaType::as_str`: the one table of magic bytes of `efr-tools`,
   `efr-media` and efrd.

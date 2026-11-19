@@ -4,8 +4,8 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 
 use super::{
-    FORMAT_CHARS, INPUT_WAITS, NOTICE_BODY_MAX, QUESTION_WAITS, byte_size, is_format, notice_body,
-    notice_ended, notice_place, omitted_marker, one_line, span,
+    FORMAT_CHARS, INPUT_WAITS, NOTICE_BODY_MAX, QUESTION_WAITS, byte_size, hex, is_format,
+    notice_body, notice_ended, notice_place, omitted_marker, one_line, span,
 };
 
 #[rstest]
@@ -39,6 +39,12 @@ fn the_end_of_a_turn_names_the_place_and_the_time() {
 #[case(u64::MAX, "18446744073 GB")]
 fn a_byte_size_has_one_decimal_only_under_ten(#[case] bytes: u64, #[case] want: &str) {
     assert_eq!(byte_size(bytes), want);
+}
+
+#[test]
+fn hex_has_two_lowercase_digits_for_each_byte() {
+    assert_eq!(hex(&[]), "");
+    assert_eq!(hex(&[0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
 }
 
 #[test]
