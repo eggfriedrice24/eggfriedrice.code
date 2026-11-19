@@ -58,7 +58,7 @@ use efr_protocol::{
 use efr_test_support::bench::{self, Report};
 use serde::Serialize;
 
-use crate::picker::hello_result;
+use crate::picker::{hello_result, pty_of};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -326,24 +326,13 @@ fn bench_perf_cli_first_write() {
     report.finish();
 }
 
-/// A pseudo-terminal pair of 40 rows and 120 columns.
-fn pty() -> (OwnedFd, OwnedFd) {
-    pty_of(40, 120)
-}
+/// The rows and the columns of the terminal of [`pty`].
+const ROWS: u16 = 40;
+const COLS: u16 = 120;
 
-/// A pseudo-terminal pair of `rows` and `cols`: the master and the slave.
-fn pty_of(rows: u16, cols: u16) -> (OwnedFd, OwnedFd) {
-    use rustix::fs::{Mode, OFlags};
-    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
-    grantpt(&master).unwrap();
-    unlockpt(&master).unwrap();
-    let name = ptsname(&master, Vec::new()).unwrap();
-    let slave =
-        rustix::fs::open(name.as_c_str(), OFlags::RDWR | OFlags::NOCTTY, Mode::empty()).unwrap();
-    let size = rustix::termios::Winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-    rustix::termios::tcsetwinsize(&master, size).unwrap();
-    (master, slave)
+/// A pseudo-terminal pair of [`ROWS`] and [`COLS`].
+fn pty() -> (OwnedFd, OwnedFd) {
+    pty_of(ROWS, COLS)
 }
 
 /// Reads the master until the slave side is gone, so efr never blocks on a full
@@ -394,7 +383,7 @@ struct Ran {
 }
 
 /// Runs the built efr with `args` on a fresh terminal under zsh's `time`, and gives its
-/// peak resident set, its CPU time, its wall time and the bare text of the screen;
+/// peak resident set, its CPU time, its wall time and the text of the screen at its end;
 /// `None` when it ran past [`STOP_AFTER`], and then its process group is killed.
 fn on_terminal(roots: &Roots, zsh: &str, args: &[&str]) -> Option<Ran> {
     use std::os::unix::process::CommandExt as _;
@@ -444,11 +433,16 @@ fn on_terminal(roots: &Roots, zsh: &str, args: &[&str]) -> Option<Ran> {
     let micros = |text: &str| -> u64 {
         text.trim_end_matches("us").parse().unwrap_or_else(|_| panic!("{stderr:?}"))
     };
+    // NOTE: the text of the terminal at the end, as a person sees it: the live rows of
+    // efr draw over the stream with cursor moves, so the bytes alone do not hold a line
+    // whole.
+    let mut terminal = vt100::Parser::new(ROWS, COLS, 0);
+    terminal.process(screen.as_bytes());
     Some(Ran {
         peak: peak_kib.parse::<u64>().unwrap() * 1024,
         cpu: Duration::from_micros(micros(user) + micros(system)),
         wall,
-        screen: bare(&screen),
+        screen: terminal.screen().contents(),
     })
 }
 
@@ -924,7 +918,7 @@ fn bench_perf_cli_diff_all() {
         let (_, server) = serve(&roots.socket(), TERMINAL_RUNS, move |conn| {
             serve_history(conn, &served, &counted);
         });
-        let last = format!("{ALL_FILES} files changed, +{}", events / 10);
+        let last = format!("{ALL_FILES} files changed  +{}", events / 10);
         let (mut peak, mut cpu, mut wall) = (0, Vec::new(), Vec::new());
         for _ in 0..TERMINAL_RUNS {
             let Some(ran) = on_terminal(&roots, zsh, &args) else { break };

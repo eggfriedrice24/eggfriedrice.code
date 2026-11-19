@@ -77,7 +77,7 @@ pub(crate) fn pty() -> (OwnedFd, OwnedFd) {
 }
 
 /// A pseudo-terminal pair of `rows` and `cols`.
-fn pty_of(rows: u16, cols: u16) -> (OwnedFd, OwnedFd) {
+pub(crate) fn pty_of(rows: u16, cols: u16) -> (OwnedFd, OwnedFd) {
     use rustix::fs::{Mode, OFlags};
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
