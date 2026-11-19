@@ -32,6 +32,9 @@
 //! trusted programs and the copy), the line of the probe's result (after the probe and
 //! the bus filter's self-test), and the rest up to `READY=1` (the engine again, the
 //! jobs, git, the socket and the tasks).
+//!
+//! One test that is no bench starts the built `efrd` on such a tree too: the warnings
+//! of its env flags reach its stderr before the line `starting`.
 
 use std::io::{BufRead as _, BufReader};
 use std::os::unix::fs::DirBuilderExt as _;
@@ -156,13 +159,9 @@ struct Start {
     bus_filter_on: bool,
 }
 
-/// Starts efrd on `tree` and waits for `READY=1`.
-fn start(binaries: &Binaries, tree: &Tree) -> Start {
-    let notify_path = tree.path("notify.sock");
-    let notify = UnixDatagram::bind(&notify_path).unwrap();
-    notify.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
-    let runtime = tree.path("efr/runtime");
-    let socket = runtime.join("daemon.sock");
+/// The command of efrd on `tree`, with only the environment of the module doc and its
+/// stderr on a pipe.
+fn efrd(binaries: &Binaries, tree: &Tree) -> std::process::Command {
     let mut command = efr_stdx::process::command(&binaries.efrd, tree.path("home")).into_std();
     command
         .env_clear()
@@ -171,11 +170,22 @@ fn start(binaries: &Binaries, tree: &Tree) -> Start {
         .env("XDG_RUNTIME_DIR", tree.path("xdg"))
         .env("EFR_HOME", tree.path("efr"))
         .env("EFR_LOG", "info")
-        .env("NOTIFY_SOCKET", &notify_path)
         .current_dir(tree.path("home"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    command
+}
+
+/// Starts efrd on `tree` and waits for `READY=1`.
+fn start(binaries: &Binaries, tree: &Tree) -> Start {
+    let notify_path = tree.path("notify.sock");
+    let notify = UnixDatagram::bind(&notify_path).unwrap();
+    notify.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+    let runtime = tree.path("efr/runtime");
+    let socket = runtime.join("daemon.sock");
+    let mut command = efrd(binaries, tree);
+    command.env("NOTIFY_SOCKET", &notify_path);
     let spawned = Instant::now();
     let mut child = command.spawn().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -353,6 +363,39 @@ fn measure(report: &mut Report, binaries: &Binaries, case: &Case, store: Option<
     }
     report.count(&format!("{label}: sandbox available"), available);
     report.count(&format!("{label}: bus filter on"), bus_on);
+}
+
+/// efrd reads its env flags after its telemetry starts, so the warnings of
+/// `EFR_RECORD_STREAMS` and `EFR_EXPO_PUSH_URL` reach its stderr, before `starting`.
+#[test]
+fn the_warnings_of_the_env_flags_reach_the_log_before_the_start() {
+    let binaries = Binaries::new();
+    let tree = Tree::new(&config(false, false), None);
+    let mut command = efrd(&binaries, &tree);
+    command.env("EFR_RECORD_STREAMS", "maybe").env("EFR_EXPO_PUSH_URL", "http://127.0.0.1:9");
+    let mut child = command.spawn().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let running = Running(child);
+    let (lines, seen) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if lines.send(plain(&line)).is_err() {
+                break;
+            }
+        }
+    });
+    let mut before = Vec::new();
+    loop {
+        let line = seen.recv_timeout(READY_WAIT).expect("efrd logs `starting`");
+        if line.contains("efr_daemon::run: starting") {
+            break;
+        }
+        before.push(line);
+    }
+    drop(running);
+    let logged = |needle: &str| before.iter().any(|line| line.contains(needle));
+    assert!(logged("EFR_RECORD_STREAMS is not a flag"), "{before:#?}");
+    assert!(logged("EFR_EXPO_PUSH_URL is set: pushes go to this server"), "{before:#?}");
 }
 
 #[expect(clippy::print_stderr, reason = "a bench says which cases it skipped")]
