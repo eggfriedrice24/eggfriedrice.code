@@ -245,7 +245,9 @@ across a restart:
   the rows of the prompt). `attachments::summary` gives a `Summary` (the highest
   number and the withheld ids) for the actor at its start; `Summary::new` builds one.
   `attachments::names_blob` says whether a row still names a blob file, for the
-  delete of a withdrawn prompt. The conversation delete drops the rows. No bytes go
+  delete of a withdrawn prompt, and `attachments::blob_attachment` gives the first
+  row whose blob holds the same bytes, whose `sent` form a new attachment of those
+  bytes takes. The conversation delete drops the rows. No bytes go
   into the table. Migration 15 rebuilds nothing: no event before 0.0.13 holds an
   attachment, so the table is right when it is empty.
 - `outbox`: durable side effects, enqueued with the batch that decides them and

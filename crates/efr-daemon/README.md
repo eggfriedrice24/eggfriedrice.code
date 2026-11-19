@@ -1970,8 +1970,12 @@ capability `attachments` while `attachments.enabled` is on.
   each upload in `<state>/uploads/<upload-id>.part` (0600) by the one result rule of
   `attachment.put`, checks it after its last chunk, and writes what a model gets of it
   beside it (`.sent`). It sweeps every part at the start of efrd, drops the uploads of
-  a Unix connection when it closes (`Connections::closed`), and an upload of a device
-  after `UPLOAD_TTL` with no chunk. `UploadError::into_daemon` maps its errors to
+  a Unix connection when it closes (`Connections::closed`), the uploads of a revoked
+  device (`remote::live::follow`), and an upload of a device after `UPLOAD_TTL` with no
+  chunk, at the next put or the next look of `gc::collect`. A bind or a tool image
+  whose bytes have a blob in the conversation takes the `sent` form of the first row
+  that names it (`efr_store::attachments::blob_attachment`), with no intake, because
+  the blob holds the bytes of that form. `UploadError::into_daemon` maps its errors to
   `invalid`, `forbidden` and `internal`. `prompt.send` asks it for the missing ids and
   answers `not_found` with `missing_uploads`.
 - **The intake** (`attachments/intake.rs`), one path for every origin, on the blocking

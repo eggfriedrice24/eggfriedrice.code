@@ -15,6 +15,8 @@ use efr_store::Readers;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::sync::CancellationToken;
 
+use crate::attachments::uploads::Uploads;
+
 /// The live connections of each device that proved, or is proving, its key.
 #[derive(Debug, Default)]
 pub(crate) struct LiveDevices {
@@ -75,10 +77,12 @@ impl LiveDevices {
     }
 }
 
-/// Closes the connections of each device that `feed` names as revoked, until `stop`.
+/// Closes the connections of each device that `feed` names as revoked and removes its
+/// open uploads, until `stop`.
 pub(crate) async fn follow(
     live: Arc<LiveDevices>,
     readers: Readers,
+    uploads: Uploads,
     mut feed: broadcast::Receiver<DeviceId>,
     stop: CancellationToken,
 ) {
@@ -90,6 +94,7 @@ pub(crate) async fn follow(
         match revoked {
             Ok(device) => {
                 let closed = live.close(device);
+                uploads.revoked(device);
                 tracing::info!(device_id = %device, closed, "a revoked device was closed");
             }
             Err(RecvError::Lagged(missed)) => {

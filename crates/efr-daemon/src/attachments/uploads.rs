@@ -7,8 +7,9 @@
 //! client goes on at `received`. After the last chunk the intake checks the file once,
 //! and what a model gets of it waits in `<upload id>.sent` until a prompt takes the
 //! upload ([`DaemonAttachments`](super::DaemonAttachments)). A start of efrd removes
-//! every part, a closed connection of the Unix socket removes its own, and an upload of
-//! a device that got no chunk and no prompt for [`UPLOAD_TTL`] goes at the next put.
+//! every part, a closed connection of the Unix socket removes its own, a revoke removes
+//! those of its device, and an upload of a device that got no chunk and no prompt for
+//! [`UPLOAD_TTL`] goes at the next put or the next look of the collector.
 
 use std::collections::HashMap;
 use std::fs::{DirBuilder, File, OpenOptions};
@@ -229,6 +230,21 @@ impl Uploads {
         self.remove_files(gone);
     }
 
+    /// Removes the open uploads of the device `device`, whose pairing was revoked.
+    pub(crate) fn revoked(&self, device: DeviceId) {
+        let owner = Owner::Device(device);
+        let gone = self.take_where(|upload| upload.owner == owner);
+        self.remove_files(gone);
+    }
+
+    /// Removes each upload of a device that no chunk and no prompt named for
+    /// [`UPLOAD_TTL`]. Each put and the collector of efrd (`gc::collect`) call it.
+    pub(crate) fn expire(&self) {
+        let now = self.inner.clock.now();
+        let expired = self.take_where(|upload| is_expired(upload, now));
+        self.remove_files(expired);
+    }
+
     /// Takes the chunk `chunk` of `owner`, and answers with the bytes that efrd has of
     /// the upload. The last chunk runs the intake, whose images have at most `max_edge`
     /// pixels on their longer edge.
@@ -316,9 +332,8 @@ impl Uploads {
 
     /// What `chunk` of `owner` does. A new upload takes a place of its owner.
     fn step(&self, owner: Owner, chunk: &Chunk) -> Result<Step, UploadError> {
+        self.expire();
         let now = self.inner.clock.now();
-        let expired = self.take_where(|upload| is_expired(upload, now));
-        self.remove_files(expired);
         let mut open = self.lock();
         let owned = open.values().filter(|upload| upload.owner == owner).count();
         let upload = match open.get_mut(&chunk.upload_id) {

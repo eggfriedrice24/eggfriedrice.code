@@ -1,6 +1,6 @@
 use efr_protocol::{
     Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, ConversationId, Event, Origin,
-    WithheldReason,
+    SentForm, WithheldReason,
 };
 use pretty_assertions::assert_eq;
 
@@ -138,6 +138,30 @@ async fn a_blob_is_named_while_a_row_of_its_conversation_has_its_hash() {
     assert!(names("ab", id).await.unwrap(), "the rows of turn 1 name it");
     assert!(!names("ef", id).await.unwrap(), "only the withdrawn prompt named it");
     assert!(!names("ab", testing::conversation(2)).await.unwrap(), "another conversation");
+}
+
+#[tokio::test]
+async fn the_attachment_of_a_blob_is_its_first_row_with_a_sent_form() {
+    let (writer, _thread, id) = with_prompt().await;
+    let form = |media_type: &str, width| SentForm {
+        media_type: media_type.to_owned(),
+        bytes: 500,
+        width: Some(width),
+        height: Some(10),
+    };
+    let mut first = image(3, "ab");
+    first.sent = Some(form("image/jpeg", 20));
+    let mut second = image(4, "ab");
+    second.sent = Some(form("image/png", 40));
+    writer.append(Batch::new().event(id, queued(2, vec![first, second]))).await.unwrap();
+    let form_of = |sha: &str| {
+        let sha256 = sha.repeat(32);
+        on_writer(&writer, move |conn| blob_attachment(conn, id, &sha256))
+    };
+
+    let first = form_of("ab").await.unwrap().expect("a row with a blob");
+    assert_eq!((first.id, first.sent), (AttachmentId::nth(3), Some(form("image/jpeg", 20))));
+    assert_eq!(form_of("ef").await.unwrap(), None, "no row of this hash");
 }
 
 #[tokio::test]

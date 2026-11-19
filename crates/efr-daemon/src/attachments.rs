@@ -103,6 +103,27 @@ impl DaemonAttachments {
             readers,
         }
     }
+
+    /// The first attachment of `conversation_id` whose blob holds the bytes with the
+    /// SHA-256 `sha256` (`efr_store::attachments::blob_attachment`). A failed read counts
+    /// as none: the intake then runs.
+    async fn blob_attachment(
+        &self,
+        conversation_id: ConversationId,
+        sha256: &str,
+    ) -> Option<Attachment> {
+        let sha256 = sha256.to_owned();
+        let read = self
+            .readers
+            .with(move |conn| {
+                efr_store::attachments::blob_attachment(conn, conversation_id, &sha256)
+            })
+            .await;
+        read.unwrap_or_else(|error| {
+            tracing::warn!(%conversation_id, error = %error, "the rows of a blob could not be read");
+            None
+        })
+    }
 }
 
 #[async_trait]
@@ -115,13 +136,27 @@ impl Attachments for DaemonAttachments {
         scratch: &Path,
     ) -> Option<Attachment> {
         let finished = self.uploads.finished(upload)?;
+        // NOTE: a blob of the same bytes holds the form of its first attachment, which
+        // the intake of this upload can give differently after a change of
+        // attachments.max_edge_px.
+        let known = self.blob_attachment(conversation_id, &finished.sha256).await;
         let blobs = self.blobs.clone();
         let scratch = scratch.to_path_buf();
         let copy_name = format!("{id}-{}", finished.name);
         let written = tokio::task::spawn_blocking({
             let finished = Arc::clone(&finished);
             let copy_name = copy_name.clone();
-            move || write_bound(&blobs, conversation_id, &finished, &scratch, &copy_name)
+            let blob = known.is_none().then(|| finished.sent_file.clone()).flatten();
+            move || {
+                write_bound(
+                    &blobs,
+                    conversation_id,
+                    &finished,
+                    blob.as_deref(),
+                    &scratch,
+                    &copy_name,
+                )
+            }
         });
         let copy = match written.await {
             Ok(Ok(copy)) => copy,
@@ -143,7 +178,7 @@ impl Attachments for DaemonAttachments {
             kind: finished.kind,
             origin: finished.origin.clone(),
             copy: Some(copy),
-            sent: finished.sent.clone(),
+            sent: known.map_or_else(|| finished.sent.clone(), |known| known.sent),
         })
     }
 
@@ -194,18 +229,32 @@ impl Attachments for DaemonAttachments {
             return None;
         }
         let max_edge = settings.attachments.max_edge_px;
+        let size = bytes.len() as u64;
+        let hashed = tokio::task::spawn_blocking(move || (crate::judge::sha256_hex(&bytes), bytes));
+        let (sha256, bytes) = hashed.await.ok()?;
+        let name = path
+            .file_name()
+            .map_or_else(|| id.to_string(), |name| fit_name(&name.to_string_lossy()));
+        let origin = AttachmentOrigin::Tool { path: path.to_path_buf() };
+        // NOTE: a second read of the same image in a conversation takes the form of its
+        // blob and needs no decode.
+        if let Some(known) = self.blob_attachment(conversation_id, &sha256).await {
+            return Some(Attachment { id, name, origin, copy: None, ..known });
+        }
         let _decoding = self.decode.acquire().await.ok()?;
         let blobs = self.blobs.clone();
-        let intake = tokio::task::spawn_blocking(move || {
-            let sha256 = crate::judge::sha256_hex(&bytes);
-            let checked = check(&bytes, max_edge);
-            if let Some((_, sent)) = &checked.sent {
-                blobs.write(conversation_id, &sha256, sent)?;
+        let intake = tokio::task::spawn_blocking({
+            let sha256 = sha256.clone();
+            move || {
+                let checked = check(&bytes, max_edge);
+                if let Some((_, sent)) = &checked.sent {
+                    blobs.write(conversation_id, &sha256, sent)?;
+                }
+                Ok::<_, io::Error>(checked)
             }
-            Ok::<_, io::Error>((sha256, bytes.len() as u64, checked))
         });
-        let (sha256, size, checked) = match intake.await {
-            Ok(Ok(kept)) => kept,
+        let checked = match intake.await {
+            Ok(Ok(checked)) => checked,
             Ok(Err(error)) => {
                 tracing::warn!(%conversation_id, error = %error, "the blob of an image could not be written");
                 return None;
@@ -218,9 +267,6 @@ impl Attachments for DaemonAttachments {
         if let Some(note) = checked.note {
             tracing::debug!(%conversation_id, attachment = %id, note = note.text(), "an image of a tool goes as a path");
         }
-        let name = path
-            .file_name()
-            .map_or_else(|| id.to_string(), |name| fit_name(&name.to_string_lossy()));
         Some(Attachment {
             id,
             name,
@@ -228,7 +274,7 @@ impl Attachments for DaemonAttachments {
             bytes: size,
             sha256,
             kind: checked.kind,
-            origin: AttachmentOrigin::Tool { path: path.to_path_buf() },
+            origin,
             copy: None,
             sent: checked.sent.map(|(form, _)| form),
         })
@@ -268,18 +314,19 @@ impl Attachments for DaemonAttachments {
     }
 }
 
-/// Writes what a prompt takes of the upload `finished`: its blob, when a model gets
-/// bytes of it, and its copy `copy_name` in `scratch`/attachments, whose path it gives.
-/// It blocks.
+/// Writes what a prompt takes of the upload `finished`: its blob from the file `blob`,
+/// when a model gets bytes of it that no blob holds yet, and its copy `copy_name` in
+/// `scratch`/attachments, whose path it gives. It blocks.
 fn write_bound(
     blobs: &Blobs,
     conversation_id: ConversationId,
     finished: &Finished,
+    blob: Option<&Path>,
     scratch: &Path,
     copy_name: &str,
 ) -> io::Result<PathBuf> {
-    if let Some(sent) = &finished.sent_file {
-        blobs.write(conversation_id, &finished.sha256, &std::fs::read(sent)?)?;
+    if let Some(blob) = blob {
+        blobs.write(conversation_id, &finished.sha256, &std::fs::read(blob)?)?;
     }
     owned_dir::make(scratch, ATTACH_DIR)?;
     let dir = owned_dir::open(scratch, ATTACH_DIR)?;

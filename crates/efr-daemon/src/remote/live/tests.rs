@@ -1,14 +1,16 @@
+use std::path::Path;
 use std::sync::Arc;
 
-use efr_protocol::{DeviceId, ScopeName};
+use efr_protocol::{AttachmentOrigin, DeviceId, ScopeName, UploadId};
 use efr_store::Store;
 use efr_store::devices::{DevicePeer, DevicePublicKey, NewDevice};
 use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
-use tokio::sync::broadcast;
+use tokio::sync::{Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 
 use super::{LiveDevices, follow};
+use crate::attachments::uploads::{Chunk, Owner, UPLOADS_DIR, Uploads};
 
 fn device(n: u128) -> DeviceId {
     DeviceId::from_uuid(uuid::Uuid::from_u128(n))
@@ -40,23 +42,42 @@ fn a_close_cancels_every_connection_of_the_device_and_only_those() {
     assert!(!b.is_cancelled());
 }
 
+/// The open uploads below `state`.
+fn uploads(state: &Path, clock: &TestClock) -> Uploads {
+    Uploads::new(state, clock.shared(), Arc::new(Semaphore::new(1)))
+}
+
 #[tokio::test]
-async fn a_revoke_on_the_feed_closes_the_device() {
+async fn a_revoke_on_the_feed_closes_the_device_and_removes_its_uploads() {
     let clock = TestClock::new();
     let store = Store::open_in_memory(clock.shared()).await.unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let uploads = uploads(state.path(), &clock);
+    let chunk = Chunk {
+        upload_id: UploadId::from_uuid(uuid::Uuid::from_u128(5)),
+        name: "notes.txt".to_owned(),
+        total_bytes: 3,
+        offset: 0,
+        data: b"a".to_vec(),
+        origin: AttachmentOrigin::Clipboard,
+    };
+    uploads.put(Owner::Device(device(1)), chunk, 2000).await.unwrap();
+    let part = std::fs::read_dir(state.path().join(UPLOADS_DIR)).unwrap().next().unwrap();
+    let part = part.unwrap().path();
     let live = Arc::new(LiveDevices::default());
     let close = CancellationToken::new();
     live.add(device(1), 1, close.clone());
     let (feed, receiver) = broadcast::channel(4);
     let stop = CancellationToken::new();
-    let task =
-        tokio::spawn(follow(Arc::clone(&live), store.readers().clone(), receiver, stop.clone()));
+    let readers = store.readers().clone();
+    let task = tokio::spawn(follow(Arc::clone(&live), readers, uploads, receiver, stop.clone()));
 
     feed.send(device(1)).unwrap();
     Wait::new("the revoked device's connection to close")
         .until(|| close.is_cancelled())
         .await
         .unwrap();
+    Wait::new("the upload of the revoked device to go").until(|| !part.exists()).await.unwrap();
 
     stop.cancel();
     task.await.unwrap();
@@ -94,8 +115,10 @@ async fn a_follower_that_fell_behind_checks_every_live_device_again() {
     feed.send(device(9)).unwrap();
     feed.send(device(9)).unwrap();
     let stop = CancellationToken::new();
-    let task =
-        tokio::spawn(follow(Arc::clone(&live), store.readers().clone(), receiver, stop.clone()));
+    let state = tempfile::tempdir().unwrap();
+    let uploads = uploads(state.path(), &clock);
+    let readers = store.readers().clone();
+    let task = tokio::spawn(follow(Arc::clone(&live), readers, uploads, receiver, stop.clone()));
 
     Wait::new("the unknown device's connection to close")
         .until(|| unknown.is_cancelled())

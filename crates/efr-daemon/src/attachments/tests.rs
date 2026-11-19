@@ -7,8 +7,8 @@ use base64::engine::general_purpose::STANDARD;
 use efr_config::Settings;
 use efr_conversation::Attachments as _;
 use efr_protocol::{
-    AttachmentId, AttachmentKind, AttachmentOrigin, CommandId, ConversationId, Event, Origin,
-    TurnId, TurnSettings, UploadId,
+    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CommandId, ConversationId, Event,
+    Origin, SentForm, TurnId, TurnSettings, UploadId,
 };
 use efr_sandbox::ATTACH_DIR;
 use efr_store::Batch;
@@ -117,17 +117,8 @@ async fn a_forgotten_prompt_leaves_no_copy_and_no_blob_that_no_row_names() {
     let (first, kept) = (bind(1).await.unwrap(), bind(2).await.unwrap());
     let blob = blob_dir(root.path()).join(&first.sha256);
     let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
-    let queued = Event::PromptQueued {
-        turn_id: TurnId::from_uuid(Uuid::from_u128(3)),
-        command_id: CommandId::from_uuid(Uuid::from_u128(4)),
-        text: "what is this".to_owned(),
-        origin: Origin::Shell,
-        context: None,
-        settings: TurnSettings::default(),
-        steers: Vec::new(),
-        attachments: vec![kept.clone()],
-    };
-    let batch = Batch::new().event(conversation(), created).event(conversation(), queued);
+    let batch =
+        Batch::new().event(conversation(), created).event(conversation(), queued(kept.clone()));
     daemon.rows.writer().append(batch).await.unwrap();
 
     daemon.attachments.forget(conversation(), std::slice::from_ref(&first)).await;
@@ -183,6 +174,58 @@ async fn the_same_bytes_twice_give_two_ids_and_one_blob() {
     assert_eq!(first.sha256, second.sha256);
     assert_ne!(first.id, second.id);
     assert_eq!(std::fs::read_dir(blob_dir(data.path())).unwrap().count(), 1);
+}
+
+#[tokio::test]
+async fn a_new_attachment_of_bytes_with_a_blob_takes_the_form_of_that_blob() {
+    let root = tempfile::tempdir().unwrap();
+    let daemon = daemon(root.path(), true).await;
+    let scratch = root.path().join("scratch");
+    std::fs::create_dir(&scratch).unwrap();
+    // NOTE: the row of an earlier intake, whose edge limit made a JPEG of the bytes.
+    let earlier =
+        SentForm { media_type: "image/jpeg".to_owned(), bytes: 9, width: Some(1), height: Some(1) };
+    let first = Attachment {
+        id: AttachmentId::nth(1),
+        name: "shot.png".to_owned(),
+        media_type: "image/png".to_owned(),
+        bytes: PIXEL_PNG.len() as u64,
+        sha256: crate::judge::sha256_hex(PIXEL_PNG),
+        kind: AttachmentKind::Image { width: 1, height: 1 },
+        origin: AttachmentOrigin::Tool { path: "/home/u/shot.png".into() },
+        copy: None,
+        sent: Some(earlier.clone()),
+    };
+    let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
+    let batch = Batch::new().event(conversation(), created).event(conversation(), queued(first));
+    daemon.rows.writer().append(batch).await.unwrap();
+
+    let path = Path::new("/home/u/again.png");
+    let kept =
+        daemon.attachments.keep(conversation(), AttachmentId::nth(2), path, PIXEL_PNG.to_vec());
+    let kept = kept.await.expect("kept");
+    assert_eq!((kept.name.as_str(), kept.sent), ("again.png", Some(earlier.clone())));
+    assert_eq!(kept.origin, AttachmentOrigin::Tool { path: path.to_path_buf() });
+
+    let id = UploadId::from_uuid(Uuid::from_u128(1));
+    upload(&daemon.uploads, id, "shot.png", PIXEL_PNG).await;
+    let bound = daemon.attachments.bind(conversation(), AttachmentId::nth(3), id, &scratch).await;
+    assert_eq!(bound.expect("bound").sent, Some(earlier));
+    assert!(!blob_dir(root.path()).exists(), "no intake wrote a second form");
+}
+
+/// The prompt of turn 3, queued with `attachment`.
+fn queued(attachment: Attachment) -> Event {
+    Event::PromptQueued {
+        turn_id: TurnId::from_uuid(Uuid::from_u128(3)),
+        command_id: CommandId::from_uuid(Uuid::from_u128(4)),
+        text: "what is this".to_owned(),
+        origin: Origin::Shell,
+        context: None,
+        settings: TurnSettings::default(),
+        steers: Vec::new(),
+        attachments: vec![attachment],
+    }
 }
 
 #[tokio::test]

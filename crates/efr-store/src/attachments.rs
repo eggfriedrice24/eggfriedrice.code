@@ -9,8 +9,8 @@
 //! A turn reads the [`Summary`] of its conversation when it starts: the highest number,
 //! for the id of the next attachment, and the withheld ones.
 
-use efr_protocol::{AttachmentId, ConversationId, Event, EventEnvelope};
-use rusqlite::{Connection, params};
+use efr_protocol::{Attachment, AttachmentId, ConversationId, Event, EventEnvelope};
+use rusqlite::{Connection, OptionalExtension as _, params};
 
 use crate::{StoreError, sql};
 
@@ -115,6 +115,27 @@ pub fn names_blob(
         |row| row.get(0),
     )?;
     Ok(named)
+}
+
+/// The first attachment of `conversation_id` with the bytes of the SHA-256 `sha256` that
+/// a model gets as content: its blob holds the bytes of its `sent` form. A new
+/// attachment of the same bytes takes that form and the intake facts from it, also
+/// after a change of `attachments.max_edge_px`. `None` when no row has a blob.
+pub fn blob_attachment(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    sha256: &str,
+) -> Result<Option<Attachment>, StoreError> {
+    let attachment: Option<String> = conn
+        .query_row(
+            "SELECT attachment FROM attachments \
+             WHERE conversation_id = ?1 AND sha256 = ?2 \
+             AND json_extract(attachment, '$.sent') IS NOT NULL ORDER BY number LIMIT 1",
+            params![conversation_id.to_string(), sha256],
+            |row| row.get(0),
+        )
+        .optional()?;
+    attachment.map(|text| sql::from_json(&text, "attachments", "attachment")).transpose()
 }
 
 /// The number of `id` as the table keeps it.

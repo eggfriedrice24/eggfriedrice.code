@@ -165,6 +165,24 @@ async fn an_upload_of_a_device_that_nothing_named_for_its_life_goes() {
 }
 
 #[tokio::test]
+async fn an_expired_upload_goes_with_no_put_and_a_revoke_removes_those_of_its_device() {
+    let state = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let uploads = uploads(state.path(), &clock);
+    uploads.put(phone(), chunk(1, b"abc", 0, 1), 2000).await.unwrap();
+    clock.advance(UPLOAD_TTL);
+    uploads.expire();
+    gone(&part(state.path(), 1)).await;
+
+    let other = Owner::Device(DeviceId::from_uuid(Uuid::from_u128(8)));
+    uploads.put(phone(), chunk(2, b"abc", 0, 1), 2000).await.unwrap();
+    uploads.put(other, chunk(3, b"abc", 0, 1), 2000).await.unwrap();
+    uploads.revoked(DeviceId::from_uuid(Uuid::from_u128(9)));
+    gone(&part(state.path(), 2)).await;
+    assert_eq!(uploads.put(other, chunk(3, b"abc", 1, 2), 2000).await.unwrap().received, 3);
+}
+
+#[tokio::test]
 async fn a_start_removes_every_part_and_a_prompt_takes_its_uploads() {
     let state = tempfile::tempdir().unwrap();
     let uploads = uploads(state.path(), &TestClock::new());

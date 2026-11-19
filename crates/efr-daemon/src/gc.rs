@@ -1,4 +1,5 @@
-//! Closing hidden shells nobody uses.
+//! Closing hidden shells nobody uses, and removing the uploads of a device that expired
+//! (`Uploads::expire`).
 //!
 //! A shell's activity mark is its recorded output plus the input typed into it: when
 //! the mark has not moved for the idle time, the shell sits at a prompt, no client is
@@ -74,6 +75,7 @@ pub(crate) async fn collect(state: Arc<State>, stop: CancellationToken) {
             () = stop.cancelled() => return,
             () = state.clock.sleep(INTERVAL) => {}
         }
+        state.uploads.expire();
         let Some(idle) = idle_time(state.settings.borrow().shell.idle_minutes) else {
             seen.clear();
             continue;

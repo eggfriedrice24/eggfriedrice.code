@@ -183,6 +183,7 @@ pub(crate) async fn serve(
         tokio::spawn(live::follow(
             Arc::clone(&state.remote.live),
             state.readers.clone(),
+            state.uploads.clone(),
             feed,
             stop.clone(),
         ))
