@@ -62,7 +62,7 @@ async fn away_expiry_message_tells_model_to_continue() {
 }
 
 #[tokio::test]
-async fn away_push_sent_once_per_question() {
+async fn an_away_question_goes_to_the_phones_and_an_answer_wins() {
     let (mut h, _, turn_id, call_id) = asked(reviewed(None), true).await;
     // The push goes out after the question is recorded, before the wait starts.
     h.clock.wait_for_sleeps(1).await;
@@ -70,7 +70,7 @@ async fn away_push_sent_once_per_question() {
     h.answer(call_id, ApprovalDecision::Allow).await;
     h.wait_end(turn_id).await;
 
-    assert_eq!(h.presence.pushed(), vec![call_id], "one push, also after the answer");
+    assert_eq!(h.presence.pushed(), vec![call_id], "no hand-over after the answer");
     assert_eq!(h.toolbox.invoked().len(), 1, "an answer during the away wait wins");
     let events = h.events().await;
     assert!(!events.iter().any(|e| matches!(e, Event::ApprovalExpired { .. })));
@@ -96,7 +96,7 @@ async fn a_user_who_leaves_while_a_question_waits_gets_the_away_wait() {
     // The next presence check finds the user away and starts the away wait.
     h.clock.advance(PRESENCE_CHECK);
     h.presence.wait_for_reads(2).await;
-    assert_eq!(h.presence.pushed(), vec![call_id], "the question goes to the phones once");
+    assert_eq!(h.presence.pushed(), vec![call_id], "the look that finds you away hands it over");
     h.clock.advance(Duration::from_secs(299));
     assert!(!h.has_ended(turn_id), "the away wait starts when efr sees the user away");
     h.clock.advance(Duration::from_secs(1));

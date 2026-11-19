@@ -1,7 +1,8 @@
 //! The wait for a person, as the model's question (`ask_user`) meets it: it waits
 //! without end while a client that can answer follows and the user is there, waits the
-//! away wait from the moment nobody is there, goes to the phones once with the call id,
-//! and gives way to an answer, an interrupt and the approval timeout.
+//! away wait from the moment nobody is there, goes to the phones with the call id at
+//! each look while nobody is there, and gives way to an answer, an interrupt and the
+//! approval timeout.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -108,7 +109,32 @@ async fn a_question_that_nobody_can_answer_waits_the_away_wait_then_ends() {
     // NOTE: the user is present; only no client that can answer follows.
     assert_eq!(script.results(), vec![(ask::unanswered(false), true)]);
     assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: false }, false));
-    assert_eq!(h.presence.pushed(), vec![call_id], "one push per question");
+    assert_eq!(h.presence.pushed(), vec![call_id], "one look before the away wait ended");
+}
+
+#[tokio::test]
+async fn a_question_goes_to_the_reader_at_each_look_while_nobody_is_there() {
+    let (mut h, _, turn_id, question_id) = asked(Setup::new(), vec![ask_db()], false).await;
+    let call_id = asking_call(&h).await;
+    h.clock.wait_for_sleeps(1).await;
+    let reads = h.presence.reads();
+    assert_eq!(h.presence.pushed(), vec![call_id]);
+
+    // NOTE: the reader can refuse the first push, so the next look hands it over again.
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(reads + 1).await;
+    assert_eq!(h.presence.pushed(), vec![call_id, call_id]);
+
+    h.presence.set_question_followed(true);
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(reads + 2).await;
+    assert_eq!(
+        h.presence.pushed(),
+        vec![call_id, call_id],
+        "a look that finds a client hands nothing"
+    );
+    h.reply(question_id, QuestionReply::Skipped).await;
+    h.wait_end(turn_id).await;
 }
 
 #[tokio::test]

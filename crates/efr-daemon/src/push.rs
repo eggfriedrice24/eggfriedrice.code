@@ -20,7 +20,8 @@
 //! 5. The phone has a token and proved its key in the last [`SEEN_WITHIN`].
 //!
 //! Two callers hand a row over ([`PushQueue`]): the notices follower, when its event
-//! commits, and a turn whose question finds nobody there later (`PresenceReader::push`).
+//! commits, and a turn at each look while its question finds nobody there
+//! (`PresenceReader::push`).
 //! [`serve`] takes the rows one after the other and sends each one on a task of its
 //! own, so a slow answer of Expo never holds a notice or a turn. A row that the rule
 //! lets through goes out once ([`Repeats`]); one that it stops may come again, such
@@ -150,6 +151,11 @@ impl Push {
     /// True for the first push about `subject` of `conversation`.
     fn first(&self, conversation: ConversationId, subject: Subject) -> bool {
         self.memory().repeats.first(conversation, subject)
+    }
+
+    /// True when the push about `subject` of `conversation` went out before.
+    fn sent(&self, conversation: ConversationId, subject: Subject) -> bool {
+        self.memory().repeats.sent(conversation, subject)
     }
 
     fn memory(&self) -> MutexGuard<'_, Memory> {
@@ -363,7 +369,12 @@ async fn sleep_for(clock: &dyn Clock, wait: Option<Duration>) {
 async fn deliver(state: &State, expo: &ExpoPush, row: Row) {
     let settings = Arc::clone(&state.settings.borrow());
     let conversation_id = row.conversation;
-    if !settings.presence.push || !state.presence.not_at_terminal(conversation_id) {
+    // NOTE: a waiting question comes at each look of its turn; a repeat stops here,
+    // before the read of the store.
+    if !settings.presence.push
+        || !state.presence.not_at_terminal(conversation_id)
+        || state.push.sent(conversation_id, row.subject)
+    {
         return;
     }
     let now = state.clock.now();

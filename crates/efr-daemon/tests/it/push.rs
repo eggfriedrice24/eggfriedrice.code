@@ -384,6 +384,41 @@ async fn an_approval_pushes_once_to_both_phones_when_you_turn_away() {
     daemon.stop().await.unwrap();
 }
 
+/// A question of the model that no client can answer finds nobody there at once, but
+/// you are still at the terminal, so no push goes. Its turn hands it over at each look,
+/// so the push goes when you turn away later.
+#[tokio::test]
+async fn a_question_refused_at_its_first_look_pushes_when_you_turn_away_later() {
+    let server = expo(&[], Vec::new()).await;
+    let ask = json!({
+        "question": "Which database?",
+        "options": [{ "label": "Postgres" }, { "label": "SQLite" }],
+    });
+    let daemon = TestDaemon::builder()
+        .remote()
+        .expo_push(server.uri())
+        .custom_provider(ScriptedModel::reviewed(vec![("ask_user", ask)], REVIEWER_ALLOWS))
+        .start()
+        .await
+        .unwrap();
+    let terminal = daemon.client_for_tty(TTY).await.unwrap();
+    let phones = phones(&daemon, 1).await;
+
+    let before = sleeps(&daemon);
+    let sent: PromptSendResult =
+        terminal.call(daemon.prompt(1, "pick a store", TTY)).await.unwrap();
+    let looked = pass(&daemon, before, |wait| wait == PRESENCE_CHECK).await;
+    let looked = pass(&daemon, looked, |wait| wait == PRESENCE_CHECK).await;
+    assert!(sends(&server).await.is_empty(), "you are at the terminal");
+
+    away(&terminal, 2, sent.conversation_id).await;
+    pass(&daemon, looked, |wait| wait == PRESENCE_CHECK).await;
+    let sent = sends_until(&server, 1).await;
+    assert_eq!(tokens_of(&sent[0]), [token(1)]);
+    drop((phones, terminal));
+    daemon.stop().await.unwrap();
+}
+
 /// A phone in front gets no push; a revoked phone gets none; an answer from the phone
 /// leaves you away from the terminal, so the next question pushes at once.
 #[tokio::test]

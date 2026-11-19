@@ -26,9 +26,9 @@ pub trait PresenceReader: Send + Sync + fmt::Debug {
     /// Whether a person is at `conversation_id` now.
     fn presence(&self, conversation_id: ConversationId) -> Presence;
 
-    /// Sends the question of `call_id` to the user's paired phones. A turn calls it once
-    /// for each wait of a question, when it first finds nobody there; the reader decides
-    /// whether a push goes out. The default sends nothing.
+    /// Sends the question of `call_id` to the user's paired phones. A turn calls it at
+    /// each look while it finds nobody there; the reader decides whether a push goes out,
+    /// and sends at most one push for each question. The default sends nothing.
     fn push(&self, _conversation_id: ConversationId, _call_id: CallId) {}
 
     /// True while a client that can answer input follows `conversation_id`. A turn

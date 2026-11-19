@@ -725,7 +725,7 @@ async fn an_away_user_s_surface_question_ends_after_the_away_wait() {
     h.wait_end(sent.turn_id).await;
 
     assert!(h.toolbox.restored().is_empty());
-    assert_eq!(h.presence.pushed(), h.call_ids().await, "one push, with the call id");
+    assert_eq!(h.presence.pushed(), h.call_ids().await, "the question goes with its call id");
     h.finish();
 }
 

@@ -29,6 +29,11 @@ pub(crate) struct Repeats {
 }
 
 impl Repeats {
+    /// True when a push about `subject` of `conversation` went out before.
+    pub(crate) fn sent(&self, conversation: ConversationId, subject: Subject) -> bool {
+        self.seen.contains(&(conversation, subject))
+    }
+
     /// True, and remembers it, when no push about `subject` of `conversation` went
     /// out before; false for a repeat.
     pub(crate) fn first(&mut self, conversation: ConversationId, subject: Subject) -> bool {

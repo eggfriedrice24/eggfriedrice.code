@@ -12,7 +12,9 @@ fn call(n: u128) -> Subject {
 fn one_subject_of_one_conversation_pushes_once() {
     let mut repeats = Repeats::default();
 
+    assert!(!repeats.sent(conversation(1), call(1)));
     assert!(repeats.first(conversation(1), call(1)));
+    assert!(repeats.sent(conversation(1), call(1)));
     assert!(!repeats.first(conversation(1), call(1)), "the second hand-over of a question");
     assert!(repeats.first(conversation(2), call(1)));
     assert!(repeats.first(conversation(1), call(2)));

@@ -103,15 +103,15 @@ impl Turn {
         // `efr away`, after it parked still gets the away wait, from the moment efr
         // sees it. A user who comes back gets the normal wait again.
         let mut away_from: Option<Duration> = None;
-        let mut pushed = false;
         let waited = loop {
             let elapsed =
                 Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
             if self.nobody_there(wait.answerer) {
                 away_from.get_or_insert(elapsed);
-                if !pushed && !wait.at_once {
+                // NOTE: at each look, because the reader can refuse a push now (you
+                // are still at the terminal) and send it at a later look.
+                if !wait.at_once {
                     self.shared.deps.presence.push(self.shared.conversation_id, wait.call_id);
-                    pushed = true;
                 }
             } else {
                 away_from = None;
