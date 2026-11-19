@@ -106,6 +106,7 @@ jobs:
           }
           only_parent libghostty-vt efr-screen-ghostty
           only_parent rusqlite efr-store
+          only_parent image efr-media
           exit "$fail"
 
   # Clippy and rustdoc in one target directory: the docs reuse the dependency metadata

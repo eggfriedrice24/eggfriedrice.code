@@ -146,6 +146,7 @@ pub(crate) const EXCLUSIVE: &[(&str, &str)] = &[
     ("libghostty-vt", "efr-screen-ghostty"),
     ("libghostty-vt-sys", "efr-screen-ghostty"),
     ("rusqlite", "efr-store"),
+    ("image", "efr-media"),
 ];
 
 /// Workspace crates that may appear as a dev-dependency only under the listed

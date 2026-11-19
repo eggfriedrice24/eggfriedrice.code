@@ -82,8 +82,9 @@ and `efr-daemon -> (everything)`.
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
    `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
    `efr-proxy -> efr-daemon`;
-3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
-   other than `efr-store` reaches `rusqlite`, except through that owner;
+3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, any member
+   other than `efr-store` reaches `rusqlite`, or any member other than `efr-media`
+   reaches `image`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
    `efr-cli`, or anything has `efr-daemon` as a direct dev-dependency.
 
@@ -109,7 +110,8 @@ What each forbidden edge protects:
   caller read, so a patch over several files is checked whole before the tool writes
   one of them. The engine is the module `efr_tools::patch`, so no crate edge can
   guard it; `cargo xtask tidy` does (`PURE_MODULES` in `xtask/src/tidy.rs`).
-- Zig is a build requirement of one crate, and SQLite has one owner.
+- Zig is a build requirement of one crate, SQLite has one owner, and so does the image
+  library.
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
 dependencies of its own, or a second binary needs it.
