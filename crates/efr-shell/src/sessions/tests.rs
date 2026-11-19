@@ -84,7 +84,7 @@ async fn a_marked_run_returns_the_output_the_status_and_the_directory() {
     assert_eq!(result.completion, Completion::Finished);
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.output, "a\nb\n");
-    assert!(!result.truncated);
+    assert!(!result.truncated());
     assert_eq!(result.cwd_after, PathBuf::from("/tmp"));
     assert_eq!(result.delimiter, Delimiter::Marks);
     assert_eq!(result.screen_tail, None);
@@ -207,7 +207,7 @@ async fn output_over_the_limit_keeps_its_head_and_tail() {
     terminal.typed_line().await;
     terminal.run(b"0123456789abcdef", 0).await;
     let result = run.await.unwrap().unwrap();
-    assert!(result.truncated);
+    assert!(result.truncated());
     assert_eq!(result.output_bytes, 16);
     assert_eq!(result.output, "0123\n[... 8 bytes omitted ...]\ncdef");
 }

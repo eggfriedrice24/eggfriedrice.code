@@ -400,7 +400,8 @@ so far of a run left running at its timeout:
   bytes of the skipped sequence as dropped. So the body of a long APC, OSC or DCS
   never reads as text. `CommandResult::gap` (`OutputGap { at, dropped }`, set with
   `with_gap`) tells a reader where the marker is and how many bytes it stands for, so
-  the shell tool can cut around it and write one marker with the sum.
+  the shell tool can cut around it and write one marker with the sum; it is the one
+  fact behind `CommandResult::truncated()`.
 - Output that only prints text, colours, carriage-return progress bars and
   backspaces goes through the byte cleaner: escape sequences dropped, `\r\n` as `\n`,
   the text after a bare `\r` replacing the line, a backspace removing the character

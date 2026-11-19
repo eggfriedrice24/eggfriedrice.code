@@ -275,10 +275,9 @@ pub struct CommandResult {
     /// blanks; other output is its bytes without escape sequences. When it was over
     /// the request's output limit, a marker line stands for the middle.
     pub output: String,
-    /// True when bytes were left out of [`output`](Self::output).
-    pub truncated: bool,
     /// Where the marker line of the bytes that the shell left out stands in
-    /// [`output`](Self::output), so a later cut can count them with its own.
+    /// [`output`](Self::output), so a later cut can count them with its own; `None`
+    /// when the output is whole ([`truncated`](Self::truncated)).
     pub gap: Option<OutputGap>,
     /// The size of the whole output so far, in bytes.
     pub output_bytes: u64,
@@ -324,7 +323,6 @@ impl CommandResult {
             exit_code,
             output_bytes: output.len() as u64,
             output,
-            truncated: false,
             gap: None,
             output_range: None,
             cwd_after: cwd_after.into(),
@@ -355,19 +353,18 @@ impl CommandResult {
         self
     }
 
-    /// Marks the output as truncated, with `output_bytes` the size of the whole.
+    /// Marks the output as cut: the marker line of `gap` stands in it, and
+    /// `output_bytes` is the size of the whole.
     #[must_use]
-    pub fn with_truncation(mut self, output_bytes: u64) -> Self {
-        self.truncated = true;
+    pub fn with_gap(mut self, gap: OutputGap, output_bytes: u64) -> Self {
+        self.gap = Some(gap);
         self.output_bytes = output_bytes;
         self
     }
 
-    /// Sets where the marker line of the bytes left out stands in the output.
-    #[must_use]
-    pub fn with_gap(mut self, gap: OutputGap) -> Self {
-        self.gap = Some(gap);
-        self
+    /// True when bytes were left out of [`output`](Self::output).
+    pub fn truncated(&self) -> bool {
+        self.gap.is_some()
     }
 
     /// Sets what delimited the output.

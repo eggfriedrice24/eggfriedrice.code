@@ -3,7 +3,7 @@ use efr_screen::ShellMarkScanner;
 use pretty_assertions::assert_eq;
 
 use super::{
-    CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputUpdate, RunRequest,
+    CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputGap, OutputUpdate, RunRequest,
     interrupted_before_start, marked_line, screen_tail, timed_out,
 };
 
@@ -177,12 +177,13 @@ fn other_runners_can_build_results() {
     let result = CommandResult::finished(Some(0), "ok\n", "/tmp")
         .with_completion(Completion::Interactive)
         .with_screen_tail("Password:")
-        .with_truncation(10_000)
+        .with_gap(OutputGap { at: 3, dropped: 9_997 }, 10_000)
         .with_delimiter(Delimiter::Sentinel);
     assert!(result.interactive());
     assert_eq!(result.output, "ok\n");
     assert_eq!(result.output_bytes, 10_000);
-    assert!(result.truncated);
+    assert!(result.truncated());
+    assert!(!CommandResult::finished(Some(0), "ok\n", "/").truncated());
     assert_eq!(result.screen_tail.as_deref(), Some("Password:"));
     assert_eq!(result.delimiter, Delimiter::Sentinel);
     assert_eq!(CommandResult::finished(None, "abc", "/").output_bytes, 3);

@@ -528,7 +528,9 @@ async fn long_output_is_cut_in_the_middle() {
 #[tokio::test]
 async fn the_shells_own_truncation_is_reported() {
     let fixture = Fixture::new();
-    let outcome = CommandResult::finished(Some(0), "short", "/").with_truncation(9_999_999);
+    let output = format!("short{}", omitted_marker(9_999_994));
+    let gap = OutputGap { at: 5, dropped: 9_999_994 };
+    let outcome = CommandResult::finished(Some(0), output, "/").with_gap(gap, 9_999_999);
     let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
     let result =
         tool.invoke(fixture.context(), json!({"command": "seq 1e9"}), &mut NoOutput).await.unwrap();
@@ -541,8 +543,7 @@ async fn a_long_output_that_the_shell_cut_shows_one_marker_with_the_sum() {
     let (head, tail) = ("h".repeat(2000), "t".repeat(2000));
     let output = format!("{head}{}{tail}", omitted_marker(1_000_000));
     let gap = OutputGap { at: head.len(), dropped: 1_000_000 };
-    let outcome =
-        CommandResult::finished(Some(0), output, "/").with_truncation(1_004_000).with_gap(gap);
+    let outcome = CommandResult::finished(Some(0), output, "/").with_gap(gap, 1_004_000);
     let tool = ShellTool::new(FakeRunner::answering(Ok(outcome))).with_output_limit(300);
     let result =
         tool.invoke(fixture.context(), json!({"command": "seq 1e6"}), &mut NoOutput).await.unwrap();

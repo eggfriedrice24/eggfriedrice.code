@@ -544,7 +544,7 @@ impl ShellTool {
             }
         };
         ToolResult::ok(text)
-            .with_truncated(cut.truncated || result.truncated)
+            .with_truncated(cut.truncated || result.truncated())
             .with_exit_code(result.exit_code)
             .with_error(is_error)
             .with_left_running(left_running)
