@@ -53,6 +53,23 @@ fn the_desktop_notice_setting_follows_the_mode_unless_it_is_auto() {
 }
 
 #[test]
+fn the_paste_setting_follows_the_notice_unless_it_is_auto_and_is_off_without_attachments() {
+    let none = RenderColors::default();
+    let mut settings = settings(Mode::Auto);
+    settings.notify.terminal = AutoOnOff::Off;
+    for (paste, line) in [(AutoOnOff::On, "paste\ton\n"), (AutoOnOff::Off, "paste\toff\n")] {
+        settings.attachments.paste = paste;
+        assert_eq!(written(&settings, false, &none), format!("mode\tauto\nnotify\toff\n{line}"));
+    }
+    settings.attachments.paste = AutoOnOff::Auto;
+    assert_eq!(written(&settings, false, &none), "mode\tauto\nnotify\toff\n");
+    // efrd takes no file, so a paste can attach none.
+    settings.attachments.enabled = false;
+    settings.attachments.paste = AutoOnOff::On;
+    assert_eq!(written(&settings, false, &none), "mode\tauto\nnotify\toff\npaste\toff\n");
+}
+
+#[test]
 fn the_roles_that_the_plugin_paints_follow_with_their_colours() {
     let mut set = RenderColors::default();
     set.muted = Some(ColorValue::Text("#8695B7".to_owned()));

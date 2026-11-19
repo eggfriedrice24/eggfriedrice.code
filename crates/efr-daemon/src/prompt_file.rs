@@ -18,6 +18,10 @@
 //!   the plugin sends when efrd wakes its prompt (`notices::wake_fifo`). The default,
 //!   `auto`, has no line, as a role without a colour; the plugin reads no line as
 //!   `auto`, and a plugin of 0.0.11 skips the key.
+//! - `paste`: `attachments.paste`, `on` or `off`, the gate of the paste of an image
+//!   into a `,` line (OSC 5522), with no line for `auto` as for `notify`. It is `off`
+//!   when `attachments.enabled` is false: efrd then takes no file. A plugin of 0.0.12
+//!   skips the key.
 //!
 //! efrd writes it at start, after each reload that installs new settings, and at a
 //! prompt, next to the projects file. A theme file that cannot be read gives no
@@ -49,8 +53,12 @@ pub(crate) fn text(settings: &Settings, full_refused: bool, colors: &RenderColor
         mode => mode,
     };
     let mut text = format!("mode\t{}\n", mode.as_str());
-    if settings.notify.terminal != AutoOnOff::Auto {
-        text.push_str(&format!("notify\t{}\n", settings.notify.terminal.as_str()));
+    let paste =
+        if settings.attachments.enabled { settings.attachments.paste } else { AutoOnOff::Off };
+    for (key, gate) in [("notify", settings.notify.terminal), ("paste", paste)] {
+        if gate != AutoOnOff::Auto {
+            text.push_str(&format!("{key}\t{}\n", gate.as_str()));
+        }
     }
     let set = colors.colors();
     for role in ROLES {
