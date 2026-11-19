@@ -73,7 +73,7 @@ fn declare(line: &str) -> Declared {
     "cd /home/u/p/x && chmod +x run.sh",
     &["/home/u/p/x"],
     &[],
-    &["/home/u/p/x/+x", "/home/u/p/x/run.sh"]
+    &["/home/u/p/x/run.sh"]
 )]
 #[case::echo_names_nothing("echo ~/.ssh/id_rsa", &[], &[], &[])]
 #[case::home_variable("cat $HOME/.ssh/id_rsa", &["/home/u/.ssh/id_rsa"], &[], &[])]

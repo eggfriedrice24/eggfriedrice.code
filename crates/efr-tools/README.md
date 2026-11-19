@@ -174,7 +174,8 @@ The tools:
   -r`, `find`, `du`, `tree`, `ls -R` and `diff`, and the working directory when such a
   search names no path, with an unknown option failing closed),
   `shell_tool/writes.rs` says which words of a writer program it writes (every
-  operand of `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`;
+  operand of `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`,
+  but not the mode of `chmod`, such as `+x` or `-w`, unless `--reference` gives it;
   the last operand or the `-t` directory of `cp`; the link of `ln`; every operand when
   the text cannot show which one `-t` takes, when an option follows an operand or when
   an option is unknown; never the value of `-S` or `--suffix`; the sources of a hard link, `ln` without

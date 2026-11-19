@@ -30,6 +30,8 @@ into the GitHub release notes, and it stops when the section is missing.
   commands that follow in `DIR` alone. Before, `cd ~/p/app && chmod +x run.sh` also
   asked for a write of `run.sh` in the directory where the hidden shell stood before,
   such as `/sys/class/hwmon/hwmon5`.
+- The mode of `chmod`, such as `+x` in `chmod +x run.sh`, is no longer read as a file
+  that the command writes.
 - In `auto`, the value of an option of `ping`, `traceroute`, `tracepath` or `mtr`, such
   as the interval of `ping -i 0.2`, is no longer read as the host that the command
   reaches.

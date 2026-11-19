@@ -1083,7 +1083,8 @@ directory:
   `basename`, `dirname`, `which`, `type` and a few more declare nothing, because their
   arguments are not files. `$HOME` at the start of a word counts as `~`;
 - the writer programs write their operands instead, in every mode: every operand of
-  `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`; the last
+  `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`, but not the
+  mode of `chmod`, such as `+x` (with `--reference`, every operand counts); the last
   operand of `cp` (its other operands are read with everything below them, as a
   recursive copy reads them); the link that `ln` creates (its target is read). With
   `-t` or `--target-directory`, every operand of `cp` and `ln` counts as written, and

@@ -21,7 +21,7 @@ const ALL_WRITTEN: &[&str] = &["rm", "rmdir", "mkdir", "touch", "mv", "chmod", "
 /// What the program `name` with `args` writes and reads, when it is a writer program:
 ///
 /// - `rm`, `rmdir`, `mkdir`, `touch`, `mv` (sources and target), `chmod`, `truncate`
-///   and `tee` write every operand;
+///   and `tee` write every operand, but the mode of `chmod` ([`chmod_mode`]);
 /// - `cp` writes its last operand, or the directory of `-t`, and reads the others
 ///   with everything below them, as a recursive copy does;
 /// - `ln` writes the link: its last operand, the directory of `-t`, or, with one
@@ -58,11 +58,16 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
     // NOTE: `ln` makes a hard link unless the line shows `-s`; `cp` only with `-l`.
     let mut hard = kind == Kind::Link;
     let mut after_options = false;
+    // NOTE: the mode of `chmod`, such as `+x` or `-w`, is no path.
+    let mode = if name == "chmod" { chmod_mode(args) } else { None };
     let mut words = args.iter();
     while let Some(word) = words.next() {
         let text = word.text.as_str();
         if !after_options && text == "--" {
             after_options = true;
+            continue;
+        }
+        if mode.is_some_and(|mode| std::ptr::eq(mode, word)) {
             continue;
         }
         // NOTE: an expansion's value is unknown; the engine asks for a line that holds
@@ -298,6 +303,35 @@ impl Options {
         }
         OptionWord { known: true, value: None }
     }
+}
+
+/// The mode of `chmod` with `args`: the first word that is not one of its options (`-c`,
+/// `-f`, `-v` and `-R`, alone or in one word, a long option or `--`), also a mode that
+/// starts with `-`, such as `-w`. `None` with `--reference` or a part of that name,
+/// which takes the mode from a file, so that every operand is a path.
+fn chmod_mode(args: &[Word]) -> Option<&Word> {
+    let mut options = true;
+    for word in args {
+        let text = word.text.as_str();
+        if options && text == "--" {
+            options = false;
+            continue;
+        }
+        if options && let Some(long) = text.strip_prefix("--") {
+            let name = long.split_once('=').map_or(long, |(name, _)| name);
+            if "reference".starts_with(name) {
+                return None;
+            }
+            continue;
+        }
+        let flags = text.len() > 1
+            && text.starts_with('-')
+            && text[1..].chars().all(|letter| "cfvR".contains(letter));
+        if !(options && flags) {
+            return Some(word);
+        }
+    }
+    None
 }
 
 /// True when the option word `text` may name the directory that `cp`, `mv` or `ln`
