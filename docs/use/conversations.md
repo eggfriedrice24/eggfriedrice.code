@@ -55,26 +55,16 @@ right edge of your zsh prompt, before you press Enter:
 
 The scope is in the text colour, the mode is muted, and `full` is in the error
 colour. The corner stays on each prompt line in the scrollback, so it records where
-each prompt went and in which mode. When you press Enter, the corner moves to 2
-columns after the text that you typed:
-
-```text
-~/p/app main ❯ , why does parse_empty fail?  app · auto
-```
-
-An old prompt line then does not depend on the width of the window: it does not
-break when you make the window narrower. The line that you edit keeps the corner at
-the right edge. zsh has no dim for this text, so in 16 colours and without colour
-the mode of an old line is not dim. Set it up with one line in `.zshrc`, after the
-setup of your prompt theme (starship, a framework, `PROMPT` or `RPROMPT`):
+each prompt went and in which mode. When you make the window narrower, the terminal
+wraps an old prompt line, and its corner goes to a row of its own. Set it up with one
+line in `.zshrc`, after the setup of your prompt theme (starship, a framework, `PROMPT` or `RPROMPT`):
 
 ```zsh
 efr_corner
 ```
 
 - The right side of your theme stays before the corner, with two blanks between them.
-  The corner ends at the right edge of the line that you edit. On an old line, the
-  right side of your theme stays where your theme puts it.
+  The corner ends at the right edge.
 - `efr_corner` turns on `prompt_subst`. A `$` in a plain prompt string of your theme
   then expands.
 - A project name of more than 24 columns is cut, and ends with `…`.

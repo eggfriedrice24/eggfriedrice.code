@@ -43,10 +43,8 @@ into the GitHub release notes, and it stops when the section is missing.
   background, with no `↩` cut. A long command, a note, an end line and efr's other
   finished rows are one row each, with no `\` cut. The rows that efr draws again (the
   status row, a running call, the input row, a question that waits) still fit the
-  window.
-- The prompt corner of an old prompt line moves to 2 columns after the text that you
-  typed when you press Enter, so it does not wrap onto a row of its own in a narrower
-  window. The line that you edit keeps the corner at the right edge.
+  window. The prompt corner stays at the right edge, so an old prompt line still
+  wraps in a narrower window.
 
 ## [0.0.13] - 2026-11-19
 

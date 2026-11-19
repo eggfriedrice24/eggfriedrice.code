@@ -418,32 +418,6 @@ fn frame(board: &str, number: u32) -> Frame {
     Frame::load(board, number).unwrap()
 }
 
-/// `frame` with row `row`, a prompt line in the scrollback after Enter, as TM-Narrow 23
-/// draws it: the corner 2 columns after the typed text, not at the right edge. The
-/// boards before TM-Narrow draw it at the edge; TM-Narrow wins. The blank of the prompt
-/// before the typed text stays, so a line with no typed text has 3 blanks.
-fn left_line(frame: &Frame, row: usize) -> Frame {
-    let mut frame = frame.clone();
-    let line = &mut frame.rows[row];
-    if let Some(gap) = line.segments.iter_mut().rev().find(|segment| segment.text.ends_with("   "))
-    {
-        let kept = gap.text.trim_end_matches(' ');
-        gap.text = format!("{}  ", if kept.is_empty() { " " } else { kept });
-    }
-    line.text = line.segments.iter().map(|segment| segment.text.as_str()).collect();
-    frame
-}
-
-/// The text of the rows of `shown` after step `step`, without their paint.
-fn texts(shown: &Shown, step: usize) -> Vec<String> {
-    shown
-        .rows(step)
-        .iter()
-        .map(|row| efr_test_support::design::cells(row).first().map(|cells| cells.text()))
-        .map(|text| text.unwrap_or_default().trim_end().to_owned())
-        .collect()
-}
-
 // --- the corner ------------------------------------------------------------------------
 
 /// TM-Scope 1: in a project, each mode, typed and not yet sent.
@@ -620,8 +594,7 @@ fn e2e_look_the_corner_exports_its_parts_for_line_one() {
 }
 
 /// TM-Scope 7: zsh draws the corner while the typed text leaves room, and drops it once
-/// the text reaches it. In the scrollback the corner follows the text 2 columns after
-/// it, after its last row (TM-Narrow 24 wins over row 2 of TM-Scope 7).
+/// the text reaches it, also in the scrollback.
 #[test]
 fn e2e_look_a_long_typed_line_hides_the_corner() {
     if !zsh_tests_enabled() {
@@ -639,44 +612,7 @@ fn e2e_look_a_long_typed_line_hides_the_corner() {
         ],
     );
     same(&scope, 0, &shown, 0, 0, Depth::TrueColor);
-    let cols = usize::from(scope.cols);
-    let line = format!("{}  app \u{b7} auto", scope.rows[2].text.trim_end());
-    let (first, rest) = line.split_at(line.char_indices().nth(cols).map_or(line.len(), |at| at.0));
-    assert_eq!(texts(&shown, 1)[..2], [first.to_owned(), rest.to_owned()]);
-}
-
-/// TM-Narrow 23: when you press Enter, the corner of the line that zsh leaves goes 2
-/// columns after the typed text, in its colours; the edit line of the next prompt has
-/// it at the right edge again. The old line does not depend on the width of the window.
-/// NOTE: zle has no dim, so in 16 colours and without colour the mode of the old line
-/// is plain, as in the edit line (zsh 5.9); the text and the place are the board's.
-#[test]
-fn e2e_look_the_corner_of_an_old_prompt_line_follows_its_text() {
-    if !zsh_tests_enabled() {
-        return;
-    }
-    let narrow = frame("Narrow", 23);
-    for depth in Depth::ALL {
-        let mut term = Term::new(narrow.cols, depth);
-        term.theme(&narrow, 0);
-        term.default_mode("auto");
-        let shown = term.run("p/app", &[Step::Line("ls")]);
-        let rows = texts(&shown, 0);
-        assert_eq!(rows[0], narrow.rows[0].text.trim_end(), "{depth:?}");
-        assert_eq!(rows[1], narrow.rows[8].text.trim_end(), "{depth:?}");
-        if depth == Depth::TrueColor {
-            same(&narrow, 0, &shown, 0, 0, depth);
-            same(&narrow, 8, &shown, 0, 1, depth);
-        }
-    }
-    // With transient_rprompt zsh takes the right side away, and the corner does not
-    // come after the text.
-    let mut term = Term::new(narrow.cols, Depth::TrueColor);
-    term.theme(&narrow, 0);
-    term.default_mode("auto");
-    term.after("setopt transient_rprompt");
-    let shown = term.run("p/app", &[Step::Line("ls")]);
-    assert_eq!(texts(&shown, 0)[0], "~/p/app fix/steer-race \u{276f} ls");
+    same(&scope, 2, &shown, 1, 0, Depth::TrueColor);
 }
 
 /// TM-Scope 8: the same corner at 60 columns: it hides sooner.
@@ -784,9 +720,6 @@ fn e2e_look_the_corner_is_the_legend() {
             let mut term = Term::new(legend.cols, depth);
             term.prompt("");
             term.default_mode(mode);
-            // NOTE: the corner of the line that runs `print` leaves the scrollback, so
-            // the printed corner is row 1.
-            term.after("setopt transient_rprompt");
             let shown = term.run(dir, &[Step::Line("print -rP -- \"$_efr_corner_text\"")]);
             same(&legend, 0, &shown, 0, 1, depth);
         }
@@ -868,7 +801,7 @@ fn e2e_look_the_sticky_marker() {
     term.default_mode("auto");
     let shown =
         term.run("p/app", &[Step::Type("<C-Space>"), Step::Line("why does parse_empty fail?")]);
-    same(&left_line(&scope, 2), 2, &shown, 1, 0, Depth::TrueColor);
+    same(&scope, 2, &shown, 1, 0, Depth::TrueColor);
     let call = &term.home.calls()[0];
     assert_eq!(call.prompt.as_deref(), Some("why does parse_empty fail?"));
 }
@@ -930,15 +863,7 @@ fn e2e_look_a_model_that_a_terminal_chose() {
     }
     let endings = frame("Endings", 5);
     for depth in Depth::ALL {
-        let mut expected = left_line(&undimmed(&endings, depth), 0);
-        // NOTE: zle has no dim: the corner that follows the text of the old line shows
-        // its muted parts plain in 16 colours and without colour.
-        if depth != Depth::TrueColor {
-            let gap = expected.rows[0].segments.iter().position(|s| s.text.ends_with("  "));
-            for segment in expected.rows[0].segments.iter_mut().skip(gap.map_or(0, |at| at + 1)) {
-                segment.look.dim = false;
-            }
-        }
+        let mut expected = undimmed(&endings, depth);
         let said = &mut expected.rows[1].segments[0].text;
         *said = said.replace("for this conversation", "for this terminal");
         let mut term = Term::new(endings.cols, depth);
@@ -977,14 +902,13 @@ fn e2e_look_the_corner_after_mode_full() {
     .unwrap();
     let shown =
         term.run("p/app", &[Step::Line(",mode full"), Step::Type(", clean the build caches")]);
-    same(&left_line(&endings, 0), 0, &shown, 1, 0, Depth::TrueColor);
+    same(&endings, 0, &shown, 1, 0, Depth::TrueColor);
     same(&endings, 3, &shown, 1, 1, Depth::TrueColor);
 }
 
 /// The prompt rows of TM-Endings 1 to 9 in the scrollback, after Enter: the corner
-/// records the scope and the mode of each prompt, 2 columns after the typed text
-/// (TM-Narrow 23 wins over the right edge of the boards), and without the corner (frame
-/// 9) nothing stands after the text.
+/// records the scope and the mode of each prompt, and without the corner (frame 9)
+/// nothing stands at the right.
 #[test]
 fn e2e_look_the_prompt_rows_of_the_endings() {
     if !zsh_tests_enabled() {
@@ -1010,7 +934,7 @@ fn e2e_look_the_prompt_rows_of_the_endings() {
                 term.after.retain(|line| line != "efr_corner");
             }
             let shown = term.run(if home { "" } else { "p/app" }, &[Step::Line(typed)]);
-            same(&left_line(&endings, at), at, &shown, 0, 0, Depth::TrueColor);
+            same(&endings, at, &shown, 0, 0, Depth::TrueColor);
         }
     }
 }

@@ -105,13 +105,11 @@
 #   efr_corner
 #
 # It keeps the theme's own right side, two blanks, then the corner, which ends at the
-# right edge of the line that you edit. When you press Enter, the corner goes to 2
-# columns after the typed text, so an old prompt line up the scrollback does not
-# depend on the width of the window: it does not break when the window gets narrower
-# (TM-Narrow). It turns prompt_subst on (a `$` in a plain theme string then expands),
-# and it adds the corner again at each prompt when a theme sets RPROMPT again. A long
-# typed line hides it, as zsh hides any right prompt, and `setopt transient_rprompt`
-# removes it from the scrollback. For line 1 of a two-line prompt, `efr_corner export` instead
+# right edge, so it stands in the same column on each prompt line up the scrollback.
+# It turns prompt_subst on (a `$` in a plain theme string then expands), and it adds
+# the corner again at each prompt when a theme sets RPROMPT again. A long typed line
+# hides it, as zsh hides any right prompt, and `setopt transient_rprompt` removes it
+# from the scrollback. For line 1 of a two-line prompt, `efr_corner export` instead
 # exports EFR_CORNER_SCOPE and EFR_CORNER_MODE, or EFR_CORNER_FULL in full mode, at each
 # prompt, for the theme to show (starship: `${env_var.EFR_CORNER_SCOPE}`), and leaves
 # RPROMPT alone. The corner costs no fork: efrd writes the default mode and the colours
@@ -310,12 +308,6 @@ typeset -gi _efr_has_corner _efr_corner_export
 # RPROMPT that efr_corner made of the theme's own right side ($_efr_theme_rprompt) and
 # the corner.
 typeset -g _efr_corner_text _efr_corner_rprompt _efr_theme_rprompt _efr_theme_right
-# The corner as pairs of a role and its plain text, for the line that zsh leaves
-# (_efr_corner_finish); the RPROMPT of that line without the corner; and 1 while that
-# RPROMPT stands, until the next prompt puts the corner back.
-typeset -ga _efr_corner_parts
-typeset -g _efr_corner_left
-typeset -gi _efr_corner_moved
 # The prompt file's stamp that _efr_read_prompt_file read last, the default mode that
 # efrd wrote there, the colour of each role that it wrote, by role,
 # notify.terminal (auto, on or off), the gate of the desktop notice, and
@@ -1656,7 +1648,6 @@ _efr_update_corner() {
   local REPLY scope=$_efr_scope_text mode text= sep
   _efr_mode_now
   mode=$REPLY
-  _efr_corner_parts=()
   if (( ${(m)#scope} > _efr_scope_cells )); then
     local -i cut=$(( _efr_scope_cells - ${(m)#_efr_more} ))
     while (( ${(m)#scope} > cut )); do
@@ -1680,7 +1671,6 @@ _efr_update_corner() {
     return 0
   fi
   if [[ -n $scope ]]; then
-    _efr_corner_parts+=(text "$scope")
     scope=${scope//\%/%%}
     (( _efr_prompt_bang )) && scope=${scope//\!/!!}
     _efr_prompt_paint text $scope
@@ -1689,15 +1679,12 @@ _efr_update_corner() {
   fi
   if [[ $mode == full ]]; then
     if [[ -n $sep ]]; then
-      _efr_corner_parts+=(muted "$sep")
       _efr_prompt_paint muted $sep
       text+=$REPLY
     fi
-    _efr_corner_parts+=(error full)
     _efr_prompt_paint error full
     text+=$REPLY
   else
-    _efr_corner_parts+=(muted "$sep$mode")
     _efr_prompt_paint muted "$sep$mode"
     text+=$REPLY
   fi
@@ -1720,59 +1707,20 @@ efr_corner() {
     return 0
   fi
   (( _efr_corner_export )) && return 0
-  # The line before moved the corner after its typed text (_efr_corner_finish): the
-  # corner comes back to the edge for the new prompt.
-  if (( _efr_corner_moved )); then
-    _efr_corner_moved=0
-    [[ $RPROMPT == "$_efr_corner_left" ]] && RPROMPT=$_efr_corner_rprompt
-  fi
   [[ -n $_efr_corner_rprompt && $RPROMPT == "$_efr_corner_rprompt" ]] && return 0
   _efr_theme_rprompt=$RPROMPT
   if [[ -z $RPROMPT ]]; then
     _efr_corner_rprompt='${_efr_corner_text}'
-    _efr_corner_left=
   elif [[ -o prompt_subst ]]; then
     # NOTE: the theme's string runs once, assigned as it expands, and gives the two
     # blanks only when it shows something. It stays in a variable: a `}` of it, as in
-    # `%F{4}`, would end the expansion early. The line that zsh leaves shows what it
-    # gave, without a second run.
+    # `%F{4}`, would end the expansion early.
     _efr_corner_rprompt='${_efr_theme_right::=${(e)_efr_theme_rprompt}}${_efr_theme_right:+  }${_efr_corner_text}'
-    _efr_corner_left='${_efr_theme_right}'
   else
     _efr_corner_rprompt='${_efr_theme_rprompt}  ${_efr_corner_text}'
-    _efr_corner_left='${_efr_theme_rprompt}'
   fi
   setopt prompt_subst
   RPROMPT=$_efr_corner_rprompt
-}
-
-# The line-finish hook: when you press Enter, the corner of the line that zsh leaves
-# goes from the right edge to 2 columns after the typed text, so the line in the
-# scrollback does not depend on the width of the window (TM-Narrow): it does not break
-# when the window gets narrower. Only the plugin's own part of RPROMPT moves; the theme's
-# right side stays as the theme sets it. The corner goes into POSTDISPLAY, after the
-# lines that it holds already, with its colours as zle highlights: zle has no dim, so in
-# 16 colours and without colour the mode shows plain, as in the edit line. The edit line
-# of the next prompt has the corner at the right edge again (efr_corner). Nothing moves
-# with `efr_corner export`, with transient_rprompt (zsh takes the right side away
-# itself), or after Ctrl+C, for which zsh calls no line-finish hook.
-_efr_corner_finish() {
-  (( _efr_has_corner && ! _efr_corner_export && ${#_efr_corner_parts} )) || return 0
-  [[ -n $_efr_corner_rprompt && $RPROMPT == "$_efr_corner_rprompt" ]] || return 0
-  [[ -o transient_rprompt ]] && return 0
-  local REPLY role text
-  integer at=$(( ${#BUFFER} + ${#POSTDISPLAY} + 2 ))
-  region_highlight=(${region_highlight:#*memo=efr-corner})
-  POSTDISPLAY+='  '
-  for role text in "${_efr_corner_parts[@]}"; do
-    _efr_zle_style $role
-    [[ -n $REPLY ]] && region_highlight+=("$at $(( at + ${#text} )) $REPLY memo=efr-corner")
-    POSTDISPLAY+=$text
-    (( at += ${#text} ))
-  done
-  RPROMPT=$_efr_corner_left
-  _efr_corner_moved=1
-  zle .reset-prompt
 }
 
 # --- daemon notices ---------------------------------------------------------------
@@ -2498,7 +2446,6 @@ add-zle-hook-widget line-pre-redraw _efr_warm_line
 add-zle-hook-widget line-pre-redraw _efr_attach_colour
 add-zle-hook-widget line-pre-redraw _efr_paste_line
 add-zle-hook-widget line-finish _efr_paste_end
-add-zle-hook-widget line-finish _efr_corner_finish
 # Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
 # not expand an alias again inside its own expansion, so `,` reaches the function.
 alias ,=', #' ,new=',new #' ,compact=',compact #'

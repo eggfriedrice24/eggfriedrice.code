@@ -56,7 +56,7 @@ The reply goes into your scrollback, like the output of any command. When the tu
 ends, your shell prompt comes back at once.
 
 The reply has no line for the scope. The prompt corner records the scope and the mode
-of each prompt on your prompt line, such as `app · auto`, or
+of each prompt at the right edge of your prompt line, such as `app · auto`, or
 `⌂ · cautious` at home (see [The prompt corner](#the-prompt-corner)). When the
 conversation changes, a line tells you, such as `↪ back to "fix the tests" in app
 (2 h ago)` (see [Conversations](#conversations)). When the turn runs on another
@@ -172,8 +172,7 @@ that is not UTF-8 the marker is `>`, and the line becomes `, <prompt>`.
 ### The prompt corner
 
 efr never changes your prompt by itself. One line in `.zshrc`, after the setup of your
-prompt theme, puts the scope and the mode of the next prompt at the right edge. When
-you press Enter, the corner moves to 2 columns after the text that you typed:
+prompt theme, puts the scope and the mode of the next prompt at the right edge:
 
 ```zsh
 efr_corner

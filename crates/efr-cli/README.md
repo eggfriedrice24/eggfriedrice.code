@@ -1829,10 +1829,8 @@ design's palette), 16 colours and `NO_COLOR`: the corner in each mode, at home, 
 efrd ever ran, next to a theme's right side, on a plain and a two-line prompt, at 60
 columns and hidden by a long line (TM-Scope 1-10), the marker of sticky mode with and
 without the corner (TM-Scope 17, 18), TM-Legend 1-3, the line of `,model` and the
-corner after `,mode full` (TM-Endings 5, 8), the prompt rows of TM-Endings 1-9, the
-corner of an old prompt line 2 columns after its typed text and at the edge of the
-edit line (TM-Narrow 23; TM-Narrow wins over the older boards there), and the
-notices at the next prompt (TM-Endings 11-13).
+corner after `,mode full` (TM-Endings 5, 8), the prompt rows of TM-Endings 1-9, and
+the notices at the next prompt (TM-Endings 11-13).
 
 `tests/it/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s
 `TestDaemon`, in the test's process: the `efr --help` snapshot, `efr status`, and an
