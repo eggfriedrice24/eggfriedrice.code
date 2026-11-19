@@ -4,9 +4,11 @@ use efr_protocol::{
     AttachmentLimits, AttachmentOrigin, AttachmentPutResult, Capabilities, ErrorBody, ErrorCode,
     Method, MissingUploads, PromptSend, PromptSendResult, Seq, UploadId, UploadInfo,
 };
+use efr_stdx::text::MIB;
 use efr_transport::client::{Client, ClientError};
 use pretty_assertions::assert_eq;
 
+use super::upload::checked;
 use super::{Failure, Places, Token, Words, pasted_name, send, tokens};
 use crate::testing::{Conn, TestEnv, conversation, hello_result, turn};
 
@@ -318,6 +320,21 @@ async fn a_file_over_a_limit_sends_nothing_and_says_which_limit() {
     );
 }
 
+#[test]
+fn the_size_note_names_the_limit_in_the_number_of_its_key() {
+    let tree = Tree::new();
+    let mut files = tree.find("@shot.png").files;
+    files[0].bytes = 60 * MIB;
+    let fifty = AttachmentLimits { max_file_bytes: 50 * MIB, ..limits() };
+    let Err(Failure::NotAttached(note)) = checked(Some(&fifty), &files) else {
+        panic!("expected a note");
+    };
+    assert_eq!(
+        note,
+        "not attached: shot.png is 62 MB. The limit is 50 MB (attachments.max_file_mib)."
+    );
+}
+
 #[tokio::test]
 async fn efrd_refusing_a_file_sends_nothing_and_drops_what_went() {
     let env = TestEnv::new();
@@ -330,7 +347,8 @@ async fn efrd_refusing_a_file_sends_nothing_and_drops_what_went() {
         let mut conn = daemon.accept_with(capabilities(Some(limits()))).await;
         let (first, ..) = take_file(&mut conn, 4).await;
         let (id, _) = conn.request().await;
-        let body = ErrorBody::new(ErrorCode::Invalid, "the file of the @path is a secret file");
+        let body = ErrorBody::new(ErrorCode::Invalid, "the file of the @path is a secret file")
+            .with_data(serde_json::json!({ "secret_file": true }));
         conn.fail(id, body).await;
         let (id, method) = conn.request().await;
         let Method::AttachmentDiscard(discard) = &method else {
@@ -347,7 +365,7 @@ async fn efrd_refusing_a_file_sends_nothing_and_drops_what_went() {
     let Err(Failure::NotAttached(note)) = result else {
         panic!("expected a note, got {result:?}");
     };
-    assert_eq!(note, "not attached: src/main.rs (the file of the @path is a secret file)");
+    assert_eq!(note, "not attached: src/main.rs is a secret file.");
 }
 
 #[tokio::test]

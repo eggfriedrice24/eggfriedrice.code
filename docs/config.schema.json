@@ -186,7 +186,7 @@
       "properties": {
         "enabled": {
           "default": true,
-          "description": "`false`: efrd takes no file and tells no client that it takes files, an `@path`\nstays text, and `read_file` refuses an image file as a binary file.",
+          "description": "`false`: efrd takes no file and tells no client that it takes files, a prompt\nwith an `@path` that names a file does not go, and `read_file` refuses an image\nfile as a binary file.",
           "type": "boolean"
         },
         "max_edge_px": {

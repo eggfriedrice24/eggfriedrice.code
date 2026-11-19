@@ -12,8 +12,9 @@ use crate::AutoOnOff;
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct AttachmentsSettings {
-    /// `false`: efrd takes no file and tells no client that it takes files, an `@path`
-    /// stays text, and `read_file` refuses an image file as a binary file.
+    /// `false`: efrd takes no file and tells no client that it takes files, a prompt
+    /// with an `@path` that names a file does not go, and `read_file` refuses an image
+    /// file as a binary file.
     pub enabled: bool,
     /// The largest file of an attachment, in MiB, from 1 to 50. 50 MB is the file limit
     /// of the OpenAI Responses API. A larger value does not send a larger PDF as

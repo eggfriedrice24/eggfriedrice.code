@@ -231,7 +231,11 @@ async fn a_local_upload_names_an_absolute_path_or_a_paste_and_fits_the_limits() 
     let secret = Some(AttachmentOrigin::Path { path: home.join(".ssh/id_ed25519") });
     let refused = client.call::<AttachmentPutResult>(put(1, b"key", 0, 3, secret)).await;
     let Err(ClientError::Server { body }) = refused else { panic!("{refused:?}") };
-    assert_eq!(body.message, "the request is invalid: the file of the @path is a secret file");
+    assert_eq!(
+        (body.code, body.message.as_str()),
+        (ErrorCode::Invalid, "the file of the @path is a secret file")
+    );
+    assert_eq!(body.data, Some(serde_json::json!({ "secret_file": true })));
     let big = vec![0_u8; CHUNK_BYTES as usize + 1];
     let over =
         client.call::<AttachmentPutResult>(put(1, &big, 0, big.len(), at_path(&daemon))).await;

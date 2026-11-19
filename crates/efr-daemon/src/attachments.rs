@@ -41,9 +41,6 @@ pub(crate) mod uploads;
 
 pub(crate) use self::store::ATTACHMENTS_DIR;
 
-/// One MiB, the unit of `attachments.max_file_mib`.
-const MIB: u64 = 1024 * 1024;
-
 /// The store of the attachments that the conversations use, in the data dir of `dirs`,
 /// with the limits of the latest `settings`, and the open uploads in its state dir that
 /// the prompts take. Both share one decode at a time.
@@ -64,7 +61,7 @@ pub(crate) fn store(
 pub(crate) fn limits(settings: &Settings) -> Option<AttachmentLimits> {
     let attachments = &settings.attachments;
     attachments.enabled.then(|| AttachmentLimits {
-        max_file_bytes: u64::from(attachments.max_file_mib) * MIB,
+        max_file_bytes: u64::from(attachments.max_file_mib) * efr_stdx::text::MIB,
         max_per_message: attachments.max_per_message,
         chunk_bytes: CHUNK_BYTES,
         max_edge_px: attachments.max_edge_px,

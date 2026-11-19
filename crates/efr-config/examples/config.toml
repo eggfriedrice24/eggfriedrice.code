@@ -216,8 +216,8 @@
 [attachments]
 # The files that you attach to a prompt with @path in a , line, with a paste, or with
 # the plus button of the phone, and the image files that the model reads with
-# read_file. false: efrd takes no file, an @path stays text, and read_file refuses an
-# image file as a binary file.
+# read_file. false: efrd takes no file, a prompt with an @path that names a file does
+# not go, and read_file refuses an image file as a binary file.
 # enabled = true
 
 # The largest file of an attachment, in MiB, from 1 to 50. A PDF goes to a model as

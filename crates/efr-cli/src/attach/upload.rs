@@ -14,9 +14,9 @@ use std::io::SeekFrom;
 use efr_protocol::{
     AttachmentDiscard, AttachmentDiscardResult, AttachmentLimits, AttachmentOrigin, AttachmentPut,
     AttachmentPutResult, Base64Bytes, ErrorCode, Method, MissingUploads, PromptSend,
-    PromptSendResult, UploadId,
+    PromptSendResult, SecretFile, UploadId,
 };
-use efr_stdx::text::byte_size;
+use efr_stdx::text::{MIB, byte_size};
 use efr_transport::client::{Client, ClientError};
 use serde::Deserialize as _;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
@@ -107,7 +107,7 @@ fn missing_uploads(error: &ClientError) -> Option<Vec<UploadId>> {
 
 /// The limits of `limits` when `files` fit in them; else the note of the first limit
 /// that they break.
-fn checked(
+pub(super) fn checked(
     limits: Option<&AttachmentLimits>,
     files: &[Found],
 ) -> Result<AttachmentLimits, Failure> {
@@ -124,11 +124,13 @@ fn checked(
         )));
     }
     if let Some(file) = files.iter().find(|file| file.bytes > limits.max_file_bytes) {
+        // NOTE: the limit in the number of the key, so 50 MiB is not `52 MB`.
+        let limit = limits.max_file_bytes;
+        let limit = if limit % MIB == 0 { format!("{} MB", limit / MIB) } else { byte_size(limit) };
         return Err(Failure::NotAttached(format!(
-            "not attached: {} is {}. The limit is {} (attachments.max_file_mib).",
+            "not attached: {} is {}. The limit is {limit} (attachments.max_file_mib).",
             file.typed,
             byte_size(file.bytes),
-            byte_size(limits.max_file_bytes)
         )));
     }
     Ok(*limits)
@@ -163,11 +165,21 @@ async fn upload(client: &Client, id: UploadId, file: &Found, chunk: u64) -> Resu
         let result = match client.call::<AttachmentPutResult>(Method::AttachmentPut(put)).await {
             Ok(result) => result,
             Err(ClientError::Server { body }) => {
-                return Err(Failure::NotAttached(format!(
-                    "not attached: {} ({})",
-                    file.typed,
-                    crate::format::one_line(&body.message)
-                )));
+                let secret = body
+                    .data
+                    .as_ref()
+                    .and_then(|data| SecretFile::deserialize(data).ok())
+                    .is_some_and(|data| data.secret_file);
+                let note = if secret {
+                    format!("not attached: {} is a secret file.", file.typed)
+                } else {
+                    format!(
+                        "not attached: {} ({})",
+                        file.typed,
+                        crate::format::one_line(&body.message)
+                    )
+                };
+                return Err(Failure::NotAttached(note));
             }
             Err(error) => return Err(Failure::Client(error)),
         };

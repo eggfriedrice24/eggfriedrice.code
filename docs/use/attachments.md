@@ -51,7 +51,8 @@ nothing and exits with code 2:
 | `not attached: shot.png is 34 MB. The limit is 20 MB (attachments.max_file_mib).` | The file is too large. |
 | `not attached: 12 files. The limit is 10 for one prompt (attachments.max_per_message).` | The prompt names too many files. |
 | `not attached: efrd does not take attachments (attachments.enabled, or an efrd before 0.0.13).` | efrd takes no files. |
-| `not attached: <path> (<reason>)` | efrd refused the file, such as a secret file, or efr cannot read it. |
+| `not attached: config/.env is a secret file.` | The file is in the class "Secrets" (see below). |
+| `not attached: <path> (<reason>)` | efrd refused the file for another reason, or efr cannot read it. |
 
 The line stays in the history of zsh, so you can fix it and send it again.
 
@@ -176,7 +177,7 @@ the copy, which is the file as it was when you sent the prompt.
 
 | Key | Default | What it sets |
 |---|---|---|
-| `enabled` | `true` | `false`: efrd takes no file, an `@path` stays text, and `read_file` refuses an image |
+| `enabled` | `true` | `false`: efrd takes no file, a prompt with an `@path` that names a file does not go, and `read_file` refuses an image |
 | `max_file_mib` | `20` | the largest file, from 1 to 50 MiB |
 | `max_per_message` | `10` | the most files of one prompt, from 1 to 20 |
 | `max_edge_px` | `2000` | the longest edge of an image that a model gets |

@@ -37,6 +37,14 @@ pub struct AttachmentPut {
     pub origin: Option<AttachmentOrigin>,
 }
 
+/// The `data` of the `invalid` error of an `attachment.put` whose `@path` names a file
+/// of the secret class: `{"secret_file": true}`, so a client says so in its own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SecretFile {
+    /// Always true.
+    pub secret_file: bool,
+}
+
 /// The result of `attachment.put`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AttachmentPutResult {

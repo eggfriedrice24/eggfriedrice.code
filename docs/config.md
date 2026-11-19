@@ -129,7 +129,7 @@ The files that go with a prompt: their limits and the paste of an image.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `enabled` | `true` | live | `false`: efrd takes no file and tells no client that it takes files, an `@path` stays text, and `read_file` refuses an image file as a binary file. |
+| `enabled` | `true` | live | `false`: efrd takes no file and tells no client that it takes files, a prompt with an `@path` that names a file does not go, and `read_file` refuses an image file as a binary file. |
 | `max_file_mib` | `20` | live | The largest file of an attachment, in MiB, from 1 to 50. 50 MB is the file limit of the OpenAI Responses API. A larger value does not send a larger PDF as content: a PDF goes as content only up to 5 MiB and 100 pages. |
 | `max_per_message` | `10` | live | The most attachments of one prompt, from 1 to 20. |
 | `max_edge_px` | `2000` | live | The longest edge in pixels of an image that a model gets, from 256 to 2576. efrd makes a larger PNG or JPEG smaller before a model gets it; 2576 is the largest edge that Claude reads. |

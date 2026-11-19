@@ -102,7 +102,7 @@ pub use methods::admin_status::{
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::attachment_discard::{AttachmentDiscard, AttachmentDiscardResult};
-pub use methods::attachment_put::{AttachmentPut, AttachmentPutResult};
+pub use methods::attachment_put::{AttachmentPut, AttachmentPutResult, SecretFile};
 pub use methods::call_background::{CallBackground, CallBackgroundResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
 pub use methods::conversation_context::{

@@ -9,7 +9,9 @@
 //! client is the user's own `efr`.
 
 use efr_permissions::PathClass;
-use efr_protocol::{AttachmentOrigin, AttachmentPut, NAME_MAX_BYTES};
+use efr_protocol::{
+    AttachmentOrigin, AttachmentPut, ErrorBody, ErrorCode, NAME_MAX_BYTES, SecretFile,
+};
 use efr_transport::{ConnectionContext, Responder};
 
 use crate::DaemonError;
@@ -88,7 +90,11 @@ fn origin(
             let scratch = state.dirs.data().join(SCRATCH_DIR);
             let class = state.engine.borrow().locations().classify(&path, &scratch);
             if class == Some(PathClass::Secrets) {
-                return Err(invalid("the file of the @path is a secret file"));
+                let data = serde_json::json!(SecretFile { secret_file: true });
+                let body =
+                    ErrorBody::new(ErrorCode::Invalid, "the file of the @path is a secret file")
+                        .with_data(data);
+                return Err(DaemonError::Rejected { body });
             }
             Ok(AttachmentOrigin::Path { path })
         }

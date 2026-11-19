@@ -49,6 +49,9 @@ pub fn span(seconds: u64) -> String {
     }
 }
 
+/// One MiB, the unit of `attachments.max_file_mib`.
+pub const MIB: u64 = 1024 * 1024;
+
 /// A size in bytes, counted in thousands, with one decimal under 10 of its unit and
 /// none from 10: `512 B`, `2.0 KB`, `14 KB`, `2.1 MB`, `310 MB`, `1.2 GB`.
 pub fn byte_size(bytes: u64) -> String {
