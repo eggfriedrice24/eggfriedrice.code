@@ -4,7 +4,8 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 
 use super::{
-    NOTICE_BYTES_PER_TURN, NOTICES_PER_TURN, WakeWindow, more_notices, take_notices, wake_mode,
+    MAX_WAKE_DEPTH, NOTICE_BYTES_PER_TURN, NOTICES_PER_TURN, WakeWindow, more_notices, next_depth,
+    take_notices, wake_mode,
 };
 use crate::JobNoticeInput;
 use crate::testing::{conversation_id, job_info};
@@ -49,6 +50,18 @@ fn a_seeded_window_counts_the_starts_before_a_restart() {
 #[test]
 fn a_limit_of_zero_never_wakes() {
     assert!(!WakeWindow::default().allows(at(0), 0));
+}
+
+/// A wake turn is one deeper than the deepest job turn of its notices, so a batch of a
+/// prompt's job and a wake turn's job never makes the chain shorter.
+#[rstest]
+#[case(&[0], 1)]
+#[case(&[1], MAX_WAKE_DEPTH)]
+#[case(&[0, 1], MAX_WAKE_DEPTH)]
+#[case(&[1, 0], MAX_WAKE_DEPTH)]
+#[case(&[u8::MAX], u8::MAX)]
+fn a_wake_turn_is_one_deeper_than_its_deepest_job(#[case] depths: &[u8], #[case] want: u8) {
+    assert_eq!(next_depth(depths.iter().copied()), want);
 }
 
 #[rstest]

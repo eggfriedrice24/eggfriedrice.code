@@ -384,14 +384,20 @@ turns.
   sent no prompt, and it names the job turn's directory as where the turn works), it
   runs with the origin, the settings and the directory of the job's turn, and its
   `job_notice` events say `woke`. It starts only when the actor ran the job's turn and
-  that turn was no wake turn (a job of a wake turn never wakes, so wake turns never
-  chain), the model did not stop the job (it read the output in the tool result) and
+  that turn was no wake turn of the depth `wake::MAX_WAKE_DEPTH` (2), the model did not
+  stop the job (it read the output in the tool result) and
   efrd did not stop it because full mode went off (`full_off`; such a notice and the
   one of a job that the model stopped record no `job_notice_held` and ride in the next
   turn), and both `jobs.max_wakes_per_hour` (`ConversationConfig::max_wakes_per_hour`,
   counted over the stored starts of the last hour, so a restart keeps it) and the
   daemon-wide limit
-  (`Toolbox::wake_allowed`) allow one more. The wake turn runs in the mode of the
+  (`Toolbox::wake_allowed`) allow one more. The depth rule (v0.0.13.1): a job of a
+  prompt's turn wakes with depth 1, a job of that wake turn wakes once more with depth
+  2 so that the model can report its end, and a job of a wake turn of depth 2 never
+  wakes (`job_notice_held` with `wake_turn_job`), so a chain of wake turns always ends.
+  A wake turn's depth is one more than the deepest job turn of its notices
+  (`wake::next_depth`), and the block of the turn of depth 2 says that its jobs report
+  only with the next prompt (`preamble::LAST_WAKE_RULE`). The wake turn runs in the mode of the
   newest turn that a prompt started, or of the job's turn when no prompt came since,
   in every mode: outside `auto` its calls ask as in any turn of that mode. A wake turn
   of a job of a phone turn (a remote origin) never runs in a looser mode than that

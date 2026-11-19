@@ -6,8 +6,10 @@
 //! message, after the prompt. When the conversation is idle, a notice starts a wake
 //! turn, within these limits:
 //!
-//! - the job's turn is known to this actor and was no wake turn itself (a job of a
-//!   wake turn never wakes, so wake turns never chain);
+//! - the job's turn is known to this actor and was no wake turn of the depth
+//!   [`wake::MAX_WAKE_DEPTH`]: a job of a prompt's turn wakes, a job of that wake turn
+//!   wakes once more, so that the model can report its end, and a job of the second
+//!   wake turn never wakes, so a chain of wake turns always ends;
 //! - the model did not stop the job (it read the output in the tool result);
 //! - `jobs.max_wakes_per_hour` of the conversation and the daemon-wide limit
 //!   (`Toolbox::wake_allowed`) allow one more.
@@ -37,8 +39,8 @@ struct JobStart {
     origin: Origin,
     mode: Mode,
     cwd: PathBuf,
-    /// True when job notices started that turn.
-    wake: bool,
+    /// Where that turn is in its chain of wake turns: 0 when a prompt started it.
+    depth: u8,
 }
 
 /// The notices of the conversation's jobs, and what decides whether one wakes it.
@@ -87,11 +89,12 @@ impl Notices {
     /// for the notices of the jobs it started, and the notices it did not take.
     pub(super) fn ended(&mut self, spec: &TurnSpec, end: &mut TurnEnd) {
         let wake = spec.is_wake();
+        let depth = spec.wake_depth();
         if let Some(mode) = end.mode {
             for job in &end.jobs {
                 self.starts.insert(
                     job.id.clone(),
-                    JobStart { origin: spec.origin, mode, cwd: end.cwd.clone(), wake },
+                    JobStart { origin: spec.origin, mode, cwd: end.cwd.clone(), depth },
                 );
             }
             if !wake {
@@ -122,7 +125,7 @@ impl Notices {
             // NOTE: a job whose turn this actor did not run started before efrd
             // restarted; its notice never wakes.
             None => Some(HeldReason::DaemonRestart),
-            Some(start) if start.wake => Some(HeldReason::WakeTurnJob),
+            Some(start) if start.depth >= wake::MAX_WAKE_DEPTH => Some(HeldReason::WakeTurnJob),
             Some(_) => None,
         }
     }
@@ -215,7 +218,10 @@ impl ConversationActor {
             recent_commands: Vec::new(),
             sent_at: now,
             settings,
-            kind: TurnKind::Wake { cwd: first.cwd.clone() },
+            kind: TurnKind::Wake {
+                cwd: first.cwd.clone(),
+                depth: wake::next_depth(wakeable.iter().map(|start| start.depth)),
+            },
             notices: Vec::new(),
             more_notices: 0,
             carried: self.notices.carried.clone(),

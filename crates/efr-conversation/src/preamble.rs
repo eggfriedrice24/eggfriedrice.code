@@ -19,7 +19,9 @@
 //!
 //! A turn that job notices started (a wake turn) has no prompt: its block says so in
 //! its first line, and it names the directory of the job's turn as where the turn
-//! works, not as the user's shell.
+//! works, not as the user's shell. The last wake turn of a chain
+//! ([`crate::wake::MAX_WAKE_DEPTH`]) also says that a job that it starts reports only
+//! with the user's next prompt ([`LAST_WAKE_RULE`]).
 //!
 //! The list of the modes names `full` only when the user allowed full mode
 //! (`permissions.allow_full`) or the turn runs in it. With full mode off the preamble is
@@ -107,6 +109,9 @@ pub(crate) struct LiveState {
     /// True for a turn that job notices started (a wake turn): the user sent no prompt,
     /// and the turn works where the job's turn worked, not in the user's shell.
     pub(crate) wake: bool,
+    /// True for the last wake turn of a chain ([`crate::wake::MAX_WAKE_DEPTH`]): the
+    /// notices of the jobs that it starts wait for the user's next prompt.
+    pub(crate) last_wake: bool,
     /// The provider and the model of the turn before, when this turn is the first on
     /// another one: the block says so once.
     pub(crate) switched_from: Option<SwitchedModel>,
@@ -138,6 +143,7 @@ impl fmt::Debug for LiveState {
             .field("effort", &self.effort)
             .field("full_allowed", &self.full_allowed)
             .field("wake", &self.wake)
+            .field("last_wake", &self.last_wake)
             .field("web", &self.web)
             .finish_non_exhaustive()
     }
@@ -159,6 +165,11 @@ impl LiveState {
                 "This turn works in {}, where the job's turn worked.",
                 self.cwd.display()
             );
+            // NOTE: only the last wake turn of a chain gets this line, so the blocks of
+            // the other wake turns stay byte for byte what they were before it.
+            if self.last_wake {
+                text.push_str(LAST_WAKE_RULE);
+            }
         } else {
             text.push_str(CURRENT_RULE);
             let _ = write!(text, "The user's shell is in {}", self.cwd.display());
@@ -323,6 +334,16 @@ block is current; an older one shows the state at its own prompt.
 const WAKE_RULE: &str = "\
 A job notice started this turn; the user sent no prompt. The newest live_state block is \
 current.
+";
+
+/// The line of the last wake turn of a chain, after the directory: a job that it starts
+/// starts no turn, so the model must not promise the user a report of it. Without the
+/// line, the model said "it runs for 60 minutes" of a job that ended at once, and the
+/// user never heard of the end.
+const LAST_WAKE_RULE: &str = "\
+A job that you start in this turn starts no turn of its own: its notices wait for the \
+user's next prompt. Do not say that you will report its result; tell the user that you \
+get it with their next prompt.
 ";
 
 /// The line of full mode in the list while the daemon does not allow it. Only the user

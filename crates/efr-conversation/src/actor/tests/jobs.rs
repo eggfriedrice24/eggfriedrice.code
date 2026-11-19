@@ -599,15 +599,33 @@ async fn full_off_stop_starts_no_wake_turn() {
     );
 }
 
+/// The words of the block of the last wake turn of a chain.
+const LAST_WAKE: &str = "A job that you start in this turn starts no turn of its own";
+
+/// RC4 of v0.0.13: a job of a wake turn ended after 0 s, and the model never heard of
+/// it. Now the job of the first wake turn wakes once more, and only a job of that
+/// second wake turn holds its notices, so the chain still ends.
 #[tokio::test]
-async fn job_started_in_wake_turn_never_wakes() {
-    let (mut h, _, _) = with_job(auto(), vec![job("cargo build"), (DONE, Value::Null)]).await;
+async fn job_of_a_wake_turn_wakes_once_more_and_the_next_one_holds() {
+    let later =
+        vec![job("cargo build"), (DONE, Value::Null), job("cargo test"), (DONE, Value::Null)];
+    let (mut h, script, _) = with_job(auto(), later).await;
     notify(&h, ended(&h, 1, 900, true)).await;
     wake(&mut h).await;
-    assert_eq!(h.toolbox.invoked().len(), 2, "the wake turn started j2");
+    assert_eq!(h.toolbox.invoked().len(), 2, "the first wake turn started j2");
+    let first = first_texts(&script.requests().last().cloned().unwrap());
+    assert!(!first[0].contains(LAST_WAKE), "j2 reports back: {}", first[0]);
 
-    notify(&h, ended(&h, 2, 901, true)).await;
-    assert_eq!(held(&mut h, 901).await, HeldReason::WakeTurnJob);
+    let notice = ended(&h, 2, 901, true);
+    notify(&h, notice.clone()).await;
+    wake(&mut h).await;
+    assert_eq!(h.toolbox.invoked().len(), 3, "the second wake turn started j3");
+    let second = first_texts(&script.requests().last().cloned().unwrap());
+    assert!(second[0].contains(LAST_WAKE), "j3 reports with the next prompt: {}", second[0]);
+    assert_eq!(second[1], notice.text, "the model reads the end of j2");
+
+    notify(&h, ended(&h, 3, 902, true)).await;
+    assert_eq!(held(&mut h, 902).await, HeldReason::WakeTurnJob);
     assert_eq!(h.handle.state().await.unwrap().running, None);
 }
 

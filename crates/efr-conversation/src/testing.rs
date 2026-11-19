@@ -758,6 +758,7 @@ impl Setup {
             egress: efr_permissions::Egress::None,
             full_allowed: self.config.full_mode.allowed,
             wake: false,
+            last_wake: false,
             switched_from: None,
             web: crate::web::WebPlan::Off(crate::web::WhyOff::NoSupport),
         }

@@ -6,7 +6,7 @@ use efr_scope::Repo;
 use insta::assert_snapshot;
 use jiff::Timestamp;
 
-use super::{LiveState, WEB_OFF_MANUAL, WEB_OFF_SETTING, WEB_STORED};
+use super::{LAST_WAKE_RULE, LiveState, WEB_OFF_MANUAL, WEB_OFF_SETTING, WEB_STORED};
 use crate::web::{WebPlan, WhyOff};
 
 fn minimal() -> LiveState {
@@ -33,6 +33,7 @@ fn minimal() -> LiveState {
         egress: Egress::None,
         full_allowed: false,
         wake: false,
+        last_wake: false,
         switched_from: None,
         web: WebPlan::Off(WhyOff::NoSupport),
     }
@@ -79,7 +80,26 @@ fn wake_turn_preamble_names_no_prompt() {
     let text = state.render();
     assert!(!text.contains("sent this prompt"), "{text}");
     assert!(!text.contains("The user's shell is in"), "{text}");
+    assert!(!text.contains(LAST_WAKE_RULE), "only the last wake turn has it: {text}");
     assert_snapshot!(text);
+}
+
+/// The last wake turn of a chain (v0.0.13.1): the block tells the model that a job it
+/// starts now reports only with the user's next prompt, so it does not promise a
+/// report that never comes. The line comes after the directory of the job's turn.
+#[test]
+fn last_wake_turn_preamble_says_its_jobs_wait_for_a_prompt() {
+    let state = LiveState {
+        cwd: PathBuf::from("/home/u/p/efr"),
+        mode: Mode::Auto,
+        wake: true,
+        last_wake: true,
+        ..minimal()
+    };
+    let text = state.render();
+    let directory = text.find("where the job's turn worked.").expect("the directory line");
+    let rule = text.find(LAST_WAKE_RULE).expect("the rule of the last wake turn");
+    assert!(directory < rule, "{text}");
 }
 
 #[test]

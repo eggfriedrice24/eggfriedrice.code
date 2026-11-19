@@ -227,6 +227,9 @@ pub(crate) enum TurnKind {
     Wake {
         /// The user's directory when the job's turn started.
         cwd: PathBuf,
+        /// Where the turn is in its chain of wake turns, from 1 to
+        /// [`wake::MAX_WAKE_DEPTH`].
+        depth: u8,
     },
 }
 
@@ -234,6 +237,19 @@ impl TurnSpec {
     /// True for a turn that job notices started.
     pub(crate) fn is_wake(&self) -> bool {
         matches!(self.kind, TurnKind::Wake { .. })
+    }
+
+    /// Where the turn is in its chain of wake turns: 0 for a turn that a prompt started.
+    pub(crate) fn wake_depth(&self) -> u8 {
+        match self.kind {
+            TurnKind::Prompt => 0,
+            TurnKind::Wake { depth, .. } => depth,
+        }
+    }
+
+    /// True for the last wake turn of a chain: the notices of its jobs start no turn.
+    pub(crate) fn is_last_wake(&self) -> bool {
+        self.wake_depth() >= wake::MAX_WAKE_DEPTH
     }
 }
 
@@ -629,7 +645,7 @@ impl Turn {
         };
         // NOTE: a wake turn works where the job's turn worked, not where the user went
         // since; it has no context, so the hidden shell does not move.
-        if let TurnKind::Wake { cwd } = &self.spec.kind {
+        if let TurnKind::Wake { cwd, .. } = &self.spec.kind {
             self.cwd = cwd.clone();
         }
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
@@ -1334,6 +1350,7 @@ impl Turn {
             egress: self.shared.deps.engine.borrow().support().egress,
             full_allowed: self.config.full_mode.allowed,
             wake: self.spec.is_wake(),
+            last_wake: self.spec.is_last_wake(),
             switched_from: self.switched_from.clone(),
             web: self.web.plan,
         }

@@ -6,7 +6,7 @@
 //! end, so no test waits on a fixed time.
 //!
 //! A notice wakes an idle conversation only in `auto`, within the wake limits, and
-//! never for a job that a wake turn started or that ran when efrd restarted; a notice
+//! never for a job that a second wake turn started or that ran when efrd restarted; a notice
 //! that does not wake rides in the first message of the next turn that a prompt starts.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -609,15 +609,24 @@ async fn wake_limit_six_per_hour() {
     daemon.stop().await.unwrap();
 }
 
+/// The words of the block of the last wake turn of a chain.
+const LAST_WAKE: &str = "A job that you start in this turn starts no turn of its own";
+
+/// RC4 of v0.0.13: a job that a wake turn started ended at once, and the model never
+/// heard of it. Now its end wakes a second wake turn, and only the job of that second
+/// wake turn holds its notices for the next prompt, so the chain still ends.
 #[tokio::test]
-async fn wake_chain_stops_after_one_turn() {
+async fn wake_chain_stops_after_two_turns() {
     let setup = Setup::new();
     let fifo = setup.fifo("go");
     let model = Recorder::new(vec![
         job(&blocked(&fifo, "echo first")),
         None,
-        // The wake turn starts a job of its own.
+        // The first wake turn starts a job of its own, which ends at once.
         job("echo from-the-wake-turn"),
+        None,
+        // Its end wakes a second wake turn, which starts one more job.
+        job("echo from-the-second-wake-turn"),
         None,
         // The next prompt's turn.
         None,
@@ -626,22 +635,30 @@ async fn wake_chain_stops_after_one_turn() {
     let sent = prompt(&daemon, 1, "start it", Mode::Auto).await;
     let conversation = sent.conversation_id;
     release(&fifo).await;
-    let events = until_held(&daemon, conversation, "j2").await;
-    assert_eq!(held(&events), [("j2".to_owned(), HeldReason::WakeTurnJob)]);
+    let events = until_held(&daemon, conversation, "j3").await;
+    assert_eq!(held(&events), [("j3".to_owned(), HeldReason::WakeTurnJob)]);
     let starts = turn_starts(&events);
-    assert_eq!(starts.len(), 2, "the job of the wake turn woke nobody");
-    let started_in = events.iter().find_map(|envelope| match &envelope.event {
-        Event::JobStarted { job, turn_id, .. } if job.id.as_str() == "j2" => Some(*turn_id),
-        _ => None,
-    });
-    assert_eq!(started_in, Some(starts[1]));
+    assert_eq!(starts.len(), 3, "the job of the second wake turn woke nobody");
+    let started_in = |id: &str| {
+        events.iter().find_map(|envelope| match &envelope.event {
+            Event::JobStarted { job, turn_id, .. } if job.id.as_str() == id => Some(*turn_id),
+            _ => None,
+        })
+    };
+    assert_eq!(started_in("j2"), Some(starts[1]));
+    assert_eq!(started_in("j3"), Some(starts[2]));
+    let firsts = model.firsts();
+    assert!(!firsts[1][0].contains(LAST_WAKE), "j2 reports back: {:?}", firsts[1]);
+    assert!(firsts[2][0].contains(LAST_WAKE), "j3 waits for a prompt: {:?}", firsts[2]);
+    assert!(firsts[2][1].contains("from-the-wake-turn"), "the model reads j2's end");
     let sent = prompt(&daemon, 2, "and now?", Mode::Auto).await;
-    let events = until_turn_end(&daemon, sent.conversation_id, 3).await;
-    let last = *turn_starts(&events).last().unwrap();
+    let events = until_turn_end(&daemon, sent.conversation_id, 4).await;
+    let starts = turn_starts(&events);
+    let last = *starts.last().unwrap();
     let taken: Vec<(TurnId, String, bool)> =
         notices(&events).into_iter().map(|(turn, job, _, woke, _)| (turn, job, woke)).collect();
-    assert_eq!(taken[1..], [(last, "j2".to_owned(), false)]);
-    assert!(model.firsts()[2][2].contains("from-the-wake-turn"));
+    assert_eq!(taken[1..], [(starts[2], "j2".to_owned(), true), (last, "j3".to_owned(), false)]);
+    assert!(model.firsts()[3][2].contains("from-the-second-wake-turn"));
     daemon.stop().await.unwrap();
 }
 

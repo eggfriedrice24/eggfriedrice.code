@@ -597,7 +597,8 @@ impl Tool for ShellTool {
              name max_wakes, and at most 10; a conversation gets at most 6 notices in one \
              hour, unless the user changed these limits. After the last notice the job \
              runs on until it ends or its time limit passes; job_stop ends it. The notice \
-             of the job's end always comes. In auto, a command that needs a login cannot \
+             of the job's end always comes; when the live_state block says that it waits \
+             for the user's next prompt, it starts no turn. In auto, a command that needs a login cannot \
              run as a job; run it in the foreground with timeout_seconds. Processes that a \
              normal call starts with &, nohup or setsid stop when the call ends. The \
              answer has the output, the exit code and the directory after the command. A \

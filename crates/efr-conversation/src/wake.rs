@@ -2,7 +2,7 @@
 //! a wake turn runs in the mode of the newest prompt, at most `jobs.max_wakes_per_hour`
 //! times per hour in a conversation, and runs at most [`WAKE_TURN_MAX_CALLS`] tool calls. One turn
 //! takes at most [`NOTICES_PER_TURN`] notices and [`NOTICE_BYTES_PER_TURN`] bytes of
-//! their text.
+//! their text. A chain of wake turns is at most [`MAX_WAKE_DEPTH`] turns long.
 //!
 //! Pure: every function takes the time it needs, so the tests are tables of
 //! timestamps.
@@ -16,6 +16,21 @@ use crate::JobNoticeInput;
 
 /// The most tool calls of one turn that a job notice started. Then the turn ends.
 pub(crate) const WAKE_TURN_MAX_CALLS: usize = 20;
+
+/// The most wake turns in one chain. A job of a turn that a prompt started wakes the
+/// conversation with a wake turn of depth 1. A job of that wake turn wakes it once more,
+/// with depth 2, so that the model can tell the user how the job ended. The notices of a
+/// job of a wake turn of this depth never start a turn: they wait for the next prompt.
+/// Thus wake turns cannot chain on while nobody is there, and each of them also counts
+/// against the limits of the hour.
+pub(crate) const MAX_WAKE_DEPTH: u8 = 2;
+
+/// The depth of a wake turn that the notices of jobs of turns of `depths` start: one
+/// more than the deepest of them, so that a batch of notices never makes the chain
+/// shorter. A turn that a prompt started has depth 0.
+pub(crate) fn next_depth(depths: impl IntoIterator<Item = u8>) -> u8 {
+    depths.into_iter().max().unwrap_or(0).saturating_add(1)
+}
 
 /// What the model reads at the end of a wake turn that reached
 /// [`WAKE_TURN_MAX_CALLS`], and for each call of it that did not run.
