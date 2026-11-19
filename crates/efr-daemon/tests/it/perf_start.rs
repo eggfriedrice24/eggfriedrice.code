@@ -3,7 +3,8 @@
 //! and to the socket file. `just bench-perf` runs it in release.
 //!
 //! Each case gets one tree in cargo's target temp dir: `EFR_HOME`, a home, an
-//! `XDG_RUNTIME_DIR` of its own and the notify socket. The first start on the tree
+//! `XDG_RUNTIME_DIR` of its own and the notify socket, and a short runtime root
+//! (`EFR_RUNTIME_DIR`) in the system temp dir. The first start on the tree
 //! makes the database (or migrates nothing on a seeded one), the launcher copy and the
 //! runtime root; then five restarts follow on the same tree. The environment is
 //! cleared but for these, `PATH=/usr/bin:/bin` and `EFR_LOG=info`, so the process
@@ -110,23 +111,32 @@ impl Binaries {
 /// One fresh tree of a start.
 struct Tree {
     dir: TempDir,
+    /// The runtime root (`EFR_RUNTIME_DIR`), in the system temp dir: below cargo's
+    /// target temp dir of a CI runner, the path of `daemon.sock` is longer than the 107
+    /// bytes that a Unix socket holds, and efrd does not start.
+    runtime: TempDir,
 }
 
 impl Tree {
     fn new(config: &str, store: Option<&Path>) -> Tree {
         let dir = tempfile::tempdir_in(base()).unwrap();
-        for name in ["home", "xdg", "efr", "efr/config", "efr/data", "efr/state", "efr/runtime"] {
+        for name in ["home", "xdg", "efr", "efr/config", "efr/data", "efr/state"] {
             std::fs::DirBuilder::new().mode(0o700).create(dir.path().join(name)).unwrap();
         }
         std::fs::write(dir.path().join("efr/config/config.toml"), config).unwrap();
         if let Some(store) = store {
             std::fs::copy(store, dir.path().join("efr/data/efr.sqlite")).unwrap();
         }
-        Tree { dir }
+        let runtime = tempfile::Builder::new().prefix("efr-start").tempdir().unwrap();
+        Tree { dir, runtime }
     }
 
     fn path(&self, name: &str) -> PathBuf {
         self.dir.path().join(name)
+    }
+
+    fn runtime(&self) -> &Path {
+        self.runtime.path()
     }
 }
 
@@ -169,6 +179,7 @@ fn efrd(binaries: &Binaries, tree: &Tree) -> std::process::Command {
         .env("HOME", tree.path("home"))
         .env("XDG_RUNTIME_DIR", tree.path("xdg"))
         .env("EFR_HOME", tree.path("efr"))
+        .env("EFR_RUNTIME_DIR", tree.runtime())
         .env("EFR_LOG", "info")
         .current_dir(tree.path("home"))
         .stdin(Stdio::null())
@@ -182,7 +193,7 @@ fn start(binaries: &Binaries, tree: &Tree) -> Start {
     let notify_path = tree.path("notify.sock");
     let notify = UnixDatagram::bind(&notify_path).unwrap();
     notify.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
-    let runtime = tree.path("efr/runtime");
+    let runtime = tree.runtime().to_path_buf();
     let socket = runtime.join("daemon.sock");
     let mut command = efrd(binaries, tree);
     command.env("NOTIFY_SOCKET", &notify_path);
@@ -325,8 +336,9 @@ fn measure(report: &mut Report, binaries: &Binaries, case: &Case, store: Option<
     let mut available = 0;
     let mut bus_on = 0;
     for run in 0..=RUNS {
-        for gone in ["notify.sock", "efr/runtime/daemon.sock", "efr/runtime/daemon.json"] {
-            let _ = std::fs::remove_file(tree.path(gone));
+        let _ = std::fs::remove_file(tree.path("notify.sock"));
+        for gone in ["daemon.sock", "daemon.json"] {
+            let _ = std::fs::remove_file(tree.runtime().join(gone));
         }
         let start = start(binaries, &tree);
         if run == 0 {
