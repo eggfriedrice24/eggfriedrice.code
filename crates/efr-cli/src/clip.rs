@@ -25,6 +25,7 @@ use std::time::{Duration, SystemTime};
 
 use efr_protocol::Base64Bytes;
 use efr_stdx::env::Var;
+use efr_stdx::media::MediaType;
 use efr_stdx::text::{MIB, byte_size};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
@@ -34,13 +35,12 @@ use rustix::io::Errno;
 use rustix::termios::{
     InputModes, LocalModes, OptionalActions, SpecialCodeIndex, Termios, tcgetattr, tcsetattr,
 };
-use serde::Deserialize as _;
-use serde::de::IntoDeserializer as _;
 
-use crate::attach::CLIPS_DIR;
+use crate::attach::{CLIPS_DIR, ClipName};
 use crate::cli::ClipArgs;
 use crate::context::Context;
 use crate::error::CliError;
+use crate::format::attach::file_limit;
 use crate::output::Output;
 
 /// The start of an OSC 5522 packet.
@@ -50,8 +50,8 @@ const PREFIX: &[u8] = b"\x1b]5522;";
 const PASTE_NAME: &str = "UGFzdGUgZXZlbnQ=";
 
 /// The image types that a paste takes, best first.
-const IMAGE_TYPES: [(&str, &str); 4] =
-    [("image/png", "png"), ("image/jpeg", "jpg"), ("image/webp", "webp"), ("image/gif", "gif")];
+const IMAGE_TYPES: [MediaType; 4] =
+    [MediaType::Png, MediaType::Jpeg, MediaType::Webp, MediaType::Gif];
 
 /// The text type that a paste takes; Ghostty gives the text for each alias of it.
 const TEXT_TYPE: &str = "text/plain";
@@ -91,10 +91,9 @@ const CLIP_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// Ctrl+C, as a byte with the terminal's signals off.
 const CTRL_C: u8 = 0x03;
 
-/// The texts of the paste (spec 6.3).
+/// The texts of the paste (spec 6.3). The zsh plugin shows `STOPPED` itself too
+/// (`_efr_clip_stopped`), when `efr clip` gives no answer.
 const STOPPED: &str = "efr: the clipboard read stopped. Nothing was added.";
-const NO_FIRST_BYTE: &str = "efr: the terminal sent no clipboard data in 3 s. Nothing was added.";
-const TOO_LONG: &str = "efr: the clipboard read took more than 30 s. Nothing was added.";
 const DENIED: &str = "efr: the terminal does not allow clipboard reads (clipboard-read). \
                       Pastes on , lines are text again in this shell.";
 const NO_PRIMARY: &str = "efr: this clipboard is not available (primary selection).";
@@ -119,45 +118,107 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &ClipArgs) -> Res
     let answer = tokio::task::spawn_blocking(move || match event {
         Some(event) => read(&tty, &event, limit, &*clock)
             .map(|got| answer(got, &clips, shell, SystemTime::from(clock.now()))),
-        None => drain(&tty, &*clock).map(|typed| Answer { kind: "", text: Vec::new(), typed }),
+        None => drain(&tty, &*clock).map(|typed| Answer {
+            kind: Kind::Drained,
+            text: Vec::new(),
+            typed,
+        }),
     })
     .await;
     let answer = match answer {
         Ok(Ok(answer)) => answer,
         Ok(Err(error)) => {
             tracing::debug!(error = %error, "the clipboard read failed");
-            Answer::failed(STOPPED)
+            Answer::failed(Failure::Stopped)
         }
         Err(error) => {
             tracing::debug!(error = %error, "the clipboard read stopped");
-            Answer::failed(STOPPED)
+            Answer::failed(Failure::Stopped)
         }
     };
     out.out_bytes(&answer.bytes())
 }
 
+/// What the plugin does with an answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Puts `@` and the path of a clip file into the line.
+    File,
+    /// Puts the text into the line.
+    Text,
+    /// Shows the message.
+    Error,
+    /// Shows the message; a second failed read turns the paste off in the shell.
+    Failed,
+    /// Shows the message and turns the paste off in the shell.
+    Off,
+    /// Nothing: the drain of a late reply ended.
+    Drained,
+}
+
+impl Kind {
+    /// The word of the kind in the answer.
+    fn as_str(self) -> &'static str {
+        match self {
+            Kind::File => "file",
+            Kind::Text => "text",
+            Kind::Error => "error",
+            Kind::Failed => "failed",
+            Kind::Off => "off",
+            Kind::Drained => "",
+        }
+    }
+}
+
+/// Why a read failed, with the text that the plugin shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Failure {
+    /// The read stopped: Ctrl+C, an error of the terminal or a broken reply.
+    Stopped,
+    /// No byte came within [`FIRST_BYTE`].
+    NoFirstByte,
+    /// The reply took more than [`TOTAL`].
+    TooLong,
+}
+
+impl Failure {
+    fn text(self) -> String {
+        match self {
+            Failure::Stopped => STOPPED.to_owned(),
+            Failure::NoFirstByte => format!(
+                "efr: the terminal sent no clipboard data in {} s. Nothing was added.",
+                FIRST_BYTE.as_secs()
+            ),
+            Failure::TooLong => format!(
+                "efr: the clipboard read took more than {} s. Nothing was added.",
+                TOTAL.as_secs()
+            ),
+        }
+    }
+}
+
 /// What the plugin gets.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
-    kind: &'static str,
+    kind: Kind,
     text: Vec<u8>,
     typed: Vec<u8>,
 }
 
 impl Answer {
-    fn failed(message: &str) -> Answer {
-        Answer { kind: "failed", text: message.into(), typed: Vec::new() }
+    fn failed(failure: Failure) -> Answer {
+        Answer { kind: Kind::Failed, text: failure.text().into_bytes(), typed: Vec::new() }
     }
 
-    fn message(kind: &'static str, message: &str, typed: Vec<u8>) -> Answer {
-        Answer { kind, text: message.into(), typed }
+    fn message(kind: Kind, message: &str) -> Answer {
+        Answer { kind, text: message.into(), typed: Vec::new() }
     }
 
     /// `<kind> NUL <text> NUL <typed>`, with no NUL in the text.
     fn bytes(&self) -> Vec<u8> {
-        let mut bytes =
-            Vec::with_capacity(self.kind.len() + self.text.len() + self.typed.len() + 2);
-        bytes.extend_from_slice(self.kind.as_bytes());
+        let kind = self.kind.as_str();
+        let mut bytes = Vec::with_capacity(kind.len() + self.text.len() + self.typed.len() + 2);
+        bytes.extend_from_slice(kind.as_bytes());
         bytes.push(0);
         bytes.extend(self.text.iter().filter(|&&byte| byte != 0));
         bytes.push(0);
@@ -173,33 +234,32 @@ fn answer(got: Got, clips: &Path, shell: u32, now: SystemTime) -> Answer {
     let file = |extension: &str, bytes: &[u8]| match write_clip(clips, shell, extension, bytes, now)
     {
         Ok(path) => Answer {
-            kind: "file",
+            kind: Kind::File,
             text: path.into_os_string().into_encoded_bytes(),
             typed: Vec::new(),
         },
         Err(error) => {
             tracing::debug!(error = %error, "the clip file could not be written");
-            Answer::failed(STOPPED)
+            Answer::failed(Failure::Stopped)
         }
     };
     let answer = match end {
-        End::Image { extension, bytes } => file(extension, &bytes),
+        End::Image { media, bytes } => file(media.extension(), &bytes),
         End::Text(text) if text.len() > TEXT_IN_LINE_MAX => file("txt", &text),
-        End::Text(text) => Answer { kind: "text", text, typed: Vec::new() },
-        End::Nothing => Answer::message("error", NOTHING, Vec::new()),
+        End::Text(text) => Answer { kind: Kind::Text, text, typed: Vec::new() },
+        End::Nothing => Answer::message(Kind::Error, NOTHING),
         End::TooLarge { bytes, limit } => {
-            let limit =
-                if limit % MIB == 0 { format!("{} MB", limit / MIB) } else { byte_size(limit) };
             let message = format!(
-                "efr: the clipboard image is {}. The limit is {limit} (attachments.max_file_mib). \
+                "efr: the clipboard image is {}. The limit is {} (attachments.max_file_mib). \
                  Nothing was added.",
-                byte_size(bytes)
+                byte_size(bytes),
+                file_limit(limit),
             );
-            Answer::message("error", &message, Vec::new())
+            Answer::message(Kind::Error, &message)
         }
-        End::Denied => Answer::message("off", DENIED, Vec::new()),
-        End::NoPrimary => Answer::message("error", NO_PRIMARY, Vec::new()),
-        End::Failed(message) => Answer::failed(message),
+        End::Denied => Answer::message(Kind::Off, DENIED),
+        End::NoPrimary => Answer::message(Kind::Error, NO_PRIMARY),
+        End::Failed(failure) => Answer::failed(failure),
     };
     Answer { typed, ..answer }
 }
@@ -207,8 +267,8 @@ fn answer(got: Got, clips: &Path, shell: u32, now: SystemTime) -> Answer {
 /// How a read ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum End {
-    /// An image of the type with `extension`.
-    Image { extension: &'static str, bytes: Vec<u8> },
+    /// An image of the type `media`.
+    Image { media: MediaType, bytes: Vec<u8> },
     /// Text and no image.
     Text(Vec<u8>),
     /// The clipboard had neither.
@@ -219,8 +279,8 @@ enum End {
     Denied,
     /// The clipboard is not there (`ENOSYS`), such as a primary selection.
     NoPrimary,
-    /// The read failed, with the message.
-    Failed(&'static str),
+    /// The read failed.
+    Failed(Failure),
 }
 
 /// What a read gave: how it ended, and the keys typed meanwhile.
@@ -254,7 +314,7 @@ impl Event {
             }
             match packet.key("status") {
                 Some("DATA") if packet.mime().as_deref() == Some(".") => {
-                    let listing = decode(&packet.payload).unwrap_or_default();
+                    let listing = packet.data().unwrap_or_default();
                     event.types = String::from_utf8_lossy(&listing)
                         .split_whitespace()
                         .map(str::to_owned)
@@ -268,8 +328,8 @@ impl Event {
     }
 
     /// The image type to ask for, the best one that the clipboard has.
-    fn image(&self) -> Option<(&'static str, &'static str)> {
-        IMAGE_TYPES.into_iter().find(|(mime, _)| self.types.iter().any(|kind| kind == mime))
+    fn image(&self) -> Option<MediaType> {
+        IMAGE_TYPES.into_iter().find(|media| self.types.iter().any(|kind| kind == media.as_str()))
     }
 
     fn text(&self) -> bool {
@@ -289,17 +349,9 @@ impl Event {
         request.extend_from_slice(b":name=");
         request.extend_from_slice(PASTE_NAME.as_bytes());
         request.push(b';');
-        request.extend_from_slice(encode(wanted.join(" ").as_bytes()).as_bytes());
+        request.extend_from_slice(Base64Bytes::encode(wanted.join(" ").as_bytes()).as_bytes());
         request.extend_from_slice(b"\x1b\\");
         request
-    }
-}
-
-/// `bytes` as standard base64, as the protocol writes `Base64Bytes`.
-fn encode(bytes: &[u8]) -> String {
-    match serde_json::to_value(Base64Bytes::new(bytes)) {
-        Ok(serde_json::Value::String(text)) => text,
-        _ => String::new(),
     }
 }
 
@@ -317,17 +369,14 @@ impl Packet {
 
     /// The type of a data packet, decoded.
     fn mime(&self) -> Option<String> {
-        let mime = decode(self.key("mime")?.as_bytes())?;
+        let mime = Base64Bytes::decode(self.key("mime")?)?;
         String::from_utf8(mime).ok()
     }
-}
 
-/// The bytes of the strict base64 text `text`; `None` when it is not.
-fn decode(text: &[u8]) -> Option<Vec<u8>> {
-    let text = std::str::from_utf8(text).ok()?;
-    let decoded: Result<Base64Bytes, serde::de::value::Error> =
-        Base64Bytes::deserialize(text.into_deserializer());
-    decoded.ok().map(Base64Bytes::into_bytes)
+    /// The payload, decoded; `None` when it is not strict base64.
+    fn data(&self) -> Option<Vec<u8>> {
+        Base64Bytes::decode(std::str::from_utf8(&self.payload).ok()?)
+    }
 }
 
 /// The packets of a stream of terminal bytes, piece by piece; each other byte is a key.
@@ -400,16 +449,26 @@ fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {
 /// The state of one reply as its packets come.
 #[derive(Debug)]
 struct Reply {
-    image: Option<(&'static str, &'static str)>,
+    image: Option<MediaType>,
     limit: u64,
     image_bytes: Vec<u8>,
     text: Vec<u8>,
-    /// The bytes of the image and of the text so far, also those that the drain
-    /// dropped.
-    counts: [u64; 2],
-    /// Why the rest of the reply is dropped: the size limit, the deadline or Ctrl+C.
-    dropping: Option<End>,
+    /// The bytes of the image so far, also those that the drain dropped.
+    image_count: u64,
+    /// The bytes of the text so far, also those that the drain dropped.
+    text_count: u64,
+    /// Why the rest of the reply is dropped.
+    dropping: Option<Dropping>,
     typed: Vec<u8>,
+}
+
+/// Why the rest of a reply is dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dropping {
+    /// The image or the text is over the size limit.
+    TooLarge,
+    /// The deadline passed, Ctrl+C came or a packet broke.
+    Failed(Failure),
 }
 
 /// What the read does after a packet or a key.
@@ -420,13 +479,14 @@ enum Next {
 }
 
 impl Reply {
-    fn new(image: Option<(&'static str, &'static str)>, limit: u64) -> Reply {
+    fn new(image: Option<MediaType>, limit: u64) -> Reply {
         Reply {
             image,
             limit,
             image_bytes: Vec::new(),
             text: Vec::new(),
-            counts: [0; 2],
+            image_count: 0,
+            text_count: 0,
             dropping: None,
             typed: Vec::new(),
         }
@@ -436,14 +496,14 @@ impl Reply {
     fn packet(&mut self, packet: &Packet) -> Next {
         match packet.key("status") {
             Some("DATA") => {
-                let Some(data) = decode(&packet.payload) else {
-                    return self.stop(End::Failed(STOPPED));
+                let Some(data) = packet.data() else {
+                    return self.stop(End::Failed(Failure::Stopped));
                 };
                 let mime = packet.mime();
-                let image = self.image.is_some_and(|(kind, _)| mime.as_deref() == Some(kind));
+                let image = self.image.is_some_and(|media| mime.as_deref() == Some(media.as_str()));
                 let (count, buffer) = match mime.as_deref() {
-                    _ if image => (&mut self.counts[0], &mut self.image_bytes),
-                    Some(TEXT_TYPE) => (&mut self.counts[1], &mut self.text),
+                    _ if image => (&mut self.image_count, &mut self.image_bytes),
+                    Some(TEXT_TYPE) => (&mut self.text_count, &mut self.text),
                     _ => return Next::Read,
                 };
                 *count += data.len() as u64;
@@ -453,7 +513,7 @@ impl Reply {
                 if *count > self.limit {
                     self.image_bytes = Vec::new();
                     self.text = Vec::new();
-                    self.dropping = Some(End::TooLarge { bytes: 0, limit: self.limit });
+                    self.dropping = Some(Dropping::TooLarge);
                 } else {
                     buffer.extend_from_slice(&data);
                 }
@@ -462,7 +522,7 @@ impl Reply {
             Some("DONE") => Next::Ended(self.finish()),
             Some("EPERM") => self.stop(End::Denied),
             Some("ENOSYS") => self.stop(End::NoPrimary),
-            Some(status) if status.starts_with('E') => self.stop(End::Failed(STOPPED)),
+            Some(status) if status.starts_with('E') => self.stop(End::Failed(Failure::Stopped)),
             _ => Next::Read,
         }
     }
@@ -475,7 +535,7 @@ impl Reply {
                 if self.dropping.is_some() {
                     return Next::Ended(self.finish());
                 }
-                self.dropping = Some(End::Failed(STOPPED));
+                self.dropping = Some(Dropping::Failed(Failure::Stopped));
                 continue;
             }
             if self.typed.len() < TYPED_MAX {
@@ -487,28 +547,35 @@ impl Reply {
 
     /// The whole deadline passed: the rest of the reply is dropped.
     fn too_long(&mut self) {
-        self.dropping.get_or_insert(End::Failed(TOO_LONG));
+        self.dropping.get_or_insert(Dropping::Failed(Failure::TooLong));
     }
 
     /// A packet that ends the reply with `end`, unless it is dropped already.
     fn stop(&mut self, end: End) -> Next {
-        Next::Ended(self.dropping.take().unwrap_or(end))
+        Next::Ended(self.dropping.take().map_or(end, |dropping| self.dropped(dropping)))
     }
 
     /// How the reply ends at its last packet or at the end of the drain.
     fn finish(&mut self) -> End {
-        match self.dropping.take() {
-            Some(End::TooLarge { limit, .. }) => {
-                End::TooLarge { bytes: self.counts[0].max(self.counts[1]), limit }
+        if let Some(dropping) = self.dropping.take() {
+            return self.dropped(dropping);
+        }
+        match self.image {
+            Some(media) if !self.image_bytes.is_empty() => {
+                End::Image { media, bytes: std::mem::take(&mut self.image_bytes) }
             }
-            Some(end) => end,
-            None => match self.image {
-                Some((_, extension)) if !self.image_bytes.is_empty() => {
-                    End::Image { extension, bytes: std::mem::take(&mut self.image_bytes) }
-                }
-                _ if !self.text.is_empty() => End::Text(std::mem::take(&mut self.text)),
-                _ => End::Nothing,
-            },
+            _ if !self.text.is_empty() => End::Text(std::mem::take(&mut self.text)),
+            _ => End::Nothing,
+        }
+    }
+
+    /// How a reply whose rest the read dropped for `dropping` ends.
+    fn dropped(&self, dropping: Dropping) -> End {
+        match dropping {
+            Dropping::TooLarge => {
+                End::TooLarge { bytes: self.image_count.max(self.text_count), limit: self.limit }
+            }
+            Dropping::Failed(failure) => End::Failed(failure),
         }
     }
 
@@ -531,7 +598,7 @@ impl Reply {
             self.too_long();
             return self.finish();
         }
-        End::Failed(if started { STOPPED } else { NO_FIRST_BYTE })
+        End::Failed(if started { Failure::Stopped } else { Failure::NoFirstByte })
     }
 
     /// Keeps the keys `typed` after the end of the reply.
@@ -554,14 +621,14 @@ fn read(tty: &Path, event: &str, limit: u64, clock: &dyn Clock) -> std::io::Resu
     match event.error.as_deref() {
         Some("EPERM") => return ended(End::Denied),
         Some("ENOSYS") => return ended(End::NoPrimary),
-        Some(_) => return ended(End::Failed(STOPPED)),
+        Some(_) => return ended(End::Failed(Failure::Stopped)),
         None => {}
     }
     if event.password.is_empty() {
-        return ended(End::Failed(STOPPED));
+        return ended(End::Failed(Failure::Stopped));
     }
     let image = event.image();
-    let mut wanted: Vec<&str> = image.iter().map(|(mime, _)| *mime).collect();
+    let mut wanted: Vec<&str> = image.iter().map(|media| media.as_str()).collect();
     if event.text() {
         wanted.push(TEXT_TYPE);
     }
@@ -590,7 +657,7 @@ fn read(tty: &Path, event: &str, limit: u64, clock: &dyn Clock) -> std::io::Resu
         let found = match packets.feed(&chunk[..read], &mut other) {
             Ok(found) => found,
             Err(Broken) => {
-                reply.dropping.get_or_insert(End::Failed(STOPPED));
+                reply.dropping.get_or_insert(Dropping::Failed(Failure::Stopped));
                 packets = Packets::default();
                 Vec::new()
             }
@@ -716,8 +783,9 @@ fn write_clip(
             continue;
         }
         let name = entry.file_name();
-        if let Some(number) = name.to_str().and_then(|name| clip_number(name, shell)) {
-            mine.push((number, entry.path()));
+        let clip = name.to_str().and_then(ClipName::parse).filter(|clip| clip.shell == shell);
+        if let Some(clip) = clip {
+            mine.push((clip.number, entry.path()));
         }
     }
     mine.sort_unstable();
@@ -725,19 +793,12 @@ fn write_clip(
     for (_, path) in &mine[..over] {
         remove(path);
     }
-    let next = mine.last().map_or(1, |(last, _)| last + 1);
-    let path = dir.join(format!("{shell}.{next}.{extension}"));
+    let number = mine.last().map_or(1, |(last, _)| last + 1);
+    let path = dir.join(ClipName { shell, number, extension }.to_string());
     let mut file =
         std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
     file.write_all(bytes)?;
     Ok(path)
-}
-
-/// The number of the clip file `name` of the shell `shell`, `<shell>.<n>.<ext>`.
-fn clip_number(name: &str, shell: u32) -> Option<u64> {
-    let (owner, rest) = name.split_once('.')?;
-    let (number, _) = rest.split_once('.')?;
-    (owner.parse::<u32>().ok()? == shell).then(|| number.parse().ok()).flatten()
 }
 
 fn remove(path: &Path) {

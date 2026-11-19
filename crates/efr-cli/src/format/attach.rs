@@ -18,10 +18,10 @@ use std::collections::HashMap;
 
 use efr_protocol::{Attachment, AttachmentId, AttachmentKind, WithheldReason};
 use efr_render::{RenderOptions, file_url_exact, text_width};
-use efr_stdx::text::byte_size;
+use efr_stdx::text::{MIB, byte_size};
 
 use super::route::Pieces;
-use super::{Tone, columns, one_line, paint};
+use super::{Tone, columns, hyperlink, one_line, paint};
 
 /// The mark at the start of the chip row: the sign that the user types.
 const MARK: &str = "@";
@@ -122,9 +122,10 @@ fn goes_as_path(attachment: &Attachment) -> bool {
         && attachment.sent.is_none()
 }
 
-/// `painted` as an OSC 8 link to `url`, a target with no byte that ends the sequence.
-fn hyperlink(url: &str, painted: &str) -> String {
-    format!("\x1b]8;;{url}\x1b\\{painted}\x1b]8;;\x1b\\")
+/// The size limit of one file, `bytes`, in the unit of `attachments.max_file_mib`, so
+/// 50 MiB reads `50 MB` and not `52 MB`; a limit that is no whole MiB as a size.
+pub(crate) fn file_limit(bytes: u64) -> String {
+    if bytes.is_multiple_of(MIB) { format!("{} MB", bytes / MIB) } else { byte_size(bytes) }
 }
 
 /// What a view or a transcript knows of the attachments of a conversation: the name

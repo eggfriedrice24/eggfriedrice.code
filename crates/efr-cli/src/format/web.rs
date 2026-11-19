@@ -486,7 +486,7 @@ fn linked(painted: &str, url: &str, options: &RenderOptions) -> String {
     if !web || !options.is_terminal() || !options.hyperlinks() {
         return painted.to_owned();
     }
-    format!("\x1b]8;;{}\x1b\\{painted}\x1b]8;;\x1b\\", encode(url))
+    super::hyperlink(&encode(url), painted)
 }
 
 /// `url` with every byte outside printable ASCII percent-encoded, so nothing in it can

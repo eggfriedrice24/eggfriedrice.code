@@ -44,6 +44,15 @@ fn empty_bytes_are_an_empty_string() {
 fn invalid_base64_is_rejected() {
     assert!(serde_json::from_value::<Base64Bytes>(json!("not base64!")).is_err());
     assert!(serde_json::from_value::<Base64Bytes>(json!([1, 2])).is_err());
+    assert_eq!(Base64Bytes::decode("not base64!"), None);
+}
+
+#[test]
+fn encode_and_decode_are_the_text_of_the_wire() {
+    let bytes = [0x1b, 0xff, 0x00, 0xe2];
+    let text = Base64Bytes::encode(&bytes);
+    assert_eq!(serde_json::to_value(Base64Bytes::new(bytes)).unwrap(), json!(text));
+    assert_eq!(Base64Bytes::decode(&text).as_deref(), Some(bytes.as_slice()));
 }
 
 #[test]

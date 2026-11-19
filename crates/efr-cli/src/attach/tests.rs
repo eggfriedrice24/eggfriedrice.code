@@ -9,7 +9,7 @@ use efr_transport::client::{Client, ClientError};
 use pretty_assertions::assert_eq;
 
 use super::upload::checked;
-use super::{Failure, Places, Token, Words, pasted_name, send, tokens};
+use super::{ClipName, Failure, Places, Token, Words, send, tokens};
 use crate::testing::{Conn, TestEnv, conversation, hello_result, turn};
 
 fn token(text: &str, word: &str, path: &str) -> Token {
@@ -149,11 +149,14 @@ fn a_pasted_image_is_sent_by_the_name_of_its_attachment() {
 
 #[test]
 fn the_name_of_a_paste_comes_from_its_clip_file() {
-    assert_eq!(pasted_name("4242.1.png").as_deref(), Some("paste-1.png"));
-    assert_eq!(pasted_name("4242.12.jpeg").as_deref(), Some("paste-12.jpeg"));
-    for other in ["shot.png", "4242.png", "a.1.png", "4242.1.", "4242..png"] {
-        assert_eq!(pasted_name(other), None, "{other}");
+    let pasted = |name| ClipName::parse(name).map(|clip| clip.pasted());
+    assert_eq!(pasted("4242.1.png").as_deref(), Some("paste-1.png"));
+    assert_eq!(pasted("4242.12.jpeg").as_deref(), Some("paste-12.jpeg"));
+    for other in ["shot.png", "4242.png", "a.1.png", "4242.1.", "4242..png", "+1.2.png"] {
+        assert_eq!(ClipName::parse(other), None, "{other}");
     }
+    let clip = ClipName { shell: 4242, number: 12, extension: "jpeg" };
+    assert_eq!(ClipName::parse(&clip.to_string()), Some(clip), "the name reads back");
 }
 
 /// Limits with chunks of 4 bytes, so a file of 9 bytes goes in three chunks.

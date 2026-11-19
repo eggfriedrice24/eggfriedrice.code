@@ -16,13 +16,14 @@ use efr_protocol::{
     AttachmentPutResult, Base64Bytes, ErrorCode, Method, MissingUploads, PromptSend,
     PromptSendResult, SecretFile, UploadId,
 };
-use efr_stdx::text::{MIB, byte_size};
+use efr_stdx::text::byte_size;
 use efr_transport::client::{Client, ClientError};
 use serde::Deserialize as _;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 use super::{Found, Words};
 use crate::context::Context;
+use crate::format::attach::file_limit;
 
 /// How often a prompt goes again after efrd said that some of its uploads are missing.
 const RESENDS: usize = 3;
@@ -124,13 +125,11 @@ pub(super) fn checked(
         )));
     }
     if let Some(file) = files.iter().find(|file| file.bytes > limits.max_file_bytes) {
-        // NOTE: the limit in the number of the key, so 50 MiB is not `52 MB`.
-        let limit = limits.max_file_bytes;
-        let limit = if limit % MIB == 0 { format!("{} MB", limit / MIB) } else { byte_size(limit) };
         return Err(Failure::NotAttached(format!(
-            "not attached: {} is {}. The limit is {limit} (attachments.max_file_mib).",
+            "not attached: {} is {}. The limit is {} (attachments.max_file_mib).",
             file.typed,
             byte_size(file.bytes),
+            file_limit(limits.max_file_bytes),
         )));
     }
     Ok(*limits)

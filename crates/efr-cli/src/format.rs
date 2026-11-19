@@ -618,6 +618,13 @@ pub(crate) fn tokens(count: u64) -> String {
     }
 }
 
+/// `painted` as an OSC 8 link to `url`. The caller gives a `url` with no byte that ends
+/// the sequence: one that efr made, or one with each byte outside printable ASCII
+/// percent-encoded.
+pub(crate) fn hyperlink(url: &str, painted: &str) -> String {
+    format!("\x1b]8;;{url}\x1b\\{painted}\x1b]8;;\x1b\\")
+}
+
 /// A size in bytes: `512 B`, `3.2 KB`, `1.4 MB`, `2.1 GB`, counted in thousands.
 pub(crate) fn size(bytes: u64) -> String {
     match bytes {

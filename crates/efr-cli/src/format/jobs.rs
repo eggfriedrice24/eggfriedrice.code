@@ -391,7 +391,7 @@ pub(crate) fn linked(painted: &str, url: Option<&str>, options: &RenderOptions) 
         Some(at) => {
             let (before, rest) = painted.split_at(at);
             let after = &rest[url.len()..];
-            format!("{before}\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\{after}")
+            format!("{before}{}{after}", super::hyperlink(url, url))
         }
         None => painted.to_owned(),
     }

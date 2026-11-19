@@ -696,12 +696,7 @@ fn pty() -> (std::os::fd::OwnedFd, PathBuf) {
 
 /// `bytes` as base64, as OSC 5522 writes them.
 fn base64(bytes: &[u8]) -> String {
-    let serde_json::Value::String(text) =
-        serde_json::to_value(efr_protocol::Base64Bytes::new(bytes)).unwrap()
-    else {
-        unreachable!("base64 bytes are a JSON string");
-    };
-    text
+    efr_protocol::Base64Bytes::encode(bytes)
 }
 
 /// One OSC 5522 packet.

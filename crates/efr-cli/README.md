@@ -1330,7 +1330,7 @@ Attachments (ADR 0026, `docs/use/attachments.md`):
   more without `.,;:!?` at its end). A word that names no regular file stays text, with
   a note only when it looks like a path. The sent text keeps each word as typed, but a
   clip file below `CLIPS_DIR` of the state root (`<shell>.<n>.<ext>`) goes as
-  `@paste-<n>.<ext>` (`pasted_name`). A steer reads the words only for the note
+  `@paste-<n>.<ext>` (`ClipName`, which `efr clip` also writes). A steer reads the words only for the note
   `attachments go with a prompt, not with a steer`.
 - `attach/upload.rs` uploads each file in chunks of `chunk_bytes` with
   `attachment.put` (origin `path` with the absolute path, or `clipboard` for a clip),

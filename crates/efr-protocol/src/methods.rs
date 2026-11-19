@@ -128,6 +128,17 @@ impl Base64Bytes {
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }
+
+    /// `bytes` as standard base64, as the wire writes them.
+    pub fn encode(bytes: &[u8]) -> String {
+        STANDARD.encode(bytes)
+    }
+
+    /// The bytes of the standard base64 text `text`, as the wire reads them; `None`
+    /// when it is not standard base64.
+    pub fn decode(text: &str) -> Option<Vec<u8>> {
+        STANDARD.decode(text).ok()
+    }
 }
 
 impl fmt::Debug for Base64Bytes {
@@ -138,7 +149,7 @@ impl fmt::Debug for Base64Bytes {
 
 impl Serialize for Base64Bytes {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&STANDARD.encode(&self.0))
+        serializer.serialize_str(&Base64Bytes::encode(&self.0))
     }
 }
 

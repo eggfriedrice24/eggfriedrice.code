@@ -23,6 +23,7 @@
 
 mod upload;
 
+use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -245,8 +246,8 @@ fn found(range: Range<usize>, typed: String, file: File, clips: Option<&Path>) -
     let File { path, bytes } = file;
     let file_name = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
     let clip = clips.is_some_and(|clips| path.parent() == Some(clips));
-    let name = match clip.then(|| pasted_name(&file_name)).flatten() {
-        Some(name) => name,
+    let name = match clip.then(|| ClipName::parse(&file_name)).flatten() {
+        Some(clip) => clip.pasted(),
         None => fit_name(&file_name),
     };
     Found { range, typed, path, name, bytes, clip }
@@ -272,14 +273,37 @@ fn looks_like_path(path: &str, places: &Places<'_>) -> bool {
             .is_some_and(|absolute| absolute.parent().is_some_and(Path::is_dir))
 }
 
-/// The name of the attachment of the clip file `file_name`: a paste `<n>` of a shell,
-/// `<shell>.<n>.<ext>`, is `paste-<n>.<ext>`. `None` for a name of another form.
-pub(crate) fn pasted_name(file_name: &str) -> Option<String> {
-    let (shell, rest) = file_name.split_once('.')?;
-    let (number, extension) = rest.split_once('.')?;
-    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
-    (digits(shell) && digits(number) && !extension.is_empty())
-        .then(|| format!("paste-{number}.{extension}"))
+/// The name of a clip file: `<shell>.<n>.<extension>`, the paste `n` of the shell with
+/// the id `shell`. `efr clip` writes it; the `@` word of the file reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ClipName<'a> {
+    pub(crate) shell: u32,
+    pub(crate) number: u64,
+    pub(crate) extension: &'a str,
+}
+
+impl<'a> ClipName<'a> {
+    /// The clip name `file_name`; `None` for a name of another form.
+    pub(crate) fn parse(file_name: &'a str) -> Option<Self> {
+        let (shell, rest) = file_name.split_once('.')?;
+        let (number, extension) = rest.split_once('.')?;
+        let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+        if !digits(shell) || !digits(number) || extension.is_empty() {
+            return None;
+        }
+        Some(ClipName { shell: shell.parse().ok()?, number: number.parse().ok()?, extension })
+    }
+
+    /// The name of the attachment of the clip: `paste-<n>.<extension>`.
+    pub(crate) fn pasted(&self) -> String {
+        format!("paste-{}.{}", self.number, self.extension)
+    }
+}
+
+impl fmt::Display for ClipName<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.shell, self.number, self.extension)
+    }
 }
 
 #[cfg(test)]
