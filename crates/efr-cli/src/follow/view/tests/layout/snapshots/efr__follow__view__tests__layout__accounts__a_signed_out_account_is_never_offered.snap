@@ -5,18 +5,14 @@ expression: "every_way(&[Sent(0, turn_started()), failed(38_000, out)])"
 === 40 columns, colour
 [end]
 \e[1;31m✗\e[0m \e[1;31mfailed\e[0m  \e[2m38s\e[0m
-  work got "too many requests", so efr
-    stopped trying.
-  \e[2mpersonal is signed out: efr login\e[0m
-    \e[2manthropic --account personal\e[0m
+  work got "too many requests", so efr stopped trying.
+  \e[2mpersonal is signed out: efr login anthropic --account personal\e[0m
 
 === 40 columns, NO_COLOR
 [end]
 \e[1m✗\e[0m \e[1mfailed\e[0m  \e[2m38s\e[0m
-  work got "too many requests", so efr
-    stopped trying.
-  \e[2mpersonal is signed out: efr login\e[0m
-    \e[2manthropic --account personal\e[0m
+  work got "too many requests", so efr stopped trying.
+  \e[2mpersonal is signed out: efr login anthropic --account personal\e[0m
 
 === 80 columns, colour
 [end]

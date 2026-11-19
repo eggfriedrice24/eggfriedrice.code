@@ -1,6 +1,15 @@
 use pretty_assertions::assert_eq;
 
-use super::{code_target, encode, file_url, file_url_exact, find_urls, link_target};
+use super::{code_target, encode, file_url, file_url_exact, find_urls, is_citation, link_target};
+
+#[test]
+fn a_citation_mark_is_brackets_around_digits() {
+    assert!(is_citation("[3]"));
+    assert!(is_citation("[12]"));
+    assert!(!is_citation("[]"));
+    assert!(!is_citation("[a]"));
+    assert!(!is_citation("3"));
+}
 
 fn urls(text: &str) -> Vec<&str> {
     find_urls(text).into_iter().map(|range| &text[range]).collect()

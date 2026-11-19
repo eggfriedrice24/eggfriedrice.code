@@ -4,23 +4,19 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(500,\nmessage(0, \"The s
 ---
 === 40 columns, colour
 [end]
-The store docs build. I add a page on
-the import next.
+The store docs build. I add a page on the import next.
 
 \e[1;31m✗\e[0m \e[1;31mfailed\e[0m  \e[2m2m 10s\e[0m
-  the ChatGPT plan reached its usage
-    limit. It resets at 14:20.
+  the ChatGPT plan reached its usage limit. It resets at 14:20.
   \e[2mgpt-6.1-sol also runs on b:\e[0m
   \e[32m,model b/gpt-6.1-sol\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-The store docs build. I add a page on
-the import next.
+The store docs build. I add a page on the import next.
 
 \e[1m✗\e[0m \e[1mfailed\e[0m  \e[2m2m 10s\e[0m
-  the ChatGPT plan reached its usage
-    limit. It resets at 14:20.
+  the ChatGPT plan reached its usage limit. It resets at 14:20.
   \e[2mgpt-6.1-sol also runs on b:\e[0m
   ,model b/gpt-6.1-sol
 

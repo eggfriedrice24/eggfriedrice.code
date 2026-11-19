@@ -11,9 +11,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   src/main.rs  \e[32m+22\e[0m\e[2m \e[0m\e[31m-1\e[0m
       fn main() {
     \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
-    \e[1;32m+\e[0m \e[32m    println!("a new greeting that\e[0m\e[2m↩\e[0m
-        \e[32m is much wider than forty colum\e[0m\e[2m↩\e[0m
-        \e[32mns");\e[0m
+    \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
     \e[1;32m+\e[0m \e[32m    step(1);\e[0m
     \e[1;32m+\e[0m \e[32m    step(2);\e[0m
     \e[1;32m+\e[0m \e[32m    step(3);\e[0m
@@ -40,8 +38,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1;32m+\e[0m
   \e[2mdelete \e[0mold.rs  \e[31m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
-  \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs
-    \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
       pub fn parse() {
     \e[1;31m-\e[0m \e[31m    let a = 1;\e[0m
     \e[1;32m+\e[0m \e[32m    let a = 2;\e[0m
@@ -58,9 +55,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   src/main.rs  +22\e[2m \e[0m\e[1m-1\e[0m
       fn main() {
     \e[1m-\e[0m \e[2m    println!("old");\e[0m
-    \e[1m+\e[0m     println!("a new greeting that\e[2m↩\e[0m
-         is much wider than forty colum\e[2m↩\e[0m
-        ns");
+    \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
     \e[1m+\e[0m     step(1);
     \e[1m+\e[0m     step(2);
     \e[1m+\e[0m     step(3);
@@ -87,8 +82,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1m+\e[0m
   \e[2mdelete \e[0mold.rs  \e[1m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
-  \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs
-    +1\e[2m \e[0m\e[1m-1\e[0m
+  \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  +1\e[2m \e[0m\e[1m-1\e[0m
       pub fn parse() {
     \e[1m-\e[0m \e[2m    let a = 1;\e[0m
     \e[1m+\e[0m     let a = 2;

@@ -147,5 +147,13 @@ fn trim_url_end(text: &str, start: usize, mut end: usize) -> usize {
     }
 }
 
+/// True when `text` is a citation mark: `[`, digits, `]`, as efrd writes ` [[1]](<url>)`
+/// after the words that a web source backs.
+pub(crate) fn is_citation(text: &str) -> bool {
+    text.strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod tests;

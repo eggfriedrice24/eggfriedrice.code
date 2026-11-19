@@ -60,9 +60,9 @@ fn view_job_end_outside_turn() {
     let mut view = terminal_view();
     let (out, _, end) = feed(&mut view, &[job_ended(Some(JobStopBy::User), &[])], true);
     assert_eq!(end, None, "a job's end ends no turn");
-    // A line wider than the screen goes on in the next row, whole.
+    // A line wider than the screen is one line, whole: the terminal wraps it.
     assert!(
-        bare(&out).contains("job j3 stopped by you after 92 minutes;\n  1.2 MB output\n"),
+        bare(&out).contains("job j3 stopped by you after 92 minutes; 1.2 MB output\n"),
         "{out:?}"
     );
 
@@ -148,8 +148,8 @@ fn forward_line_outside_turn() {
          service port)\n"
     );
 
-    // On a terminal the URL is an OSC 8 link, also when the line goes on in the next
-    // row; a refusal links nothing.
+    // On a terminal the URL is an OSC 8 link, also when the line is wider than the
+    // screen; a refusal links nothing.
     let mut view = terminal_view();
     let (out, _, _) = feed(&mut view, &[port_event(8765, ForwardOutcome::Forwarded)], true);
     assert!(
@@ -159,7 +159,7 @@ fn forward_line_outside_turn() {
         "{out:?}"
     );
     assert!(
-        bare(&out).contains("job j1 listens on 127.0.0.1:8765 ->\n  http://localhost:8765\n"),
+        bare(&out).contains("job j1 listens on 127.0.0.1:8765 -> http://localhost:8765\n"),
         "{out:?}"
     );
     let mut view = terminal_view();

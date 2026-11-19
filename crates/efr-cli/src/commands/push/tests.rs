@@ -59,10 +59,10 @@ fn no_phone_with_push_is_one_muted_line_with_no_name() {
     );
 }
 
-/// On a terminal the result has its role, and a line wider than the screen goes on 2
-/// columns further in, cut at a word.
+/// On a terminal the result has its role, and a line wider than the screen is one line,
+/// which the terminal wraps (TM-Narrow).
 #[test]
-fn a_result_has_its_role_and_a_long_line_goes_on_further_in() {
+fn a_result_has_its_role_and_a_long_line_stays_one_line() {
     let options = RenderOptions::new(100);
     let rows = vec![
         row("iPhone 17", PushTestResult::Sent, None),
@@ -74,14 +74,14 @@ fn a_result_has_its_role_and_a_long_line_goes_on_further_in() {
 
     let paint = |text, tone| format::paint(text, tone, &options);
     let expected = format!(
-        "iPhone 17  {}\niPad mini  {}\nold phone  {}\n  {}\n",
+        "iPhone 17  {}\niPad mini  {}\nold phone  {}\n",
         paint("sent", Tone::Success),
         paint("sent to Expo, no receipt yet", Tone::Attention),
         paint(
-            "not sent: InvalidCredentials. Expo has no valid push key for this app. Run eas",
+            "not sent: InvalidCredentials. Expo has no valid push key for this app. Run eas \
+             credentials.",
             Tone::Failure
         ),
-        paint("credentials.", Tone::Failure),
     );
     assert_eq!(text, expected);
 }

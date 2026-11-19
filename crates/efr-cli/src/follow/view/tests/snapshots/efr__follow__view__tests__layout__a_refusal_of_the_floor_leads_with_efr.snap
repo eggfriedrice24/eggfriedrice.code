@@ -1,20 +1,17 @@
 ---
 source: crates/efr-cli/src/follow/view/tests/layout.rs
-assertion_line: 1173
 expression: "format!(\"### with a text\\n{}\\n### with none\\n{}\",\nevery_way(&events(text, text)), every_way(&events(None, text)))"
 ---
 ### with a text
 === 40 columns, colour
 [end]
-\e[33m!\e[0m \e[2mefr: echo x >> ~/.ssh/config: a secret\e[0m
-  \e[2m(floor)\e[0m
+\e[33m!\e[0m \e[2mefr: echo x >> ~/.ssh/config: a secret (floor)\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-\e[1m!\e[0m \e[2mefr: echo x >> ~/.ssh/config: a secret\e[0m
-  \e[2m(floor)\e[0m
+\e[1m!\e[0m \e[2mefr: echo x >> ~/.ssh/config: a secret (floor)\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -40,16 +37,14 @@ stderr:
 === 40 columns, colour
 [end]
 \e[33m!\e[0m \e[2mefr: echo x >> ~/.ssh/config\e[0m
-\e[33m!\e[0m \e[2m$\e[0m echo x >> ~/.ssh/config
-      \e[33mrefused\e[0m \e[2m· a secret (floor)\e[0m
+\e[33m!\e[0m \e[2m$\e[0m echo x >> ~/.ssh/config  \e[33mrefused\e[0m \e[2m· a secret (floor)\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
 [end]
 \e[1m!\e[0m \e[2mefr: echo x >> ~/.ssh/config\e[0m
-\e[1m!\e[0m \e[2m$\e[0m echo x >> ~/.ssh/config
-      \e[1mrefused\e[0m \e[2m· a secret (floor)\e[0m
+\e[1m!\e[0m \e[2m$\e[0m echo x >> ~/.ssh/config  \e[1mrefused\e[0m \e[2m· a secret (floor)\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 

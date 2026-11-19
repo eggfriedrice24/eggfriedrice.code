@@ -2656,9 +2656,14 @@ fn stopped(reason: StopReason, empty: bool) -> Event {
 fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
     for look in [ALL, Look::default()] {
         let frame = ended(look, stopped(StopReason::Refusal, true), 3_000);
-        // NOTE: the view is 40 columns wide, so the line goes on in the next row.
-        assert!(frame.contains("stopped:\\e[0m the model stopped with no\n"), "{frame}");
-        assert!(frame.contains("  answer \\e[2m(refusal)\\e[0m\n"), "{frame}");
+        // NOTE: the view is 40 columns wide; the line is one line all the same, which the
+        // terminal wraps (TM-Narrow).
+        assert!(
+            frame.contains(
+                "stopped:\\e[0m the model stopped with no answer \\e[2m(refusal)\\e[0m\n"
+            ),
+            "{frame}"
+        );
     }
     let frame = ended(ALL, stopped(StopReason::EndTurn, true), 3_000);
     assert!(frame.contains("the model stopped with no"), "{frame}");
@@ -2668,7 +2673,7 @@ fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
 #[test]
 fn a_completed_turn_cut_at_the_output_limit_says_so() {
     let frame = ended(ALL, stopped(StopReason::MaxTokens, false), 3_000);
-    assert!(frame.contains("the answer reached the output\n  limit \\e[2m(max_tokens)"), "{frame}");
+    assert!(frame.contains("the answer reached the output limit \\e[2m(max_tokens)"), "{frame}");
 }
 
 #[test]

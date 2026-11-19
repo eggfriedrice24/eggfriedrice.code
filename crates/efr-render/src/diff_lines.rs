@@ -53,12 +53,13 @@ pub struct DiffLine {
     /// least one row, which may be empty.
     pub rows: Vec<String>,
     /// The SGR parameters of the background of the line's rows, for a caller that
-    /// fills each row to the edge: the background of `diff.add.bg` or
+    /// tints each row under its text: the background of `diff.add.bg` or
     /// `diff.remove.bg`, or the blend of a truecolor code theme when the palette sets
     /// neither. The sign and each span of the rows are on it already, so a reset inside
     /// them does not drop it; the caller writes `ESC [ <fill> m` before its indent and
-    /// again before the `ESC [ K` that ends a row, then resets before the newline.
-    /// `None` for other kinds, and outside truecolor.
+    /// again before the one cell after the text that ends the tint, then resets before
+    /// the newline. It never fills to the edge (TM-Narrow). `None` for other kinds,
+    /// and outside truecolor.
     pub fill: Option<String>,
 }
 

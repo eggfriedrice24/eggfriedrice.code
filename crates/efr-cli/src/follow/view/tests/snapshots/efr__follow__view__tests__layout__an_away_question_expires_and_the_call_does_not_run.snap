@@ -12,8 +12,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, 
     \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [end]
-\e[31m✗\e[0m \e[2mexpired while you were away · the call\e[0m
-  \e[2mdid not run\e[0m
+\e[31m✗\e[0m \e[2mexpired while you were away · the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2mgit push\e[0m  \e[2mdid not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
@@ -28,8 +27,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, 
     \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [end]
-\e[1m✗\e[0m \e[2mexpired while you were away · the call\e[0m
-  \e[2mdid not run\e[0m
+\e[1m✗\e[0m \e[2mexpired while you were away · the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2mgit push\e[0m  \e[2mdid not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m

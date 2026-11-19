@@ -4,31 +4,25 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 ---
 === 40 columns, colour
 [end]
-\e[33m!\e[0m \e[2mreviewer: no answer (skipped\e[0m
-  \e[2mgpt-6-luna: timeout): git push -u\e[0m
-  \e[2morigin fix/steer-race did not run\e[0m
+\e[33m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin fix/steer-race did not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-\e[1m!\e[0m \e[2mreviewer: no answer (skipped\e[0m
-  \e[2mgpt-6-luna: timeout): git push -u\e[0m
-  \e[2morigin fix/steer-race did not run\e[0m
+\e[1m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin fix/steer-race did not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
 === 80 columns, colour
 [end]
-\e[33m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin\e[0m
-  \e[2mfix/steer-race did not run\e[0m
+\e[33m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin fix/steer-race did not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
 === 80 columns, NO_COLOR
 [end]
-\e[1m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin\e[0m
-  \e[2mfix/steer-race did not run\e[0m
+\e[1m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin fix/steer-race did not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 

@@ -20,7 +20,7 @@ use jiff::tz::TimeZone;
 use serde_json::Value;
 
 use super::super::Play;
-use super::{play_of, rows, status_cells};
+use super::{one_line, play_of, rows, status_cells};
 use crate::commands::history::{Head, Shown, transcript};
 use crate::testing::bare;
 use daemon::{Company, Ran, Timing, Wire, run};
@@ -243,8 +243,9 @@ async fn a_claude_turn_of_five_searches_is_the_board_web_3_4_10_13() {
         check(&three, 0..=4, &rows(&shown, 0..5), depth, all);
         // One blank row stands between the rows and the answer (TM-Web 16).
         assert_eq!(bare(&rows(&shown, 5..6)), "\n");
-        check(&ten, 0..=8, &rows(&shown, 6..15), depth, all);
-        check(&thirteen, 1..=1, &rows(&shown, 14..15), depth, all);
+        one_line(&ten, 0..=2, &shown, 6);
+        check(&ten, 3..=8, &rows(&shown, 7..13), depth, all);
+        check(&thirteen, 1..=1, &rows(&shown, 12..13), depth, all);
     }
     // TM-Web 12 and 18, 19 at 60 columns: the titles drop before a URL is cut, and the
     // count stays last on the end line. NOTE: the prose of TM-Web 12 leaves out the last

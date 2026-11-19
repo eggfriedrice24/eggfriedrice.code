@@ -4,16 +4,21 @@
 //! the rows with the frame, cell by cell. One module for each board: `markdown`
 //! (TM-Markdown and the Markdown marks of TM-Legend), `code` (TM-Code, the code block
 //! of TM-Legend and TM-Depths), `diffs` (the rows of `diff_lines` against TM-Diffs and
-//! the diff rows of TM-Legend), `web` (the citation marks of TM-Web).
+//! the diff rows of TM-Legend), `web` (the citation marks of TM-Web), `narrow`
+//! (TM-Narrow: the rows that do not depend on the width of the window). TM-Narrow wins
+//! over the boards before it: a row that they fill to the edge compares as tinted under
+//! its text ([`efr_test_support::design::narrow`]).
 
 mod code;
 mod diffs;
 mod markdown;
+mod narrow;
 mod web;
 
 use efr_render::{CodeTheme, Colour, ColourMode, Palette, RenderOptions, Role, render};
 use efr_test_support::design::{
     CellRow, DESIGN_ROLES, DESIGN_THEME, Depth, Frame, Ink, Look, assert_rows, cells, expect, rgb,
+    soft_wrap,
 };
 
 /// The options of `depth` at `cols` columns: the palette of the design in truecolor,
@@ -35,62 +40,6 @@ fn options(depth: Depth, cols: u16) -> RenderOptions {
         Depth::Ansi16 => options.with_colour(ColourMode::Ansi16),
         Depth::NoColor => options.with_colour(ColourMode::None),
     }
-}
-
-/// `out` as a terminal `cols` wide shows it: a line wider than the terminal goes on in
-/// the next row, and the row that the terminal wraps ends in an erase with the
-/// background that its last cell has, which is the background that the terminal
-/// shows to its edge. Each visible character is one cell.
-fn soft_wrap(out: &str, cols: u16) -> String {
-    let cols = usize::from(cols);
-    let mut wrapped = String::with_capacity(out.len());
-    let mut column = 0;
-    let mut chars = out.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\x1b' => {
-                wrapped.push(c);
-                match chars.next() {
-                    Some('[') => {
-                        wrapped.push('[');
-                        for c in chars.by_ref() {
-                            wrapped.push(c);
-                            if ('\x40'..='\x7e').contains(&c) {
-                                break;
-                            }
-                        }
-                    }
-                    Some(']') => {
-                        wrapped.push(']');
-                        while let Some(c) = chars.next() {
-                            wrapped.push(c);
-                            if c == '\x07' {
-                                break;
-                            }
-                            if c == '\x1b' && chars.peek() == Some(&'\\') {
-                                wrapped.extend(chars.next());
-                                break;
-                            }
-                        }
-                    }
-                    other => wrapped.extend(other),
-                }
-            }
-            '\n' => {
-                wrapped.push(c);
-                column = 0;
-            }
-            c => {
-                if column == cols {
-                    wrapped.push_str("\x1b[K\n");
-                    column = 0;
-                }
-                wrapped.push(c);
-                column += 1;
-            }
-        }
-    }
-    wrapped
 }
 
 fn theme(bytes: &[u8]) -> CodeTheme {

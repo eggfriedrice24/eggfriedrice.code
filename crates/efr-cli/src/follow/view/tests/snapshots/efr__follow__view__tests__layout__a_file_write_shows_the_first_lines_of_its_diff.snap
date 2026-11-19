@@ -7,9 +7,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 \e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
     fn main() {
   \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
-  \e[1;32m+\e[0m \e[32m    println!("a new greeting that i\e[0m\e[2m↩\e[0m
-      \e[32ms much wider than forty columns")\e[0m\e[2m↩\e[0m
-      \e[32m;\e[0m
+  \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
   \e[1;32m+\e[0m \e[32m    step(1);\e[0m
   \e[1;32m+\e[0m \e[32m    step(2);\e[0m
   \e[1;32m+\e[0m \e[32m    step(3);\e[0m
@@ -36,9 +34,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 ✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
     fn main() {
   \e[1m-\e[0m \e[2m    println!("old");\e[0m
-  \e[1m+\e[0m     println!("a new greeting that i\e[2m↩\e[0m
-      s much wider than forty columns")\e[2m↩\e[0m
-      ;
+  \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
   \e[1m+\e[0m     step(1);
   \e[1m+\e[0m     step(2);
   \e[1m+\e[0m     step(3);

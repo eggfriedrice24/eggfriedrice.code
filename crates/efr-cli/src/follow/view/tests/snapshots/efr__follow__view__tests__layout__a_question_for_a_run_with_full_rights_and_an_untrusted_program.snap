@@ -19,14 +19,12 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
     \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [denied]
-\e[31m✗\e[0m \e[2mdenied · sudo (you may need to type\e[0m
-  \e[2myour password)\e[0m
+\e[31m✗\e[0m \e[2mdenied · sudo (you may need to type your password)\e[0m
 
 \e[33m•\e[0m \e[2mrunning shell\e[0m
 
 [end]
-\e[31m✗\e[0m \e[2mdenied · sudo (you may need to type\e[0m
-  \e[2myour password)\e[0m
+\e[31m✗\e[0m \e[2mdenied · sudo (you may need to type your password)\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m5s\e[0m
@@ -48,14 +46,12 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
     \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [denied]
-\e[1m✗\e[0m \e[2mdenied · sudo (you may need to type\e[0m
-  \e[2myour password)\e[0m
+\e[1m✗\e[0m \e[2mdenied · sudo (you may need to type your password)\e[0m
 
 \e[1m•\e[0m \e[2mrunning shell\e[0m
 
 [end]
-\e[1m✗\e[0m \e[2mdenied · sudo (you may need to type\e[0m
-  \e[2myour password)\e[0m
+\e[1m✗\e[0m \e[2mdenied · sudo (you may need to type your password)\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m5s\e[0m

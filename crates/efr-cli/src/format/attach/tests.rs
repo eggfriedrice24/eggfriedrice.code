@@ -72,19 +72,15 @@ fn a_chip_names_the_kind_the_name_and_the_size() {
     );
 }
 
+/// TM-Narrow: the chips are one row at any width, which the terminal wraps.
 #[test]
-fn a_row_of_chips_goes_on_2_columns_in_and_never_breaks_a_chip() {
-    assert_eq!(
-        bare(&chip_rows(&ten(), &[], true, &terminal(100))),
-        "@ image home.png 1170x2532 1.1 MB, image login.png 1170x2532 980 KB,\n  \
-         image settings.png 1170x2532 1.2 MB, pdf report.pdf 3.4 MB, text data.csv 48 KB,\n  \
-         text schema.sql 12 KB, text error.log 210 KB, text theme.json 4.0 KB,\n  \
-         image logo.png 512x512 88 KB, text notes.md 6.0 KB\n"
-    );
-    let narrow = bare(&chip_rows(&ten(), &[], true, &terminal(60)));
-    assert!(narrow.lines().all(|row| row.chars().count() <= 60), "{narrow}");
-    assert!(narrow.lines().skip(1).all(|row| row.starts_with("  ") && !row.starts_with("   ")));
-    assert_eq!(narrow.lines().count(), 7, "{narrow}");
+fn a_row_of_chips_is_one_row_at_any_width() {
+    let row = "@ image home.png 1170x2532 1.1 MB, image login.png 1170x2532 980 KB, \
+         image settings.png 1170x2532 1.2 MB, pdf report.pdf 3.4 MB, text data.csv 48 KB, \
+         text schema.sql 12 KB, text error.log 210 KB, text theme.json 4.0 KB, \
+         image logo.png 512x512 88 KB, text notes.md 6.0 KB\n";
+    assert_eq!(bare(&chip_rows(&ten(), &[], true, &terminal(100))), row);
+    assert_eq!(bare(&chip_rows(&ten(), &[], true, &terminal(60))), row);
 }
 
 #[test]

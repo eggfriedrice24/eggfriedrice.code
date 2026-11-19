@@ -17,12 +17,8 @@ use efr_protocol::{ContextUse, StopReason, TurnStop, Usage};
 use efr_render::{Glyphs, RenderOptions};
 
 use super::route::Pieces;
-use super::{Tone, context, elapsed, one_line, paint, tokens, wrap_spans};
+use super::{Tone, context, elapsed, one_line, tokens};
 use crate::error::Fix;
-
-/// How much further a row of a line of efr's own goes on than its first row, when the
-/// line is wider than the screen.
-const GOES_ON: usize = 2;
 
 /// How far the rows under an outcome line stand in: the reason of a failure, its fix,
 /// what goes again after an interrupt.
@@ -197,31 +193,13 @@ pub(crate) fn resent_row(text: &str, more: &str) -> Pieces {
     vec![(line, Tone::Dim)]
 }
 
-/// `pieces` painted as rows with their newlines, the first row `indent` columns in. On
-/// a terminal, a row wider than the screen goes on in the next one, [`GOES_ON`] columns
-/// further in, so a line of efr's own never wraps where the terminal chooses. Off a
-/// terminal the line is one plain row.
+/// `pieces` painted as one row with its newline, `indent` columns in. It is one logical
+/// line, never cut for the width (TM-Narrow): a row wider than the screen wraps where
+/// the terminal wraps it. Off a terminal the row is plain.
 pub(crate) fn rows(pieces: &[(String, Tone)], indent: usize, options: &RenderOptions) -> String {
-    let lead = " ".repeat(indent);
-    let rows = match super::columns(options) {
-        Some((width, method)) => {
-            let first = width.saturating_sub(indent).max(1);
-            let rest = width.saturating_sub(indent + GOES_ON).max(1);
-            wrap_spans(pieces, first, rest, method)
-        }
-        None => vec![pieces.to_vec()],
-    };
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        out.push_str(&lead);
-        if at > 0 {
-            out.push_str(&" ".repeat(GOES_ON));
-        }
-        for (text, tone) in row {
-            out.push_str(&paint(text, *tone, options));
-        }
-        out.push('\n');
-    }
+    let mut out = " ".repeat(indent);
+    super::paint_pieces(&mut out, pieces, options);
+    out.push('\n');
     out
 }
 

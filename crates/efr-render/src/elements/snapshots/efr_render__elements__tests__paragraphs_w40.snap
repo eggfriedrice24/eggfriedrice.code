@@ -5,6 +5,4 @@ expression: "readable(&render(markdown, &options))"
 A first paragraph on one line.
 Its second line stays a line of its own.
 
-A second paragraph long enough to pass
-forty columns, which the renderer wraps
-at a word.
+A second paragraph long enough to pass forty columns, which the renderer wraps at a word.

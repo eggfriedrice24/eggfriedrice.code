@@ -7,8 +7,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
 \e[1;31m✗\e[0m \e[2m$\e[0m make  \e[31mexit 2\e[0m \e[2m· 0.2s\e[0m
     cc -c a.c
     make: *** No rule to make target 'a…
-\e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
-      2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
+\e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
@@ -17,8 +16,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
 \e[1m✗\e[0m \e[2m$\e[0m make  \e[1mexit 2\e[0m \e[2m· 0.2s\e[0m
     cc -c a.c
     make: *** No rule to make target 'a…
-\e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
-      2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
+\e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 

@@ -35,10 +35,11 @@ drained\n\
 const TURN_ROWS: [usize; 11] = [4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15];
 
 /// A line laid out as the CLI lays it out under a file edit: `indent`, the sign, one
-/// space, the content; a changed line on its fill to the end of the row.
+/// space, the content; a changed line on its tint, which ends 1 column after the text
+/// (TM-Narrow).
 fn lay_out(line: &DiffLine, indent: &str) -> String {
     let fill = line.fill.as_ref().map(|fill| format!("\x1b[{fill}m")).unwrap_or_default();
-    let end = if fill.is_empty() { String::new() } else { format!("{fill}\x1b[K\x1b[0m") };
+    let end = if fill.is_empty() { String::new() } else { format!("{fill} \x1b[0m") };
     let row = &line.rows[0];
     match line.kind {
         DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => {

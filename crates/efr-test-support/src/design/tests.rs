@@ -22,6 +22,7 @@ fn every_board_of_the_fixture_loads_with_its_depths() {
         "Live",
         "LongTurn",
         "Markdown",
+        "Narrow",
         "Questions",
         "Scope",
         "Sequence",
@@ -172,36 +173,44 @@ fn the_design_roles_are_the_sixteen_roles_with_their_hex() {
     assert_ne!(MUTED, YELLOW);
 }
 
+/// TM-Narrow wins over a board that fills a row to the edge: the row must come tinted
+/// under its text and 1 column after it, with no erase to the edge.
 #[test]
-fn a_cell_on_the_fill_of_its_row_compares_as_a_cell_on_no_background() {
+fn a_row_that_a_board_fills_compares_as_tinted_under_its_text() {
     // TM-Legend 38 has no fill; TM-Code 1 row 87 is a code row of plain text on
     // `code.bg`.
     let frame = Frame::load("Code", 1).unwrap();
     let fill = "\x1b[48;2;18;23;34m";
     let text = "efrd 0.0.5 \u{b7} protocol 1";
-    // The fill behind each cell and to the edge, and the fill only to the edge.
-    let behind = format!("{fill}{text}\x1b[K\x1b[0m\n");
-    assert_rows(&frame, 87..88, &behind, Depth::TrueColor);
-    let edge = format!("{text}{fill}\x1b[K\x1b[0m\n");
-    assert_rows(&frame, 87..88, &edge, Depth::TrueColor);
+    // The tint behind each cell and 1 more cell.
+    let tinted = format!("{fill}{text} \x1b[0m\n");
+    assert_rows(&frame, 87..88, &tinted, Depth::TrueColor);
+    // The fill to the edge is what TM-Narrow takes away.
+    let edge = format!("{fill}{text}\x1b[K\x1b[0m\n");
+    let problem = check_rows(&frame, 87..88, &edge, Depth::TrueColor).unwrap_err();
+    assert!(problem.contains("fill"), "{problem}");
+    // The tint must end 1 column after the text, not at the text.
+    let short = format!("{fill}{text}\x1b[0m\n");
+    let problem = check_rows(&frame, 87..88, &short, Depth::TrueColor).unwrap_err();
+    assert!(problem.contains(&format!("column {}", text.chars().count())), "{problem}");
     // A cell on another background still differs.
-    let other = format!("\x1b[48;2;1;2;3m{text}\x1b[0m{fill}\x1b[K\x1b[0m\n");
+    let other = format!("\x1b[48;2;1;2;3m{text}\x1b[0m{fill} \x1b[0m\n");
     let problem = check_rows(&frame, 87..88, &other, Depth::TrueColor).unwrap_err();
     assert!(problem.contains("column 0"), "{problem}");
-    // No fill at all differs too.
+    // No tint at all differs too.
     let bare = format!("{text}\n");
-    assert!(check_rows(&frame, 87..88, &bare, Depth::TrueColor).unwrap_err().contains("fill"));
+    assert!(check_rows(&frame, 87..88, &bare, Depth::TrueColor).is_err());
 }
 
 #[test]
-fn a_cell_on_the_fill_of_its_row_is_the_row_and_a_part_can_be_text_only() {
-    // TM-Legend 21: an added row on `diff.add.bg`. efr writes each cell on the fill
-    // and erases the rest of the row with it; the board draws the fill behind the row.
+fn a_tinted_row_is_the_row_and_a_part_can_be_text_only() {
+    // TM-Legend 21: an added row on `diff.add.bg`. efr writes each cell on the tint and
+    // 1 cell more; the board draws the fill behind the row.
     let frame = Frame::load("Legend", 21).unwrap();
     let fill = "\x1b[48;2;25;44;23m";
     let sign = "\x1b[1;38;2;96;230;84;48;2;25;44;23m+\x1b[0m";
     let code = format!("\x1b[38;2;192;132;252mlet\x1b[0m{fill} x = 1;");
-    let row = format!("{fill}  {sign}{fill} {code}\x1b[K\x1b[0m\n");
+    let row = format!("{fill}  {sign}{fill} {code} \x1b[0m\n");
     // The colours of the code are not the board's: the check fails on them, and passes
     // when they compare by their text.
     let problem = check_rows(&frame, .., &row, Depth::TrueColor).unwrap_err();

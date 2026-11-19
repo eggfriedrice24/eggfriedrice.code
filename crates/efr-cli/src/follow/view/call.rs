@@ -39,11 +39,10 @@
 //!   `moved to job j4 after 42s`. A call whose command still runs in the hidden shell
 //!   has the same mark and says so.
 //!
-//! A command of several lines shows each line, the next ones under the first. A line
-//! wider than the screen goes on in the next row: after a cut at a space, which ends in
-//! a muted `\`, 4 columns after the column of the name (column 6); after a cut inside a
-//! word, which ends in a muted `↩`, at the column of the row it goes on from. The time
-//! follows the last row.
+//! A command of several lines shows each line, the next ones under the first. A
+//! finished row does not depend on the width of the window (TM-Narrow): efr cuts no
+//! line of it, so a line wider than the screen wraps where the terminal wraps it, at
+//! column 0, and a copy gives the command as it ran. The time follows the last line.
 //!
 //! A file write names its file in `text` and the lines that it added (`success`) and
 //! removed (`error`), and its diff follows (`format::patch`):
@@ -81,7 +80,7 @@ use super::status::{FULL, gauge_room};
 use crate::follow::since_then;
 use crate::format::changes::Piece;
 use crate::format::patch::{self, DiffFile, Op};
-use crate::format::{self, CallText, CommandRow, RowEnd, Tone};
+use crate::format::{self, CallText, Tone};
 
 /// The lines of output that a running call shows and a failed one keeps.
 pub(crate) const TAIL_LINES: usize = 3;
@@ -100,14 +99,6 @@ pub(crate) const TAIL_INDENT: &str = "    ";
 
 /// What starts the rows under a call: the files it changed, its notes, its diff.
 const INDENT: &str = "  ";
-
-/// How many columns after the column of the name (`$`) a row of a command goes on after
-/// a cut at a space.
-const GOES_ON: usize = 4;
-
-/// How much further a row of text that goes on, such as a long note, is indented than
-/// its first row, as in a question's card.
-const GOES_ON_TEXT: usize = 2;
 
 /// The lines after the first that a running call shows. With more, the last of these
 /// rows says how many lines follow.
@@ -132,9 +123,6 @@ const DID_NOT_RUN: &str = "did not run";
 
 /// The row under a file that a patch deleted: its diff would only be its old lines.
 pub(crate) const DELETED: &str = "deleted; its lines are in efr diff";
-
-/// The name of the shell tool's call, whose lines are commands.
-const SHELL: &str = "$";
 
 /// The name of the read tool's call, whose calls fold into one row (`fold`).
 pub(crate) const READ: &str = "read";
@@ -477,7 +465,7 @@ impl Call {
     /// the view's `due_header`, which nothing asks for any more ([`Call::header_due`]).
     pub(crate) fn header(&self, options: &RenderOptions) -> String {
         let (name, lines) = self.named();
-        let body = Body::Command { lines: &lines, tone: Tone::Text, command: name == SHELL };
+        let body = Body::Command { lines: &lines, tone: Tone::Text };
         let mark = (options.glyphs().denied.to_owned(), Tone::Dim);
         layout(mark, &name, body, Vec::new(), options)
     }
@@ -572,7 +560,7 @@ impl Call {
                 (format!(" {} ", options.glyphs().arrow), Tone::Dim),
                 (to.clone(), tone),
             ]),
-            _ => Body::Command { lines: &lines, tone, command: name == SHELL },
+            _ => Body::Command { lines: &lines, tone },
         };
         layout(mark, &name, body, suffix, options)
     }
@@ -619,17 +607,17 @@ fn edit_pieces(edit: &Edit, options: &RenderOptions) -> Vec<Piece> {
 
 /// What a row of a call names after its name.
 enum Body<'a> {
-    /// The lines of what the call does, in `tone`: a shell command (`command`) is cut
-    /// with the marks of a command (`format::wrap_command`), other text at its spaces.
-    Command { lines: &'a [String], tone: Tone, command: bool },
-    /// Pieces with their own tones, cut at their spaces.
+    /// The lines of what the call does, in `tone`, each one row.
+    Command { lines: &'a [String], tone: Tone },
+    /// Pieces with their own tones, on one row.
     Spans(Vec<Piece>),
 }
 
 /// The rows of a call: `mark`, a space, `name`, a space, then `body`, and `suffix` after
-/// the last row, each row with its newline. On a terminal a row wider than the screen
-/// goes on in the next one: see [`Body`] and the module. Elsewhere each line of a
-/// command is one row.
+/// the last row, each row with its newline. Each line of the body is one row, never cut
+/// for the width (TM-Narrow): a row wider than the screen wraps where the terminal
+/// wraps it, and a copy gives the command as it ran. The next lines of a command of
+/// several lines stand under the first, at the column of its text.
 fn layout(
     mark: Piece,
     name: &str,
@@ -637,131 +625,33 @@ fn layout(
     suffix: Vec<Piece>,
     options: &RenderOptions,
 ) -> String {
-    let glyphs = options.glyphs();
     let mut out = format::paint(&mark.0, mark.1, options);
     out.push(' ');
     out.push_str(&format::paint(name, Tone::Dim, options));
     let method = options.width_method();
     let column = text_width(&mark.0, method) + 1 + text_width(name, method) + 1;
-    let goes_on = text_width(&mark.0, method) + 1 + GOES_ON;
-    let columns = format::columns(options);
-    let suffix_width: usize = suffix.iter().map(|(text, _)| text_width(text, method)).sum();
-    match body {
-        Body::Spans(mut pieces) => {
-            if pieces.iter().all(|(text, _)| text.is_empty()) {
-                pieces.clear();
-            } else {
-                out.push(' ');
-            }
-            pieces.extend(suffix);
-            let rows = match columns {
-                Some((width, method)) => format::wrap_spans(
-                    &pieces,
-                    width.saturating_sub(column).max(1),
-                    width.saturating_sub(goes_on).max(1),
-                    method,
-                ),
-                None => vec![pieces],
-            };
-            for (at, row) in rows.iter().enumerate() {
-                if at > 0 {
-                    out.push_str(&" ".repeat(goes_on));
-                }
-                push_pieces(&mut out, row, options);
-                out.push('\n');
-            }
-        }
-        Body::Command { lines, tone, command } => {
-            if lines.is_empty() {
-                push_pieces(&mut out, &suffix, options);
-                out.push('\n');
-                return out;
-            }
+    let mut pieces = match body {
+        Body::Spans(pieces) if pieces.iter().all(|(text, _)| text.is_empty()) => Vec::new(),
+        Body::Spans(pieces) => {
             out.push(' ');
-            let mut rows: Vec<(usize, CommandRow)> = Vec::new();
-            for (at, line) in lines.iter().enumerate() {
-                let last = at + 1 == lines.len();
-                let wrapped = match columns {
-                    Some((width, method)) => {
-                        let room = width.saturating_sub(column).max(1);
-                        let indent = goes_on.saturating_sub(column);
-                        let wrap = |room: usize| -> Vec<CommandRow> {
-                            if command {
-                                format::wrap_command(line, room, indent, method)
-                            } else {
-                                plain_rows(line, room, method)
-                            }
-                        };
-                        let mut wrapped = wrap(room);
-                        // NOTE: the suffix follows the last row; a row that has no room
-                        // for it is cut shorter, when that leaves at least half the row.
-                        if last && !suffix.is_empty() {
-                            let end = wrapped.last().map_or(column, |row| {
-                                let at = if row.indented { goes_on } else { column };
-                                at + text_width(&row.text, method)
-                            });
-                            if end + suffix_width > width && room > suffix_width * 2 {
-                                wrapped = wrap(room - suffix_width);
-                            }
-                        }
-                        wrapped
-                    }
-                    None => {
-                        vec![CommandRow { text: line.clone(), indented: false, end: RowEnd::Last }]
-                    }
-                };
-                for (at_row, row) in wrapped.into_iter().enumerate() {
-                    let at_column = if row.indented {
-                        goes_on
-                    } else if at == 0 && at_row == 0 {
-                        0
-                    } else {
-                        column
-                    };
-                    rows.push((at_column, row));
-                }
-            }
-            let mut end = 0;
-            for (at, (at_column, row)) in rows.iter().enumerate() {
-                if at > 0 {
-                    out.push_str(&" ".repeat(*at_column));
-                    end = *at_column;
-                } else {
-                    end = column;
-                }
-                out.push_str(&format::paint(&row.text, tone, options));
-                end += text_width(&row.text, method);
-                if let Some(mark) = row.mark_in(glyphs) {
-                    out.push_str(&format::paint(mark, Tone::Dim, options));
-                    end += text_width(mark, method);
-                }
-                if at + 1 < rows.len() {
-                    out.push('\n');
-                }
-            }
-            let fits = columns.is_none_or(|(width, _)| end + suffix_width <= width);
-            if fits {
-                push_pieces(&mut out, &suffix, options);
-                out.push('\n');
-            } else {
-                out.push('\n');
-                let suffix: Vec<Piece> =
-                    suffix.into_iter().skip_while(|(text, _)| text.trim().is_empty()).collect();
-                let rows = match columns {
-                    Some((width, method)) => {
-                        let room = width.saturating_sub(goes_on).max(1);
-                        format::wrap_spans(&suffix, room, room, method)
-                    }
-                    None => vec![suffix],
-                };
-                for row in rows {
-                    out.push_str(&" ".repeat(goes_on));
-                    push_pieces(&mut out, &row, options);
-                    out.push('\n');
-                }
-            }
+            pieces
         }
-    }
+        Body::Command { lines, tone } => {
+            for (at, line) in lines.iter().enumerate() {
+                if at == 0 {
+                    out.push(' ');
+                } else {
+                    out.push('\n');
+                    out.push_str(&" ".repeat(column));
+                }
+                out.push_str(&format::paint(line, tone, options));
+            }
+            Vec::new()
+        }
+    };
+    pieces.extend(suffix);
+    format::paint_pieces(&mut out, &pieces, options);
+    out.push('\n');
     out
 }
 
@@ -785,27 +675,6 @@ pub(crate) fn folded(
         None => Vec::new(),
     };
     layout(mark, word, Body::Spans(vec![(text.to_owned(), Tone::Dim)]), suffix, options)
-}
-
-/// `line` as rows of `room` columns, cut at spaces and with no marks, for what is no
-/// command, such as a path or a URL.
-fn plain_rows(line: &str, room: usize, method: efr_render::WidthMethod) -> Vec<CommandRow> {
-    let pieces = [(line.to_owned(), Tone::Plain)];
-    format::wrap_spans(&pieces, room, room, method)
-        .into_iter()
-        .map(|row| CommandRow {
-            text: row.into_iter().map(|(text, _)| text).collect(),
-            indented: false,
-            end: RowEnd::Last,
-        })
-        .collect()
-}
-
-/// Paints `pieces` onto `out`.
-fn push_pieces(out: &mut String, pieces: &[Piece], options: &RenderOptions) {
-    for (text, tone) in pieces {
-        out.push_str(&format::paint(text, *tone, options));
-    }
 }
 
 /// The result of a call whose command still runs in the hidden shell.
@@ -946,28 +815,13 @@ fn file_pieces(file: &DiffFile, options: &RenderOptions) -> Vec<Piece> {
     }
 }
 
-/// Pieces of text with their tones after [`INDENT`], as rows that fit the screen: a
-/// text wider than the screen goes on in the next row, indented 2 more columns, so the
-/// terminal never wraps a row of efr's own and nothing is cut. Elsewhere than on a
-/// terminal no screen sets a width, so the text stays on one row.
+/// Pieces of text with their tones after [`INDENT`], as one row with its newline.
+/// Nothing is cut, and efr adds no newline for the width (TM-Narrow): a text wider than
+/// the screen wraps where the terminal wraps it.
 fn indented_pieces(pieces: &[Piece], options: &RenderOptions) -> String {
-    let rows: Vec<Vec<Piece>> = match format::columns(options) {
-        Some((width, method)) => {
-            let first = width.saturating_sub(INDENT.len()).max(1);
-            let rest = width.saturating_sub(INDENT.len() + GOES_ON_TEXT).max(1);
-            format::wrap_spans(pieces, first, rest, method)
-        }
-        None => vec![pieces.to_vec()],
-    };
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        out.push_str(INDENT);
-        if at > 0 {
-            out.push_str(&" ".repeat(GOES_ON_TEXT));
-        }
-        push_pieces(&mut out, row, options);
-        out.push('\n');
-    }
+    let mut out = INDENT.to_owned();
+    format::paint_pieces(&mut out, pieces, options);
+    out.push('\n');
     out
 }
 

@@ -223,10 +223,10 @@ fn what_goes_again_names_the_first_line_of_the_steer() {
 }
 
 #[test]
-fn a_long_line_goes_on_two_columns_further_in() {
+fn a_long_line_is_one_row_that_the_terminal_wraps() {
     let options = design_options(Depth::NoColor, 20).with_terminal(true);
     let line = vec![("one two three four five six".to_owned(), Tone::Text)];
-    assert_eq!(rows(&line, UNDER, &options), "  one two three four\n    five six\n");
+    assert_eq!(rows(&line, UNDER, &options), "  one two three four five six\n");
     let piped = options.clone().with_terminal(false);
     assert_eq!(rows(&line, UNDER, &piped), "  one two three four five six\n");
 }

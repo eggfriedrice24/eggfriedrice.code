@@ -110,12 +110,16 @@ fn a_write_shows_its_diff_at_the_cards_indent_questions_2() {
     assert_rows(&frame, 2..5, &rows[..3].concat(), Depth::TrueColor);
     assert_rows(&frame, 7..9, &rows[5..].concat(), Depth::TrueColor);
     // NOTE: the colours inside a diff row are the render slice's (`diff_lines`); here the
-    // text, the sign and the background of each row.
+    // text, the sign and the background of each row. TM-Narrow wins over the fill to the
+    // edge: the tint of the board's row is under the text and 1 column after it.
     let lines = cells(&rows[3..5].concat());
     for (at, line) in lines.iter().enumerate() {
         let want = &frame.rows[5 + at];
         assert_eq!(line.text().trim_end(), want.text.trim_end(), "row {at}");
-        assert_eq!(line.fill, want.fill, "the background of row {at}");
+        assert_eq!(line.fill, None, "no fill to the edge in row {at}");
+        let tint = line.cells.iter().map(|cell| Some(cell.look.bg)).collect::<Vec<_>>();
+        assert!(tint.iter().all(|bg| *bg == want.fill), "the background of row {at}");
+        assert_eq!(line.cells.len(), want.text.trim_end().chars().count() + 1, "row {at}");
     }
 }
 

@@ -241,10 +241,6 @@ const BLOCKING: &str = "the running turn asks: ";
 /// The mark of a refusal or of a failure.
 const NO: &str = "\u{2717} ";
 
-/// How much further a row of a line of efr's own goes on than its first row, as a row
-/// of a question's card does.
-const GOES_ON: usize = 2;
-
 /// How long a shell call runs before the empty input row names Ctrl+B: a short call
 /// ends before anyone could move it, so the hint would only flash.
 pub(crate) const BACKGROUND_AFTER: Duration = Duration::from_secs(2);
@@ -2991,32 +2987,16 @@ fn echo_edit(shown: &str, text: &str) -> String {
     edit
 }
 
-/// `text` painted as `tone`, as rows with their newlines: on a terminal, a row wider
-/// than the screen goes on in the next one, indented [`GOES_ON`] columns more, so a long
-/// line of efr's own never wraps where the terminal chooses.
+/// `text` painted as `tone`, as one row with its newline: one logical line, never cut
+/// for the width (TM-Narrow), so a row wider than the screen wraps where the terminal
+/// wraps it.
 fn rows(text: &str, tone: Tone, options: &RenderOptions) -> String {
     piece_rows(&[(text.to_owned(), tone)], options)
 }
 
 /// [`rows`] of `pieces`, each in its own tone.
 fn piece_rows(pieces: &[(String, Tone)], options: &RenderOptions) -> String {
-    let rows = match format::columns(options) {
-        Some((width, method)) => {
-            format::wrap_spans(pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
-        }
-        None => vec![pieces.to_vec()],
-    };
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        if at > 0 {
-            out.push_str(&" ".repeat(GOES_ON));
-        }
-        for (text, tone) in row {
-            out.push_str(&format::paint(text, *tone, options));
-        }
-        out.push('\n');
-    }
-    out
+    format::own_line(pieces, options)
 }
 
 /// The last line of `tail` with text in it, without the spaces around it; empty when

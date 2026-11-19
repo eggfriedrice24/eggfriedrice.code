@@ -206,16 +206,13 @@ impl Screen {
         self.rows.iter().map(|row| format!("{row}\n")).collect()
     }
 
-    /// The lines, with their paint as `\e` sequences. A line of efr's own never takes
-    /// more than the width; prose may, and the terminal wraps it.
+    /// The lines, with their paint as `\e` sequences. A finished line may take more than
+    /// the width: efr writes it as one logical line and the terminal wraps it
+    /// (TM-Narrow). No line has an erase to the edge after a background.
     fn shown(&self) -> String {
         let mut out = String::new();
         for row in &self.rows {
-            let width = display_width(&bare(row), WidthMethod::CodePoint);
-            let own = ["\u{b7} ", "  ", "    ", " ?  ", "\u{2713} ", "\u{2717} "]
-                .iter()
-                .any(|start| bare(row).starts_with(start));
-            assert!(!own || width <= self.cols, "wider than {} columns: {row:?}", self.cols);
+            assert!(!row.contains("\x1b[K"), "a fill to the edge: {row:?}");
             out.push_str(&readable(row));
             out.push('\n');
         }

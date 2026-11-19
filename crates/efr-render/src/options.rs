@@ -18,10 +18,6 @@ use crate::width::WidthMethod;
 /// returns when it fails.
 const FALLBACK_WIDTH: u16 = 80;
 
-/// Indented blocks keep at least this many columns for their text, so a deep list in
-/// a narrow terminal still wraps into readable lines.
-pub(crate) const MIN_TEXT_WIDTH: usize = 10;
-
 /// How many colours the output may use.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ColourMode {
@@ -351,12 +347,11 @@ impl RenderOptions {
     }
 
     /// The SGR parameters of the background role `role`, such as `48;2;18;23;34`, to
-    /// write as `ESC [ <parameters> m` before a row and an erase to the end of the line
-    /// (`ESC [ K`), so the row is filled to the edge with no padding written. `None`
-    /// when `role` is not a background role, the output is not a terminal, the colour
-    /// mode is not [`ColourMode::TrueColor`] or the palette sets no RGB colour for it. A
-    /// caller resets the background before the line's newline, or a terminal fills the
-    /// next line too.
+    /// write as `ESC [ <parameters> m` before the text of a row, which keeps it to 1
+    /// column after its text and never fills to the edge (TM-Narrow). `None` when
+    /// `role` is not a background role, the output is not a terminal, the colour mode
+    /// is not [`ColourMode::TrueColor`] or the palette sets no RGB colour for it. A
+    /// caller resets the background before the line's newline.
     pub fn fill(&self, role: Role) -> Option<String> {
         if !self.terminal || !role.is_background() {
             return None;

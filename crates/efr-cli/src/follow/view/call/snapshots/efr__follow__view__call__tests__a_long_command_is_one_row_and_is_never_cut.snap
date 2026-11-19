@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/call/tests.rs
+assertion_line: 155
+expression: "[40_u16,\n80].map(|columns| row(&call, Some(4_100), Outcome::Ran, columns)).join(\"\")"
+---
+✓ $ cargo test xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx --no-fail-fast  4.1s
+✓ $ cargo test xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx --no-fail-fast  4.1s

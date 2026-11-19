@@ -18,7 +18,7 @@
 //!   uses the terminal's 16 colours. [`RenderOptions::paint`] paints the CLI's own
 //!   lines in a role, [`RenderOptions::paint_with`] adds [`Attrs`] such as bold or
 //!   reverse, and [`RenderOptions::fill`] gives the background of a background role
-//!   (`code.bg`, `diff.add.bg`, `diff.remove.bg`) for a row filled with `ESC [ K`.
+//!   (`code.bg`, `diff.add.bg`, `diff.remove.bg`) for a row tinted under its text.
 //! - [`Glyphs`]: the marks of the CLI's own lines, in a Unicode and an ASCII table
 //!   ([`RenderOptions::glyphs`]).
 //! - [`diff_lines`]: a unified diff as one [`DiffLine`] for each line, with its kind,
@@ -32,8 +32,9 @@
 //!
 //! Headings, emphasis, inline code, lists, task items, quotes, tables, links (as OSC 8
 //! hyperlinks, `file://` for paths), code blocks with syntax colours and unified diffs
-//! are rendered. Top-level prose is not hard-wrapped, so the terminal reflows it on
-//! resize; indented blocks are wrapped to keep their indent.
+//! are rendered. No line of prose is cut for the width, at the top level or in a list
+//! item or a quote, so the terminal reflows it on resize; a tint ends 1 column after
+//! the text of its row, never at the edge (TM-Narrow).
 //!
 //! Allowed dependencies: no workspace crate. What does not belong here: any IO,
 //! terminal control (cursor movement, erasing, synchronized output) and reading the
@@ -63,7 +64,6 @@ mod style;
 mod table;
 mod trace;
 mod width;
-mod wrap;
 
 pub use code::Preload;
 pub use code_theme::CodeTheme;

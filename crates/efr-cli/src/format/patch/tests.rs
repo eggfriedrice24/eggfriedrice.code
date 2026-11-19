@@ -3,8 +3,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    DiffFile, Op, PatchFile, count, cut_rows, file_diffs, files, layout, short_hunk, split_painted,
-    summary, text,
+    DiffFile, Op, PatchFile, count, file_diffs, files, layout, short_hunk, split_painted, summary,
+    text,
 };
 use crate::format::{Tone, call_text};
 use crate::testing::readable;
@@ -252,20 +252,26 @@ fn the_hunk_header_is_short() {
     assert_eq!(short_hunk("@@ not a header", glyphs), "@@ not a header");
 }
 
+/// TM-Narrow 15: a row of a diff wider than the screen is one row, with no `↩` and no
+/// erase to the edge: its tint ends 1 column after its text, and the terminal wraps it.
 #[test]
-fn a_wide_row_goes_on_two_columns_before_its_code() {
-    // TM-Diffs 4: the row is cut after `self.rx.` with a muted `↩`; the rest goes on at
-    // column 10, two columns before the code at column 12, on the tint of the row.
-    let text = "        while let Ok(msg) = self.rx.try_recv() {";
-    let rows = cut_rows(text, 4, 41, WidthMethod::CodePoint);
-    assert_eq!(
-        rows,
-        [(4, "        while let Ok(msg) = self.rx.".to_owned()), (10, "try_recv() {".to_owned())]
-    );
-    // The paint runs on in the next row.
+fn a_wide_row_of_a_diff_is_one_row_with_its_tint_under_its_text() {
+    let mut palette = efr_render::Palette::new();
+    palette.set(efr_render::Role::DiffAddBg, efr_render::Colour::Rgb(25, 44, 23));
+    palette.set(efr_render::Role::DiffRemoveBg, efr_render::Colour::Rgb(57, 29, 30));
+    let options = RenderOptions::new(30).with_colour(ColourMode::TrueColor).with_palette(palette);
+    let line = "+        while let Ok(msg) = self.rx.try_recv() {";
+    let diff = format!("@@ -1,1 +1,1 @@\n{line}\n");
+    let parts = crate::format::changes::diff_parts(&diff);
+    let out = layout(&parts, Some("src/turn.rs"), 20, "  ", false, &options);
+    assert!(!out.contains("\x1b[K"), "{}", readable(&out));
+    assert!(!out.contains('\u{21a9}'), "{}", readable(&out));
+    assert_eq!(out.matches('\n').count(), 1, "{}", readable(&out));
+    let tint = "\x1b[48;2;25;44;23m";
+    assert!(out.starts_with(&format!("{tint}  ")), "{}", readable(&out));
+    assert!(out.ends_with(&format!("{tint} \x1b[0m\n")), "{}", readable(&out));
+    // The sign splits from the paint after it.
     let painted = split_painted("\x1b[33mabcdef\x1b[0mgh", 4, 4, WidthMethod::CodePoint);
     assert_eq!(painted, ["\x1b[33mabcd\x1b[0m", "\x1b[33mef\x1b[0mgh"]);
-    for row in &rows {
-        assert!(display_width(&row.1, WidthMethod::CodePoint) + row.0 < 41);
-    }
+    assert_eq!(display_width(&painted[0], WidthMethod::CodePoint), 4);
 }

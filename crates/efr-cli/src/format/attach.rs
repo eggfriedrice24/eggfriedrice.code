@@ -11,23 +11,21 @@
 //! then one chip for each attachment: its kind, its name and its size in `muted`, an
 //! image with its pixels before its size. The name is an OSC 8 `file://` link to the
 //! copy of the file, in `link`; with no link it is `muted` too. A file that the model
-//! gets as a path says `as a path` in `warning`. A chip never breaks: a row that has no
-//! room for the next chip goes on 2 columns in, as every line of efr's own does.
+//! gets as a path says `as a path` in `warning`. The chips are one row, which efr never
+//! cuts for the width (TM-Narrow): a row wider than the screen wraps where the terminal
+//! wraps it.
 
 use std::collections::HashMap;
 
 use efr_protocol::{Attachment, AttachmentId, AttachmentKind, WithheldReason};
-use efr_render::{RenderOptions, file_url_exact, text_width};
+use efr_render::{RenderOptions, file_url_exact};
 use efr_stdx::text::{MIB, byte_size};
 
 use super::route::Pieces;
-use super::{Tone, columns, hyperlink, one_line, paint};
+use super::{Tone, hyperlink, one_line, paint};
 
 /// The mark at the start of the chip row: the sign that the user types.
 const MARK: &str = "@";
-
-/// Where a row of chips goes on after the first: under the first chip.
-const GOES_ON: &str = "  ";
 
 /// The words of a chip whose file the model gets as a path.
 const AS_A_PATH: &str = "as a path";
@@ -42,40 +40,21 @@ pub(crate) fn chip_rows(
     options: &RenderOptions,
 ) -> String {
     let links = links && options.is_terminal() && options.hyperlinks();
-    let method = options.width_method();
-    let width = columns(options).map(|(width, _)| width);
     let mut out = paint(MARK, Tone::Accent, options);
-    let mut column = text_width(MARK, method);
     for (at, attachment) in attachments.iter().enumerate() {
-        let last = at + 1 == attachments.len();
-        let (painted, plain) = chip(attachment, unread.contains(&attachment.id), links, options);
-        let (painted, chip_width) = if last {
-            (painted, text_width(&plain, method))
-        } else {
-            (painted + &paint(",", Tone::Dim, options), text_width(&plain, method) + 1)
-        };
-        if at > 0 && width.is_some_and(|width| column + 1 + chip_width > width) {
-            out.push('\n');
-            out.push_str(GOES_ON);
-            column = GOES_ON.len();
-        } else {
-            out.push(' ');
-            column += 1;
-        }
+        let painted = chip(attachment, unread.contains(&attachment.id), links, options);
+        out.push(' ');
         out.push_str(&painted);
-        column += chip_width;
+        if at + 1 < attachments.len() {
+            out.push_str(&paint(",", Tone::Dim, options));
+        }
     }
     out.push('\n');
     out
 }
 
-/// The chip of `attachment`, painted, and as plain text for its width.
-fn chip(
-    attachment: &Attachment,
-    unread: bool,
-    links: bool,
-    options: &RenderOptions,
-) -> (String, String) {
+/// The chip of `attachment`, painted.
+fn chip(attachment: &Attachment, unread: bool, links: bool, options: &RenderOptions) -> String {
     let name = one_line(&attachment.name);
     let size = match attachment.kind {
         AttachmentKind::Image { width, height } => {
@@ -95,14 +74,11 @@ fn chip(
         paint(kind, Tone::Dim, options),
         paint(&size, Tone::Dim, options)
     );
-    let mut plain = format!("{kind} {name} {size}");
     if as_path {
         painted.push(' ');
         painted.push_str(&paint(AS_A_PATH, Tone::Attention, options));
-        plain.push(' ');
-        plain.push_str(AS_A_PATH);
     }
-    (painted, plain)
+    painted
 }
 
 /// The kind of a chip: `image`, `pdf`, `text`, else `file`.

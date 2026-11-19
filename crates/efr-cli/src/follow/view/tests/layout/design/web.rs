@@ -26,6 +26,15 @@ const LOOK: Look = Look {
     bell: false,
 };
 
+/// Asserts that row `at` of `shown` is the prose of rows `board` of `frame` as one line.
+/// NOTE: TM-Web breaks the prose of an answer at words, at the width of the frame;
+/// TM-Narrow wins: efr writes a paragraph as one logical line, which the terminal wraps.
+/// The colours of prose are the render slice's, which its own design tests check.
+fn one_line(frame: &Frame, board: std::ops::RangeInclusive<usize>, shown: &str, at: usize) {
+    let words: Vec<&str> = frame.rows[board].iter().map(|row| row.text.trim_end()).collect();
+    assert_eq!(bare(&rows(shown, at..at + 1)), format!("{}\n", words.join(" ")));
+}
+
 /// A view of a turn on `work/claude-opus-5-5 high` in the home directory, with the
 /// scope in the status row (no prompt corner), as the frames of TM-Web draw it.
 fn play(depth: Depth, cols: u16) -> Play {
@@ -263,11 +272,15 @@ fn the_answer_its_sources_and_the_count_web_10_16_17() {
     let frame = Frame::load("TM-Web", 10).unwrap();
     for depth in Depth::ALL {
         let shown = cited_turn(depth, 100, 3);
-        check(&frame, 0..=8, &rows(&shown, 5..14), depth, all);
+        one_line(&frame, 0..=2, &shown, 5);
+        check(&frame, 3..=8, &rows(&shown, 6..12), depth, all);
     }
     for (number, depth) in [(16, Depth::Ansi16), (17, Depth::NoColor)] {
         let shown = cited_turn(depth, 100, 2);
-        check(&Frame::load("TM-Web", number).unwrap(), 0..=12, &rows(&shown, 0..13), depth, all);
+        let frame = Frame::load("TM-Web", number).unwrap();
+        check(&frame, 0..=4, &rows(&shown, 0..5), depth, all);
+        one_line(&frame, 5..=7, &shown, 5);
+        check(&frame, 8..=12, &rows(&shown, 6..11), depth, all);
     }
 }
 
@@ -310,7 +323,8 @@ Anti-Cheat without Linux support.\n";
         play.event(2_000, message(0, answer));
         play.event(3_000, completed(usage(1_200, 0, 96), 4));
         let shown = play.committed();
-        check(&frame, 1..=4, &shown, depth, all);
+        one_line(&frame, 1..=2, &shown, 0);
+        check(&frame, 3..=4, &rows(&shown, 1..3), depth, all);
         assert!(!bare(&shown).contains("web "), "{shown}");
     }
 }

@@ -29,7 +29,7 @@ use efr_render::{DiffLineKind, Glyphs, RenderOptions, Role, WidthMethod, diff_li
 use serde_json::Value;
 
 use super::changes::{DiffParts, MINUS, Piece, more_lines};
-use super::{Tone, columns, one_line, paint};
+use super::{Tone, one_line, paint};
 
 /// The arrow between the two paths of a move (`Glyphs::arrow`), in a call's line.
 fn arrow() -> String {
@@ -45,10 +45,6 @@ const INPUT: &str = "input";
 
 /// What joins the files of a call's line.
 const JOIN: &str = ", ";
-
-/// The fewest columns a row of a diff gets, so a very narrow screen still shows a few
-/// characters of each row.
-const MIN_DIFF_WIDTH: usize = 10;
 
 /// The text of a patch in the input of an `apply_patch` call: a JSON string in the
 /// freeform form, or the string member `input` in the function form.
@@ -415,11 +411,12 @@ pub(crate) fn count_parts(parts: &DiffParts<'_>) -> (u32, u32) {
 /// - A hunk header is short, in the `diff.hunk` role: `@@ 88 impl Turn`, the first line
 ///   of the new side and the function that git names, without its `{`.
 /// - A line of the diff is its sign (`efr_render::diff_lines` paints it), one space and
-///   its text, on the fill of its kind to the end of the row where the palette gives
-///   one (`ESC [ K`); a line that stays has two spaces in place of its sign.
-/// - On a terminal a line wider than the screen goes on in the next row after a muted
-///   `↩`, 2 columns before the code of the line, so nothing of it is cut. Elsewhere
-///   each line is one row, without colour.
+///   its text, on the tint of its kind from the indent to 1 column after the text where
+///   the palette gives one ([`push_tinted`]); a line that stays has two spaces in place
+///   of its sign.
+/// - A line is one row, never cut (TM-Narrow): on a terminal a line wider than the
+///   screen wraps with its tint, and goes on at column 0. Elsewhere each line is one
+///   row, without colour.
 pub(crate) fn layout(
     parts: &DiffParts<'_>,
     path: Option<&str>,
@@ -445,12 +442,10 @@ pub(crate) fn layout(
     source.extend(body.iter().map(|line| (*line).to_owned()));
     let mut text = source.join("\n");
     text.push('\n');
-    // NOTE: one row for each line; this function cuts the rows itself, at the column
-    // that each row starts at.
-    let whole = options.clone().with_width(u16::MAX);
+    // NOTE: one row for each line, which efr never cuts for the width.
+    let whole = super::unbounded(options);
     let glyphs = options.glyphs();
     let method = options.width_method();
-    let indent_width = text_width(indent, method);
     let painted_indent = if indent.trim().is_empty() {
         indent.to_owned()
     } else {
@@ -478,22 +473,9 @@ pub(crate) fn layout(
                 let sign = parts.next().filter(|sign| !bare(sign).is_empty());
                 let sign = sign.unwrap_or_else(|| " ".to_owned());
                 let content = parts.next().unwrap_or_default();
-                let lead = format!("{painted_indent}{sign} ");
-                let column = indent_width + 2;
-                let rows = match columns(options) {
-                    Some((width, method)) => cut_rows(&content, column, width, method),
-                    None => vec![(0, content)],
-                };
-                let count = rows.len();
-                for (at, (start, row)) in rows.into_iter().enumerate() {
-                    let mut body = if at == 0 { lead.clone() } else { " ".repeat(start) };
-                    body.push_str(&row);
-                    if at + 1 < count {
-                        body.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
-                    }
-                    let body = if line.fill.is_none() { body.trim_end().to_owned() } else { body };
-                    push_filled(&mut out, &body, line.fill.as_deref());
-                }
+                let body = format!("{painted_indent}{sign} {content}");
+                let body = if line.fill.is_none() { body.trim_end().to_owned() } else { body };
+                push_tinted(&mut out, &body, line.fill.as_deref());
             }
             _ => {
                 out.push_str(&painted_indent);
@@ -547,34 +529,6 @@ fn short_hunk(line: &str, glyphs: &Glyphs) -> String {
         Some(short)
     };
     short().unwrap_or_else(|| one_line(line))
-}
-
-/// `painted`, the text of a line of a diff after its sign, as rows of a screen `width`
-/// wide whose first row starts at `column`: the first row and each row that goes on
-/// keep one column for the mark of the cut. A row that goes on starts 2 columns before
-/// the code of the line (after its leading spaces), and never before 2 columns after
-/// `column`. Gives each row with the column it starts at; the paint of each row is
-/// whole (`ESC [ 0 m` at its end, the paint that runs on again at the start of the
-/// next).
-fn cut_rows(
-    painted: &str,
-    column: usize,
-    width: usize,
-    method: WidthMethod,
-) -> Vec<(usize, String)> {
-    let plain = bare(painted);
-    if column + text_width(&plain, method) <= width {
-        return vec![(column, painted.to_owned())];
-    }
-    let leading = plain.chars().take_while(|c| *c == ' ').count();
-    let goes_on = (column + leading).saturating_sub(2).max(column + 2);
-    let first = width.saturating_sub(column + 1).max(MIN_DIFF_WIDTH);
-    let rest = width.saturating_sub(goes_on + 1).max(MIN_DIFF_WIDTH);
-    split_painted(painted, first, rest, method)
-        .into_iter()
-        .enumerate()
-        .map(|(at, row)| (if at == 0 { column } else { goes_on }, row))
-        .collect()
 }
 
 /// `text` without its escape sequences.
@@ -657,16 +611,20 @@ fn split_painted(painted: &str, first: usize, rest: usize, method: WidthMethod) 
 }
 
 /// Adds `body` as one row with its newline: on `fill`, the SGR parameters of the
-/// background of its kind, from its first column to the end of the row (`ESC [ K`), with
-/// the background set again after each reset in it and reset before the newline, so the
-/// next row starts clean.
-fn push_filled(out: &mut String, body: &str, fill: Option<&str>) {
+/// background of its kind, from its first column to 1 column after its text, with the
+/// background set again after each reset in it and reset before the newline, so the
+/// next row starts clean. The tint never runs to the edge of the terminal (TM-Narrow):
+/// the row is the same row in a narrower window, and a row wider than the window wraps
+/// with its tint.
+pub(crate) fn push_tinted(out: &mut String, body: &str, fill: Option<&str>) {
     match fill {
         Some(fill) => {
+            // NOTE: the spaces at the end go, as a code block drops them, so the tint
+            // ends 1 column after the last character.
             let on = format!("\x1b[{fill}m");
             out.push_str(&on);
-            out.push_str(&body.replace(RESET, &format!("{RESET}{on}")));
-            out.push_str("\x1b[K");
+            out.push_str(&body.trim_end_matches(' ').replace(RESET, &format!("{RESET}{on}")));
+            out.push(' ');
             out.push_str(RESET);
         }
         None => out.push_str(body),

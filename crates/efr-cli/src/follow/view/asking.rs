@@ -230,9 +230,11 @@ impl TurnView {
     }
 
     /// Writes the card of the question on the screen to the scrollback once, without
-    /// its keys, which stay in the live zone while the question waits.
+    /// its keys, which stay in the live zone while the question waits. In the scrollback
+    /// the card is a finished row, which does not depend on the width of the window
+    /// (TM-Narrow): efr cuts none of its lines for the width, as the live card does.
     pub(super) fn commit_question(&mut self) {
-        let options = self.options_now();
+        let options = format::unbounded(&self.options_now());
         let text = match &self.question {
             Some(shown) if !shown.committed => shown.card.render(None, &options),
             _ => return,

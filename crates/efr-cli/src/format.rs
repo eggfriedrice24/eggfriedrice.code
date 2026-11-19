@@ -281,28 +281,43 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
     }
 }
 
-/// One of the CLI's own lines of `spans`, with its newline: painted on a terminal, where
-/// a line wider than the screen goes on in the next row, indented 2 columns, cut at a
-/// space; plain and whole elsewhere.
+/// `options` with no width that a row could be cut to: for a finished row that a live
+/// layout drew at the width, such as a question's card that goes to the scrollback, and
+/// for the lines of a diff. A finished row does not depend on the width of the window
+/// (TM-Narrow), so nothing in it is cut or wrapped by efr. Only for efr's own rows:
+/// Markdown keeps the real width, which a table and a rule take.
+pub(crate) fn unbounded(options: &RenderOptions) -> RenderOptions {
+    options.clone().with_width(u16::MAX)
+}
+
+/// One of the CLI's own lines of `spans`, with its newline: painted on a terminal,
+/// plain elsewhere. It is one logical line, never cut for the width (TM-Narrow): a line
+/// wider than the screen wraps where the terminal wraps it, and again when the window
+/// changes.
 pub(crate) fn own_line(spans: &[(String, Tone)], options: &RenderOptions) -> String {
-    if !options.is_terminal() {
-        let mut line: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-        line.push('\n');
-        return line;
-    }
-    let columns = usize::from(options.width()).max(3);
-    let rows = wrap_spans(spans, columns, columns - 2, options.width_method());
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        if at > 0 {
-            out.push_str("  ");
+    let mut line = String::new();
+    paint_pieces(&mut line, spans, options);
+    line.push('\n');
+    line
+}
+
+/// Paints `pieces` onto `out`, each in its tone, with the pieces next to each other
+/// that have the same tone painted as one, so the row has no SGR that changes nothing.
+pub(crate) fn paint_pieces(out: &mut String, pieces: &[(String, Tone)], options: &RenderOptions) {
+    let mut run: Option<(String, Tone)> = None;
+    for (text, tone) in pieces {
+        match &mut run {
+            Some((joined, last)) if last == tone => joined.push_str(text),
+            _ => {
+                if let Some((joined, last)) = run.replace((text.clone(), *tone)) {
+                    out.push_str(&paint(&joined, last, options));
+                }
+            }
         }
-        for (text, tone) in row {
-            out.push_str(&paint(text, *tone, options));
-        }
-        out.push('\n');
     }
-    out
+    if let Some((joined, last)) = run {
+        out.push_str(&paint(&joined, last, options));
+    }
 }
 
 /// `text` on one line and safe to print: newlines and tabs become spaces, other control

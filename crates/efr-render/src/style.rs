@@ -9,7 +9,6 @@ use std::fmt::Write as _;
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::options::ColourMode;
-use crate::width::{WidthMethod, text_width};
 
 /// A colour: an entry of the terminal's palette or 24-bit RGB.
 ///
@@ -221,8 +220,9 @@ pub(crate) fn push_span(line: &mut Line, span: Span) {
 
 const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
 const RESET: &str = "\x1b[0m";
-/// Erase to the end of the row: with a background set, it fills the rest of the row.
-const ERASE_TO_END: &str = "\x1b[K";
+
+/// The cells of the tint after the text of a row on a fill (TM-Narrow).
+pub(crate) const TINT_AFTER: &str = " ";
 
 /// Turns lines of spans into ANSI text for one colour mode.
 #[derive(Clone, Copy, Debug)]
@@ -232,24 +232,16 @@ pub(crate) struct Painter {
     /// The colour of the `text` role: every span without a colour of its own gets it.
     /// `None` leaves such spans in the terminal's default colour.
     text: Option<Colour>,
-    /// The columns of the terminal and how it counts them, for a filled row.
-    columns: usize,
-    method: WidthMethod,
 }
 
 impl Painter {
     pub(crate) fn new(colour: ColourMode, hyperlinks: bool) -> Painter {
-        Painter { colour, hyperlinks, text: None, columns: 0, method: WidthMethod::default() }
+        Painter { colour, hyperlinks, text: None }
     }
 
     /// The painter with `text` as the colour of spans that have none of their own.
     pub(crate) fn with_text(self, text: Option<Colour>) -> Painter {
         Painter { text, ..self }
-    }
-
-    /// The painter for a terminal `columns` wide that counts widths by `method`.
-    pub(crate) fn with_width(self, columns: usize, method: WidthMethod) -> Painter {
-        Painter { columns, method, ..self }
     }
 
     /// Writes one line and its newline. The line starts with no SGR state and no open
@@ -259,15 +251,15 @@ impl Painter {
     }
 
     /// Writes `prefix` and `content` as one line and its newline, `content` on the
-    /// background `fill` to the end of the row: each span of it on that background
-    /// (a reset between spans does not drop it), then an erase to the end of the row
-    /// (`ESC [ K`) while the background is set, then a reset before the newline, or a
-    /// terminal fills the next row too. The prefix (the indent of a list item, the mark
-    /// of a quote) stays off the fill. Spaces at the end of the content are dropped:
-    /// the fill shows the same. A row whose width is a whole number of rows of the
-    /// terminal gets no erase: its cursor waits at the last column, where an erase
-    /// would take the last character, and the row is full anyway. Without a fill that
-    /// the mode shows, the line is painted as [`paint`](Self::paint) paints it.
+    /// background `fill`: each span of it on that background (a reset between spans
+    /// does not drop it), then one more cell on it ([`TINT_AFTER`]), then a reset
+    /// before the newline. The tint ends after the text and never runs to the edge of
+    /// the terminal, so the row does not change when the window gets narrower
+    /// (TM-Narrow): no `ESC [ K` and no padding to the width. The prefix (the indent
+    /// of a list item, the mark of a quote) stays off the fill. Spaces at the end of
+    /// the content are dropped, so the tint ends 1 column after the last character.
+    /// Without a fill that the mode shows, the line is painted as
+    /// [`paint`](Self::paint) paints it.
     pub(crate) fn paint_row(
         &self,
         out: &mut String,
@@ -295,18 +287,16 @@ impl Painter {
         if link.is_some() {
             out.push_str(OSC8_CLOSE);
         }
-        let width: usize = line.iter().map(|span| text_width(&span.text, self.method)).sum();
-        let full = self.columns > 0 && width > 0 && width.is_multiple_of(self.columns);
-        if !full {
-            if current.bg != Some(fill) {
-                if current != Style::PLAIN {
-                    out.push_str(RESET);
-                }
-                current = Style::PLAIN.on(fill);
-                write_sgr(out, current);
+        // NOTE: the cell after the text has the fill alone: an underline of the last
+        // span would show on it.
+        if current != Style::PLAIN.on(fill) {
+            if current != Style::PLAIN {
+                out.push_str(RESET);
             }
-            out.push_str(ERASE_TO_END);
+            current = Style::PLAIN.on(fill);
+            write_sgr(out, current);
         }
+        out.push_str(TINT_AFTER);
         finish_line(out, current, false);
     }
 

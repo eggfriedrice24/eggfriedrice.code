@@ -437,16 +437,16 @@ fn the_ascii_glyphs_stand_in() {
     assert_eq!(written, "+ web one two three...  3 results - 2s\n");
 }
 
-/// `efr history` keeps the whole query: on a terminal it goes on in the next rows, 6
-/// columns in, as a command does; off a terminal it is one row.
+/// `efr history` keeps the whole query on one row, on a terminal too, which the
+/// terminal wraps (TM-Narrow); off a terminal it is one row.
 #[test]
-fn the_whole_query_wraps_in_history() {
+fn the_whole_query_is_one_row_in_history() {
     let options = design_options(Depth::NoColor, 40);
     let long = done(search("one two three four five six seven eight nine"), Some(3), 2.0);
     let written = crate::testing::bare(&row(&long, Fit::Wrap, &options));
     assert_eq!(
         written,
-        "\u{2713} web one two three four five six seven\n      eight nine  3 results \u{b7} 2s\n"
+        "\u{2713} web one two three four five six seven eight nine  3 results \u{b7} 2s\n"
     );
     let piped = efr_render::RenderOptions::new(40).with_terminal(false);
     assert_eq!(
@@ -456,8 +456,7 @@ fn the_whole_query_wraps_in_history() {
 }
 
 /// DECISIONS-web 3: the count, the time and the reason are never cut, also in
-/// `efr history`, where only the query wraps. They stay on the last row of the query,
-/// or go to a row of their own at the indent.
+/// `efr history`. They follow the query on its row (TM-Narrow).
 #[test]
 fn history_never_breaks_the_count_the_time_or_the_reason() {
     let options = design_options(Depth::NoColor, 60);
@@ -465,13 +464,13 @@ fn history_never_breaks_the_count_the_time_or_the_reason() {
     let long = done(search("Proton EasyAntiCheat Runtime install 2026 Linux"), Some(10), 7.0);
     assert_eq!(
         bare(&long),
-        "\u{2713} web Proton EasyAntiCheat Runtime install 2026 Linux\n      10 results \u{b7} 7s\n"
+        "\u{2713} web Proton EasyAntiCheat Runtime install 2026 Linux  10 results \u{b7} 7s\n"
     );
     let refused =
         failed(search("\"ROB RUN\" 1.4 patch notes Linux Proton"), WebError::TooManyRequests, 1.0);
     assert_eq!(
         bare(&refused),
-        "! web \"ROB RUN\" 1.4 patch notes Linux Proton\n      too many requests \u{b7} 1s\n"
+        "! web \"ROB RUN\" 1.4 patch notes Linux Proton  too many requests \u{b7} 1s\n"
     );
     let fits = done(search("Proton EasyAntiCheat Runtime"), Some(10), 7.0);
     assert_eq!(bare(&fits), "\u{2713} web Proton EasyAntiCheat Runtime  10 results \u{b7} 7s\n");
@@ -509,25 +508,22 @@ fn the_cut_of_a_page_drops_its_query_string_before_its_path() {
     assert_eq!(at(50), "\u{2713} web open store.steampowered.com/\u{2026}/ROB_RUN/?\u{2026}  2s\n");
 }
 
-/// `efr history` keeps the whole page and goes on at efr's indent, so the terminal
-/// never wraps it at column 0; each piece links the whole URL.
+/// `efr history` keeps the whole page on one row, which the terminal wraps
+/// (TM-Narrow); one link holds the whole URL.
 #[test]
-fn a_long_page_goes_on_at_the_indent_in_history() {
+fn a_long_page_is_one_row_in_history() {
     let url = "https://store.steampowered.com/app/2384710/ROB_RUN/?snr=1_4_4__tab-Specials&curator_clanid=1234567";
     let options = design_options(Depth::NoColor, 40);
     let written = crate::testing::bare(&row(&done(open(url), None, 2.0), Fit::Wrap, &options));
     assert_eq!(
         written,
-        "\u{2713} web open store.steampowered.com/app/23\n      84710/ROB_RUN/?snr=1_4_4__tab-Spec\n      ials&curator_clanid=1234567  2s\n"
+        "\u{2713} web open store.steampowered.com/app/2384710/ROB_RUN/?snr=1_4_4__tab-Specials&curator_clanid=1234567  2s\n"
     );
-    for line in written.lines() {
-        assert!(efr_render::text_width(line, efr_render::WidthMethod::Grapheme) <= 40, "{line}");
-    }
     let linked = design_options(Depth::TrueColor, 40).with_hyperlinks(true);
     let painted = row(&done(open(url), None, 2.0), Fit::Wrap, &linked);
     assert_eq!(
         painted.matches("\x1b]8;;https://store.steampowered.com/").count(),
-        3,
+        1,
         "{painted:?}"
     );
 }

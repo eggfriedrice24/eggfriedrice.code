@@ -156,11 +156,12 @@ fn a_table_that_fits_is_a_grid_with_one_rule() {
     }
 }
 
-/// TM-Markdown 3: at 60 columns, a list item wraps at its indent, and a nested item
-/// at its own. The board breaks the item rows before 60 columns, at the author's line
-/// breaks; the mock gives them.
+/// TM-Markdown 3: at 60 columns, the next line that the author wrote in a list item
+/// keeps the item's indent, and in a nested item its own. The board breaks the item
+/// rows before 60 columns, at the author's line breaks; the mock gives them. NOTE:
+/// TM-Narrow wins for a line wider than the item: efr does not wrap it.
 #[test]
-fn lists_wrap_at_their_indent() {
+fn the_lines_of_a_list_item_keep_their_indent() {
     let frame = Frame::load("Markdown", 3).unwrap();
     let markdown = "## What changed\n\
 \n\
@@ -171,14 +172,12 @@ fn lists_wrap_at_their_indent() {
 Top-level prose is not wrapped by efr: the terminal reflows\nit when the window changes.\n";
     let out = render(markdown, &options(Depth::TrueColor, frame.cols));
     assert_rows(&frame, .., &out, Depth::TrueColor);
-    // A line wider than the item wraps at the item's indent too.
+    // A line wider than the item is one line with the marker at its start (TM-Narrow 7):
+    // the terminal wraps it.
     let long = "- the importer reads `~/.local/share/efr/sessions` and leaves it in place\n";
     let rows = cells(&render(long, &options(Depth::TrueColor, frame.cols)));
     let texts: Vec<String> = rows.iter().map(CellRow::text).collect();
-    assert_eq!(
-        texts,
-        ["- the importer reads ~/.local/share/efr/sessions and leaves", "  it in place"]
-    );
+    assert_eq!(texts, ["- the importer reads ~/.local/share/efr/sessions and leaves it in place"]);
 }
 
 const PROXY_TABLE: &str = "The proxy refused these hosts this week:\n\

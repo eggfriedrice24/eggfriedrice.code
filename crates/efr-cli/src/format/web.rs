@@ -38,7 +38,7 @@ use std::time::Duration;
 use efr_protocol::{CallId, Event, StoredCopyReason, WebAction, WebError, WebResult, WebSource};
 use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 
-use super::{Tone, columns, fits, one_line, one_line_words, paint, pieces, wrap_spans};
+use super::{Tone, columns, fits, one_line, one_line_words, paint, pieces};
 
 /// The word of every row of web search, muted, as `read` and `edit` are.
 pub(crate) const WORD: &str = "web";
@@ -51,10 +51,6 @@ const SEARCH: &str = "search";
 
 /// Between the subject of a row and its count and time.
 const GAP: &str = "  ";
-
-/// How many columns after the column of the mark a row that goes on starts, as the
-/// rows of a command do (`follow::view::call`).
-const GOES_ON: usize = 4;
 
 /// The columns that a cut title of a source keeps at least; with fewer, the row has no
 /// title (TM-Web 12: 12 columns left drop it).
@@ -180,7 +176,7 @@ pub(crate) struct Ended {
 pub(crate) enum Fit {
     /// The row of the turn: one row, the query cut after the last whole word that fits.
     Cut,
-    /// `efr history`: the whole query, which goes on in the next rows as a command does.
+    /// `efr history`: the whole query on one row, which the terminal wraps.
     Wrap,
 }
 
@@ -237,31 +233,9 @@ pub(crate) fn row(ended: &Ended, fit: Fit, options: &RenderOptions) -> String {
                 let shown = cut_page(&page(url), room, glyphs, method);
                 out.push_str(&linked(&paint(&shown, Tone::Link, options), url, options));
             }
-            // NOTE: `efr history` keeps the whole page, at efr's indent as a long query,
-            // so the terminal never wraps it at column 0; each piece links the URL.
-            (Some(width), Fit::Wrap) => {
-                let rest = width.saturating_sub(column + GOES_ON).max(1);
-                let parts = chunks(&page(url), width.saturating_sub(used).max(1), rest, method);
-                for (at, part) in parts.iter().enumerate() {
-                    if at > 0 {
-                        out.push('\n');
-                        out.push_str(&" ".repeat(column + GOES_ON));
-                    }
-                    out.push_str(&linked(&paint(part, Tone::Link, options), url, options));
-                }
-                let lead = if parts.len() == 1 { used } else { column + GOES_ON };
-                let used = lead + parts.last().map_or(0, |part| text_width(part, method));
-                if !suffix.is_empty() && used + suffix_width > width {
-                    out.push('\n');
-                    out.push_str(&" ".repeat(column + GOES_ON));
-                    push_pieces(&mut out, after_gap(&suffix), options);
-                } else {
-                    push_pieces(&mut out, &suffix, options);
-                }
-                out.push('\n');
-                return out;
-            }
-            (None, _) => {
+            // NOTE: `efr history` keeps the whole page on one row, which the terminal
+            // wraps (TM-Narrow).
+            _ => {
                 out.push_str(&linked(&paint(&page(url), Tone::Link, options), url, options));
             }
         }
@@ -293,33 +267,10 @@ pub(crate) fn row(ended: &Ended, fit: Fit, options: &RenderOptions) -> String {
             push_pieces(&mut out, &suffix, options);
             out.push('\n');
         }
-        // NOTE: only the query wraps; the count, the time and the reason stay whole on
-        // the last row, or on a row of their own when they do not fit after it
-        // (DECISIONS-web 3: they are never cut).
-        (Some(width), Fit::Wrap) => {
-            let first = width.saturating_sub(column).max(1);
-            let rest = width.saturating_sub(column + GOES_ON).max(1);
-            let mut rows = wrap_spans(&[(subject, Tone::Dim)], first, rest, method);
-            if !suffix.is_empty() {
-                let room = if rows.len() == 1 { first } else { rest };
-                let used: usize = rows
-                    .last()
-                    .map(|row| row.iter().map(|(text, _)| text_width(text, method)).sum())
-                    .unwrap_or_default();
-                match rows.last_mut() {
-                    Some(last) if used + suffix_width <= room => last.extend(suffix),
-                    _ => rows.push(after_gap(&suffix).to_vec()),
-                }
-            }
-            for (at, row) in rows.iter().enumerate() {
-                if at > 0 {
-                    out.push_str(&" ".repeat(column + GOES_ON));
-                }
-                push_pieces(&mut out, row, options);
-                out.push('\n');
-            }
-        }
-        (None, _) => {
+        // NOTE: `efr history` keeps the whole query and the count, the time and the
+        // reason after it on one row, which the terminal wraps (TM-Narrow; DECISIONS-web
+        // 3: they are never cut).
+        _ => {
             out.push_str(&paint(&subject, Tone::Dim, options));
             push_pieces(&mut out, &suffix, options);
             out.push('\n');
@@ -501,35 +452,6 @@ fn encode(url: &str) -> String {
         }
     }
     out
-}
-
-/// `suffix` without the gap that starts it, for a row of its own.
-fn after_gap(suffix: &[(String, Tone)]) -> &[(String, Tone)] {
-    match suffix.split_first() {
-        Some(((gap, _), rest)) if gap == GAP => rest,
-        _ => suffix,
-    }
-}
-
-/// `text` in rows of `first` columns, then `rest` columns each, cut between grapheme
-/// clusters: a page has no space to cut at. Nothing of the text is left out.
-fn chunks(text: &str, first: usize, rest: usize, method: WidthMethod) -> Vec<String> {
-    let mut rows = vec![String::new()];
-    let mut used = 0;
-    let mut room = first;
-    for piece in pieces(text, method) {
-        let width = text_width(piece, method);
-        if used > 0 && used + width > room {
-            rows.push(String::new());
-            used = 0;
-            room = rest;
-        }
-        if let Some(row) = rows.last_mut() {
-            row.push_str(piece);
-        }
-        used += width;
-    }
-    rows
 }
 
 /// Paints `pieces` onto `out`.

@@ -271,6 +271,62 @@ impl CellRow {
     }
 }
 
+/// `out` as a terminal `cols` wide shows it: a line wider than the terminal goes on in
+/// the next row, by cell, as the terminal wraps a logical line (TM-Narrow). Each
+/// visible character is one cell; escape sequences take none. Give the result to
+/// [`cells`] or [`assert_rows`] to compare it with a frame of that width.
+pub fn soft_wrap(out: &str, cols: u16) -> String {
+    let cols = usize::from(cols);
+    let mut wrapped = String::with_capacity(out.len());
+    let mut column = 0;
+    let mut chars = out.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => {
+                wrapped.push(c);
+                match chars.next() {
+                    Some('[') => {
+                        wrapped.push('[');
+                        for c in chars.by_ref() {
+                            wrapped.push(c);
+                            if ('\x40'..='\x7e').contains(&c) {
+                                break;
+                            }
+                        }
+                    }
+                    Some(']') => {
+                        wrapped.push(']');
+                        while let Some(c) = chars.next() {
+                            wrapped.push(c);
+                            if c == '\x07' {
+                                break;
+                            }
+                            if c == '\x1b' && chars.peek() == Some(&'\\') {
+                                wrapped.extend(chars.next());
+                                break;
+                            }
+                        }
+                    }
+                    other => wrapped.extend(other),
+                }
+            }
+            '\n' => {
+                wrapped.push(c);
+                column = 0;
+            }
+            c => {
+                if column == cols {
+                    wrapped.push('\n');
+                    column = 0;
+                }
+                wrapped.push(c);
+                column += 1;
+            }
+        }
+    }
+    wrapped
+}
+
 /// The rows of `ansi`, real output of efr, as a terminal shows them: SGR sets the look
 /// of the cells that follow, `ESC [ K` erases to the end of the row and leaves its
 /// background there ([`CellRow::fill`]), OSC 8 hyperlinks and other escape sequences
@@ -434,7 +490,49 @@ fn slot(value: u16) -> u8 {
 /// | reverse | reverse | bold |
 ///
 /// A code row is a row with a fill in truecolor; its tokens are plain without colour.
+///
+/// TM-Narrow wins over the boards before it: a row that a board fills to the edge comes
+/// back tinted under its text and 1 column after it ([`narrow`]).
 pub fn expect(frame: &Frame, depth: Depth) -> Result<Frame, TestSupportError> {
+    board_frame(frame, depth).map(|frame| narrow(&frame))
+}
+
+/// `frame` as TM-Narrow draws a row with a fill: no fill to the edge, the background on
+/// each cell of the text instead, and on 1 more cell after it, the spaces at the end of
+/// the row dropped. A row as wide as the frame or wider is a row that the terminal
+/// wraps: it gets no cell after it, because the next row goes on with the text.
+pub fn narrow(frame: &Frame) -> Frame {
+    let mut frame = frame.clone();
+    let cols = usize::from(frame.cols);
+    for row in &mut frame.rows {
+        let Some(fill) = row.fill.take() else { continue };
+        let wrapped = row.text.chars().count() >= cols;
+        let mut segments: Vec<Segment> = Vec::new();
+        for segment in &row.segments {
+            let bg = if segment.look.bg == Ink::Default { fill } else { segment.look.bg };
+            segments
+                .push(Segment { text: segment.text.clone(), look: Look { bg, ..segment.look } });
+        }
+        while let Some(last) = segments.last_mut() {
+            let kept = last.text.trim_end_matches(' ').len();
+            if kept > 0 || wrapped {
+                last.text.truncate(if wrapped { last.text.len() } else { kept });
+                break;
+            }
+            segments.pop();
+        }
+        if !wrapped {
+            segments
+                .push(Segment { text: " ".to_owned(), look: Look { bg: fill, ..Look::default() } });
+        }
+        row.text = segments.iter().map(|segment| segment.text.as_str()).collect();
+        row.segments = segments;
+    }
+    frame
+}
+
+/// [`expect`] before [`narrow`]: the frame as its board draws it.
+fn board_frame(frame: &Frame, depth: Depth) -> Result<Frame, TestSupportError> {
     if frame.depth == depth {
         return Ok(frame.clone());
     }

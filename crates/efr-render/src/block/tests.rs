@@ -62,17 +62,16 @@ fn blocks_are_separated_by_one_blank_line() {
     assert_eq!(visible("one\n\n\n\ntwo\n# three\n", 80), "one\n\ntwo\n\n# three\n");
 }
 
+/// TM-Narrow: a finished row does not depend on the width. Prose is one logical line
+/// for each line of its author, which the terminal wraps; efr adds no newline.
 #[test]
-fn soft_breaks_keep_the_authors_lines_and_prose_wraps_at_words() {
+fn soft_breaks_keep_the_authors_lines_and_prose_is_never_cut_for_the_width() {
     let long = "a long line of prose that is much wider than the twenty columns";
-    assert_eq!(
-        visible(&format!("{long}\nsecond line\n"), 20),
-        "a long line of prose\nthat is much wider\nthan the twenty\ncolumns\nsecond line\n"
-    );
-    // A word wider than the line is cut where it must be.
-    assert_eq!(visible("abcdefghijklmnopqrstuvwxyz\n", 10), "abcdefghij\nklmnopqrst\nuvwxyz\n");
-    // A heading wraps after its mark.
-    assert_eq!(visible("## a heading that is long\n", 12), "## a heading\nthat is long\n");
+    assert_eq!(visible(&format!("{long}\nsecond line\n"), 20), format!("{long}\nsecond line\n"));
+    // A word wider than the line stays whole: the terminal wraps it.
+    assert_eq!(visible("abcdefghijklmnopqrstuvwxyz\n", 10), "abcdefghijklmnopqrstuvwxyz\n");
+    // A heading is one line after its mark.
+    assert_eq!(visible("## a heading that is long\n", 12), "## a heading that is long\n");
     // Code never wraps.
     let code = "fn main() { println!(\"a line far wider than twenty columns\"); }";
     assert_eq!(visible(&format!("```\n{code}\n```\n"), 20), format!("{code}\n"));
@@ -163,15 +162,17 @@ fn blocks_inside_an_item_follow_each_other_without_blank_lines() {
 }
 
 #[test]
-fn list_items_wrap_and_keep_their_indent() {
+fn a_list_item_is_one_line_with_its_marker_at_the_start_only() {
     assert_eq!(
         visible("- one two three four five six seven\n", 20),
-        "- one two three four\n  five six seven\n"
+        "- one two three four five six seven\n"
     );
     assert_eq!(
         visible("10. one two three four five six\n", 20),
-        "10. one two three\n    four five six\n"
+        "10. one two three four five six\n"
     );
+    // The next line that the author wrote keeps the indent of the item.
+    assert_eq!(visible("- one\n  two\n", 20), "- one\n  two\n");
 }
 
 #[test]
@@ -180,10 +181,10 @@ fn an_empty_item_still_shows_its_marker() {
 }
 
 #[test]
-fn quotes_have_a_muted_mark_on_every_line() {
+fn quotes_have_a_muted_mark_on_every_line_of_their_author() {
     assert_eq!(
         visible("> one\n>\n> two two two two two two\n", 20),
-        "> one\n>\n> two two two two\n> two two\n"
+        "> one\n>\n> two two two two two two\n"
     );
     let painted = paint("> q\n", RenderOptions::new(80));
     assert_eq!(painted, "\x1b[2m>\x1b[0m \x1b[3mq\x1b[0m\n");
@@ -198,6 +199,31 @@ fn quote_text_is_italic_in_items_too_and_code_in_it_is_not() {
          \x1b[2m>\x1b[0m\n\
          \x1b[2m>\x1b[0m code\n"
     );
+}
+
+/// TM-Narrow: a finished row does not depend on the width of the window. A row of code
+/// has its tint under its text and 1 column after it, with no erase to the edge
+/// (`ESC [ K`), and a long paragraph has no newline that efr chose for the width.
+#[test]
+fn a_finished_row_has_no_erase_after_a_background_and_no_newline_of_efr() {
+    let palette = Palette::new().with(Role::CodeBg, Colour::Rgb(18, 23, 34));
+    let options = RenderOptions::new(20).with_colour(ColourMode::TrueColor).with_palette(palette);
+    let tint = "\x1b[48;2;18;23;34m";
+    let painted = paint("```\nlet a = 1;   \n\nlet b = 2;\n```\n", options.clone());
+    assert!(!painted.contains("\x1b[K"), "{painted:?}");
+    assert_eq!(
+        painted,
+        format!("{tint}let a = 1; \x1b[0m\n{tint} \x1b[0m\n{tint}let b = 2; \x1b[0m\n")
+    );
+    // A row of code wider than the terminal is the same row: the terminal wraps it.
+    let long = "let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9];";
+    let painted = paint(&format!("```\n{long}\n```\n"), options.clone());
+    assert_eq!(painted, format!("{tint}{long} \x1b[0m\n"));
+    let paragraph = "efrd keeps each conversation in one file, and the JSON reader still builds.";
+    for width in [20, 60, 200] {
+        let painted = paint(&format!("{paragraph}\n"), options.clone().with_width(width));
+        assert_eq!(painted, format!("{paragraph}\n"), "at {width} columns");
+    }
 }
 
 #[test]

@@ -5,6 +5,5 @@ expression: "readable(&render(markdown, &options))"
 \e[2m1.\e[0m first
 \e[2m2.\e[0m second
 \e[2m3.\e[0m third
-   with a second paragraph in the third
-   item
+   with a second paragraph in the third item
 \e[2m4.\e[0m fourth

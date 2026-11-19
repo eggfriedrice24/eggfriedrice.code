@@ -132,29 +132,14 @@ fn the_rows_are_plain_when_the_output_is_not_a_terminal() {
 }
 
 #[test]
-fn a_long_command_goes_on_four_columns_after_its_name_and_is_never_cut() {
+/// TM-Narrow 19: a finished command is one row with its time, at any width; the
+/// terminal wraps it, and a copy gives the command as it ran.
+fn a_long_command_is_one_row_and_is_never_cut() {
     let long = format!("cargo test {} --no-fail-fast", "x".repeat(100));
     let call = shell(&long);
     for columns in [40_u16, 80] {
         let shown = row(&call, Some(4_100), Outcome::Ran, columns);
-        for line in shown.lines() {
-            let width = efr_render::display_width(line, WidthMethod::CodePoint);
-            assert!(width <= usize::from(columns), "{shown}");
-        }
-        let joined: String = shown
-            .lines()
-            .map(|line| {
-                // NOTE: the leading spaces are the indent of a row that goes on; a cut
-                // inside a word adds none to the command.
-                let line = line.trim_start_matches("\u{2713} $ ").trim_start();
-                let line = line.strip_suffix("  4.1s").unwrap_or(line);
-                let line = line.strip_suffix('\\').unwrap_or(line);
-                line.strip_suffix('\u{21a9}').unwrap_or(line).to_owned()
-            })
-            .collect();
-        assert_eq!(joined, long);
-        assert!(shown.ends_with("  4.1s\n"), "{shown}");
-        assert!(!shown.contains('\u{2026}'));
+        assert_eq!(shown, format!("\u{2713} $ {long}  4.1s\n"));
         // The live row is cut with a mark, and keeps its time.
         let mut running = shell(&long);
         running.show(now());
@@ -173,23 +158,23 @@ fn a_long_command_goes_on_four_columns_after_its_name_and_is_never_cut() {
 }
 
 #[test]
-fn a_row_that_has_no_room_for_its_end_cuts_the_command_shorter() {
-    // TM-Calls 16 at 60 columns: the cut falls after `--dry-run`, and the time follows
-    // the last row.
+fn the_end_of_a_row_follows_the_command_on_its_row() {
+    // TM-Calls 16 at 60 columns: TM-Narrow wins over the cut after `--dry-run`; the
+    // time follows the command on one row.
     let call =
         shell("cargo run -p efr-store --bin migrate -- --dry-run ~/.local/share/efr/sessions");
     assert_eq!(
         row(&call, Some(4_100), Outcome::Ran, 60),
-        "\u{2713} $ cargo run -p efr-store --bin migrate -- --dry-run \\\n      ~/.local/share/efr/sessions  4.1s\n"
+        "\u{2713} $ cargo run -p efr-store --bin migrate -- --dry-run ~/.local/share/efr/sessions  4.1s\n"
     );
-    // A reason too long for any row goes on, 4 columns after the name.
+    // A long reason follows on the same row too.
     let refused = Outcome::Refused("a command that must run outside the sandbox must run alone");
     let shown = row(&shell("cd ~/proj && find . -type f | sort"), None, refused, 40);
-    for line in shown.lines() {
-        assert!(efr_render::display_width(line, WidthMethod::CodePoint) <= 40, "{shown}");
-    }
-    assert!(shown.starts_with("! $ cd ~/proj && find . -type f | sort"), "{shown}");
-    assert!(shown.contains("\n      "), "{shown}");
+    assert_eq!(shown.lines().count(), 1, "{shown}");
+    assert!(shown.starts_with("! $ cd ~/proj && find . -type f | sort  refused"), "{shown}");
+    // The lines of a command of several lines stand under the first, at its text.
+    let several = row(&shell("cd src\nmake"), None, Outcome::Ran, 40);
+    assert_eq!(several, "\u{2713} $ cd src\n    make\n");
 }
 
 #[test]
@@ -299,15 +284,9 @@ fn a_blocked_connection_names_its_host_in_the_warning_role() {
 }
 
 #[test]
-fn a_note_of_one_long_url_starts_on_its_first_row() {
+fn a_note_of_one_long_url_is_one_row() {
     let url = format!("https://registry.example.com/{}", "a".repeat(40));
     let options = RenderOptions::new(30).with_colour(ColourMode::None);
     let shown = notes(&[note(url.clone())], &options).replace("\x1b[2m", "").replace("\x1b[0m", "");
-    let rows: Vec<&str> = shown.lines().collect();
-    // No row is only its indent, and the rows give the URL back.
-    assert!(rows.iter().all(|row| !row.trim().is_empty()), "{shown:?}");
-    assert!(rows[0].starts_with("  https://"), "{shown:?}");
-    assert!(rows.iter().all(|row| row.len() <= 30), "{shown:?}");
-    let joined: String = rows.iter().map(|row| row.trim_start()).collect();
-    assert_eq!(joined, url);
+    assert_eq!(shown, format!("  {url}\n"));
 }

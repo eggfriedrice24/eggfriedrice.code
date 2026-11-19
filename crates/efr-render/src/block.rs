@@ -1,8 +1,8 @@
 //! The block layer: turns the events of a final slice of markdown into painted lines.
-//! Containers (quotes and list items) give every line its prefix. Paragraphs and
-//! headings are wrapped at words to the width, inside a container so that their
-//! continuation lines keep the indent; code is never wrapped. A wrapped line is hard
-//! rows: a terminal no longer reflows it when its width changes.
+//! Containers (quotes and list items) give every line its prefix. No line is cut for
+//! the width: a paragraph, a heading, a list item or a quote is one logical line for
+//! each line that its author wrote, and the terminal wraps it, and wraps it again
+//! when its width changes (TM-Narrow). Only tables and rules take the width.
 //!
 //! The marks of Markdown stay where they carry structure, in the `muted` role, so the
 //! level of a heading or a list reads without colour and a copy pastes as Markdown:
@@ -22,13 +22,13 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
 use crate::code::{CodeBlock, CodeStyle, source_lines};
 use crate::highlight::Assets;
+use crate::link::is_citation;
 use crate::link::{code_target, link_target};
-use crate::options::{ColourMode, MIN_TEXT_WIDTH, RenderOptions};
+use crate::options::{ColourMode, RenderOptions};
 use crate::outline::parser_options;
 use crate::palette::Role;
 use crate::style::{Colour, Line, Painter, Span, Style, line_width, sanitize};
 use crate::table::Table;
-use crate::wrap::{is_citation, wrap};
 
 use inline::{Inline, InlineKind};
 
@@ -55,8 +55,7 @@ pub(crate) struct Ctx {
 impl Ctx {
     pub(crate) fn new(options: RenderOptions, assets: &'static Assets) -> Ctx {
         let painter = Painter::new(options.colour(), options.hyperlinks())
-            .with_text(options.palette().colour_in(Role::Text, options.colour()))
-            .with_width(options.columns(), options.width_method());
+            .with_text(options.palette().colour_in(Role::Text, options.colour()));
         let code = CodeStyle::new(&options, assets);
         Ctx { options, painter, code }
     }
@@ -116,8 +115,8 @@ impl Flow {
     }
 
     /// Paints one line of `prefix` and `content`, `content` on the background `fill` to
-    /// the end of the row ([`Painter::paint_row`]), after the blank line a new block
-    /// owes.
+    /// 1 column after its text ([`Painter::paint_row`]), after the blank line a new
+    /// block owes.
     pub(crate) fn write_row(
         &mut self,
         ctx: &Ctx,
@@ -333,7 +332,7 @@ impl Writer<'_> {
                 let width = self.available_width().clamp(3, RULE_MAX_WIDTH);
                 let muted = self.ctx.role(Role::Muted);
                 let rule = self.ctx.options.glyphs().rule.repeat(width);
-                self.emit(&[Span::new(rule, muted)], false);
+                self.emit(&[Span::new(rule, muted)]);
             }
             Event::TaskListMarker(done) => {
                 if let Some(Container::Item(item)) =
@@ -454,7 +453,7 @@ impl Writer<'_> {
             TagEnd::CodeBlock => {
                 if let Some((mut block, text, skip)) = self.code.take() {
                     if let Some(label) = block.start() {
-                        self.emit(&label, false);
+                        self.emit(&label);
                     }
                     for line in source_lines(&text).into_iter().skip(skip) {
                         let rendered = block.line(line);
@@ -464,7 +463,7 @@ impl Writer<'_> {
                     let end = self.out.len();
                     let prefix = if self.capture { self.next_line_prefix() } else { None };
                     if let Some(fence) = block.end() {
-                        self.emit(&fence, false);
+                        self.emit(&fence);
                     }
                     if let Some(prefix) = prefix {
                         self.open_code = Some((block, prefix, end, self.out.len()));
@@ -476,7 +475,7 @@ impl Writer<'_> {
                     let muted = self.ctx.role(Role::Muted);
                     for line in source_lines(&html) {
                         let text = sanitize(line.strip_suffix('\r').unwrap_or(line)).into_owned();
-                        self.emit(&[Span::new(text, muted)], false);
+                        self.emit(&[Span::new(text, muted)]);
                     }
                 }
             }
@@ -495,7 +494,7 @@ impl Writer<'_> {
                     Some(Container::Item(Item { marker_width: None, .. }))
                 );
                 if needs_marker {
-                    self.emit(&[], false);
+                    self.emit(&[]);
                 }
                 self.containers.pop();
             }
@@ -505,7 +504,7 @@ impl Writer<'_> {
                         if line.is_empty() {
                             self.blank_line();
                         } else {
-                            self.emit(&line, false);
+                            self.emit(&line);
                         }
                     }
                 }
@@ -713,7 +712,7 @@ impl Writer<'_> {
                 let mark = Span::new(HEADING_MARK.repeat(level), self.ctx.role(Role::Muted));
                 line.splice(0..0, [mark, Span::plain(" ")]);
             }
-            self.emit(&line, true);
+            self.emit(&line);
         }
     }
 
@@ -751,63 +750,47 @@ impl Writer<'_> {
         self.ctx.options.columns().saturating_sub(prefix)
     }
 
-    /// Writes `content` as one or more lines under the current containers, wrapped at
-    /// words to the width that the containers leave when `wrap_text` is set.
-    fn emit(&mut self, content: &[Span], wrap_text: bool) {
-        let (first, rest) = self.prefixes();
-        let prefix_width = line_width(&first);
-        let lines = if wrap_text {
-            let columns = self.ctx.options.columns();
-            let available = match prefix_width {
-                0 => columns,
-                width => columns.saturating_sub(width).max(MIN_TEXT_WIDTH),
-            };
-            wrap(content, available, self.ctx.options.width_method())
-        } else {
-            vec![content.to_vec()]
-        };
-        for (index, line) in lines.into_iter().enumerate() {
-            let mut full = if index == 0 { first.clone() } else { rest.clone() };
-            full.extend(line);
-            self.flow.write(self.ctx, &mut self.out, &full);
-        }
+    /// Writes `content` as one line under the current containers. It is never cut for
+    /// the width: a line wider than the terminal is one logical line, which the
+    /// terminal wraps and wraps again when its width changes (TM-Narrow).
+    fn emit(&mut self, content: &[Span]) {
+        let mut line = self.prefix();
+        line.extend_from_slice(content);
+        self.flow.write(self.ctx, &mut self.out, &line);
     }
 
     /// Writes one line of code under the current containers, on the background
-    /// `fill` from the start of the code to the end of the row.
+    /// `fill` from the start of the code to 1 column after its text.
     fn emit_code(&mut self, content: &[Span], fill: Option<Colour>) {
-        let (first, _) = self.prefixes();
-        self.flow.write_row(self.ctx, &mut self.out, &first, content, fill);
+        let prefix = self.prefix();
+        self.flow.write_row(self.ctx, &mut self.out, &prefix, content, fill);
     }
 
-    /// The prefixes for the next line and for its continuation lines. The first line
-    /// of a list item carries the item's marker; every later line an indent as wide.
-    fn prefixes(&mut self) -> (Line, Line) {
-        let mut first = Vec::new();
-        let mut rest = Vec::new();
+    /// The prefix of the next line. The first line of a list item carries the item's
+    /// marker; every later line of the item, such as the next line that its author
+    /// wrote, an indent as wide.
+    fn prefix(&mut self) -> Line {
+        let mut prefix = Vec::new();
         let muted = self.ctx.role(Role::Muted);
         let done = self.ctx.role(Role::Success);
         for container in &mut self.containers {
             match container {
                 Container::Quote { .. } => {
-                    for line in [&mut first, &mut rest] {
-                        line.extend([Span::new(QUOTE_MARK, muted), Span::plain(" ")]);
-                    }
+                    prefix.extend([Span::new(QUOTE_MARK, muted), Span::plain(" ")]);
                 }
                 Container::Item(item) => {
                     if let Some(width) = item.marker_width {
-                        first.push(Span::plain(" ".repeat(width)));
+                        prefix.push(Span::plain(" ".repeat(width)));
                     } else {
                         let marker = item.marker(muted, done);
                         let width = line_width(&marker);
                         item.marker_width = Some(width);
-                        first.extend(marker);
+                        prefix.extend(marker);
                     }
-                    rest.push(Span::plain(" ".repeat(item.marker_width.unwrap_or(0))));
                 }
             }
         }
-        (first, rest)
+        prefix
     }
 
     /// The prefix of the next line that [`Writer::emit`] writes, when that line is the
@@ -820,7 +803,7 @@ impl Writer<'_> {
         if marker_owed || self.flow.separator {
             return None;
         }
-        Some(self.prefixes().0)
+        Some(self.prefix())
     }
 
     /// A blank line inside the current containers: quote marks stay, indents go.

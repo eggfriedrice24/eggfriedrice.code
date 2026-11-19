@@ -4,38 +4,28 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 ---
 === 40 columns, colour
 [end]
-\e[2mreviewer allowed: network for this call\e[0m
-  \e[2m(low risk; you asked to push the fix):\e[0m
-  \e[2mgithub.com:443 reachable, the variable\e[0m
-  \e[2mGH_TOKEN, \e[0m\e[33mhost network\e[0m
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push -u origin \e[0m\e[2m\\e[0m
-      \e[2mfix/steer-race\e[0m  \e[2m1.1s\e[0m
+\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix): github.com:443 reachable, the variable GH_TOKEN, \e[0m\e[33mhost network\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2m1.1s\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-\e[2mreviewer allowed: network for this call\e[0m
-  \e[2m(low risk; you asked to push the fix):\e[0m
-  \e[2mgithub.com:443 reachable, the variable\e[0m
-  \e[2mGH_TOKEN, \e[0m\e[1mhost network\e[0m
-✓ \e[2m$\e[0m \e[2mgit push -u origin \e[0m\e[2m\\e[0m
-      \e[2mfix/steer-race\e[0m  \e[2m1.1s\e[0m
+\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix): github.com:443 reachable, the variable GH_TOKEN, \e[0m\e[1mhost network\e[0m
+✓ \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2m1.1s\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 80 columns, colour
 [end]
-\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix):\e[0m
-  \e[2mgithub.com:443 reachable, the variable GH_TOKEN, \e[0m\e[33mhost network\e[0m
+\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix): github.com:443 reachable, the variable GH_TOKEN, \e[0m\e[33mhost network\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2m1.1s\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 80 columns, NO_COLOR
 [end]
-\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix):\e[0m
-  \e[2mgithub.com:443 reachable, the variable GH_TOKEN, \e[0m\e[1mhost network\e[0m
+\e[2mreviewer allowed: network for this call (low risk; you asked to push the fix): github.com:443 reachable, the variable GH_TOKEN, \e[0m\e[1mhost network\e[0m
 ✓ \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2m1.1s\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m

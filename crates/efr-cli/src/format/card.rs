@@ -338,12 +338,7 @@ fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
                     out.push_str(COMMAND_INDENT);
                 }
                 out.push_str(&paint(&row.text, Tone::Text, options));
-                let mark = match row.end {
-                    RowEnd::Last if at == last && continued => Some(glyphs.wrap),
-                    RowEnd::Last => None,
-                    RowEnd::Space => Some(glyphs.wrap),
-                    RowEnd::Word => Some(glyphs.word_cut),
-                };
+                let mark = row.mark_in(glyphs).or((at == last && continued).then_some(glyphs.wrap));
                 if let Some(mark) = mark {
                     out.push_str(&paint(mark, Tone::Dim, options));
                 }
@@ -390,9 +385,12 @@ fn push_diff(out: &mut String, diff: &str, heading: bool, options: &RenderOption
         let source: Vec<&str> = parts.head.iter().chain(&parts.body).copied().collect();
         let mut text = source.join("\n");
         text.push('\n');
-        let inner = usize::from(options.width()).saturating_sub(INDENT.len() + 3).max(10);
-        let narrow = options.clone().with_width(u16::try_from(inner).unwrap_or(u16::MAX));
-        let lines = diff_lines(&text, &narrow).into_iter().zip(&source).skip(parts.head.len());
+        // NOTE: one row for each line, never cut for the width (TM-Narrow): a line wider
+        // than the screen wraps with its tint.
+        let lines = diff_lines(&text, &super::unbounded(options))
+            .into_iter()
+            .zip(&source)
+            .skip(parts.head.len());
         for (line, source) in lines {
             match line.kind {
                 DiffLineKind::Hunk => {
@@ -413,45 +411,28 @@ fn push_diff(out: &mut String, diff: &str, heading: bool, options: &RenderOption
                 // 21).
                 kind if options.colour() == ColourMode::None => {
                     let (sign, code) = source.split_at(source.len().min(1));
-                    let rows = chunks(&super::one_line(code), inner, options);
-                    let last = rows.len().saturating_sub(1);
-                    for (at, row) in rows.iter().enumerate() {
-                        out.push_str(INDENT);
-                        match kind {
-                            DiffLineKind::Added | DiffLineKind::Removed if at == 0 => {
-                                out.push_str(&paint(sign, Tone::Bold, options));
-                                out.push(' ');
-                            }
-                            _ => out.push_str("  "),
+                    let code = super::one_line(code);
+                    out.push_str(INDENT);
+                    match kind {
+                        DiffLineKind::Added | DiffLineKind::Removed => {
+                            out.push_str(&paint(sign, Tone::Bold, options));
+                            out.push(' ');
                         }
-                        if kind == DiffLineKind::Removed {
-                            out.push_str(&options.paint_with(Role::Text, Attrs::DIM, row));
-                        } else {
-                            out.push_str(row);
-                        }
-                        if at < last {
-                            out.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
-                        }
-                        out.push('\n');
+                        _ => out.push_str("  "),
                     }
+                    if kind == DiffLineKind::Removed {
+                        out.push_str(&options.paint_with(Role::Text, Attrs::DIM, &code));
+                    } else {
+                        out.push_str(&code);
+                    }
+                    out.push('\n');
                 }
                 _ => {
-                    let last = line.rows.len().saturating_sub(1);
-                    for (at, row) in line.rows.iter().enumerate() {
-                        out.push_str(INDENT);
-                        out.push_str(if at == 0 { &line.sign } else { " " });
-                        out.push(' ');
-                        out.push_str(row);
-                        // A row cut inside the line ends in a muted mark; the next row
-                        // goes on at the column of the code.
-                        if at < last {
-                            out.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
-                        }
-                        if let Some(fill) = &line.fill {
-                            out.push_str(&format!("\x1b[{fill}m\x1b[K\x1b[0m"));
-                        }
-                        out.push('\n');
+                    let mut row = format!("{INDENT}{} {}", line.sign, line.rows.concat());
+                    if line.fill.is_none() {
+                        row.truncate(row.trim_end().len());
                     }
+                    super::patch::push_tinted(out, &row, line.fill.as_deref());
                 }
             }
         }
@@ -462,25 +443,6 @@ fn push_diff(out: &mut String, diff: &str, heading: bool, options: &RenderOption
         out.push_str(&paint(&more, Tone::Dim, options));
         out.push('\n');
     }
-}
-
-/// `text` in rows of at most `columns` columns, cut anywhere, as a diff line is.
-fn chunks(text: &str, columns: usize, options: &RenderOptions) -> Vec<String> {
-    let method = options.width_method();
-    let mut rows = vec![String::new()];
-    let mut used = 0;
-    for c in text.chars() {
-        let width = text_width(&c.to_string(), method);
-        if used + width > columns.max(1) && used > 0 {
-            rows.push(String::new());
-            used = 0;
-        }
-        used += width;
-        if let Some(row) = rows.last_mut() {
-            row.push(c);
-        }
-    }
-    rows
 }
 
 /// The counts of the lines of a diff `body` that it adds and removes: `+1` in the

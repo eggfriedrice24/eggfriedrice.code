@@ -19,7 +19,7 @@ use efr_protocol::{
     BlockReason, Blocked, ChangeKind, ContextUse, Draft, DraftPart, Event, EventEnvelope,
     FileChange, FileChanges, InputWait, JobId, SandboxSummary, Seq,
 };
-use efr_test_support::design::{Depth, Frame, cells, check_rows_where};
+use efr_test_support::design::{Depth, Frame, cells, check_rows_where, soft_wrap};
 use serde_json::{Value, json};
 
 use super::super::super::{Look, TurnView};
@@ -367,20 +367,30 @@ fn the_legend_of_the_call_rows() {
 }
 
 #[test]
-fn a_command_wider_than_the_screen_goes_on_at_column_six() {
-    // TM-Calls 16: the cut at the last space that fits, a muted `\`, the next row 4
-    // columns after the `$`, and the time after the last row.
+fn a_command_wider_than_the_screen_is_one_row() {
+    // TM-Narrow 19 and 20 (TM-Calls 16 loses: no cut with `\`): the command and its
+    // time are one row, which the terminal wraps at column 0, at 100 columns and again
+    // when the window shrinks to 60.
     for depth in Depth::ALL {
-        let mut play = Play::new(depth, 60);
+        let mut play = Play::new(depth, 100);
+        play.event(10, read(1, "crates/efr-daemon/src/turn.rs"));
+        play.event(20, ended(1, None, ""));
         play.event(
-            10,
+            30,
             shell(
-                1,
-                "cargo run -p efr-store --bin migrate -- --dry-run ~/.local/share/efr/sessions",
+                2,
+                "cargo test -p efr-daemon --features legacy-store -- \
+                 turn::tests::steer_during_turn turn::tests::steer_after_finish --nocapture",
             ),
         );
-        play.event(4_110, ended(1, Some(0), ""));
-        check(&Frame::load("Calls", 16).unwrap(), .., &play.committed(), depth, all);
+        play.event(38_030, ended(2, Some(0), ""));
+        // NOTE: the board draws the path of the read in `text`; the row of a call that
+        // went well is muted (TM-Calls 2), so the check starts at the shell call.
+        let shown: String = play.committed().split_inclusive('\n').skip(1).collect();
+        for number in [19, 20] {
+            let frame = Frame::load("Narrow", number).unwrap();
+            check(&frame, 1.., &soft_wrap(&shown, frame.cols), depth, all);
+        }
     }
 }
 
@@ -853,30 +863,30 @@ fn a_file_edit_is_its_row_and_its_diff() {
 }
 
 #[test]
-fn a_row_of_a_diff_wider_than_the_screen_goes_on_after_a_muted_mark() {
-    // TM-Diffs 4. NOTE: the board draws a frame 60 columns wide, but its rows fit in 60
-    // columns: the cut that it draws, after `self.rx.`, falls at 41 columns. The rows
-    // are the board's at that width.
+fn a_row_of_a_diff_wider_than_the_screen_is_one_row_with_its_tint() {
+    // TM-Narrow 15 and 16 (TM-Diffs 4 loses: no cut with `↩`): the tint under the sign
+    // and the text and 1 column after it, no fill to the edge; a long row wraps at
+    // column 0 with its tint, at 100 columns and again in a window of 60.
     let depth = Depth::TrueColor;
-    let frame = Frame::load("Diffs", 4).unwrap();
-    let mut play = Play::new(depth, 41);
+    let mut play = Play::new(depth, 100);
     play.event(10, edit_turn(1));
-    let diff = "--- a/crates/efr-daemon/src/turn.rs\n+++ b/crates/efr-daemon/src/turn.rs\n@@ -88,1 +88,2 @@ impl Turn {\n-        self.state = State::Done;\n+        while let Ok(msg) = self.rx.try_recv() {\n+            self.pending.push(msg);\n";
-    let turn_rs = changes(vec![file("crates/efr-daemon/src/turn.rs", ChangeKind::Modified, 7, 2)]);
+    let diff = "--- a/crates/efr-daemon/src/turn.rs\n+++ b/crates/efr-daemon/src/turn.rs\n\
+                @@ -88,4 +88,8 @@ impl Turn {\n     pub fn finish(&mut self) -> usize {\n\
+                -        self.state = State::Done;\n\
+                +        while let Ok(msg) = self.rx.try_recv() {\n\
+                +            self.pending.push(msg);\n\
+                +            tracing::debug!(\"turn {} drained a steer before the end, {} still pending\", self.id, self.pending.len());\n\
+                +        }\n\
+                +        self.state = State::Done;\n         drained\n... 9 more lines\n";
+    let turn_rs = changes(vec![file("crates/efr-daemon/src/turn.rs", ChangeKind::Modified, 5, 1)]);
     play.event(20, wrote(1, turn_rs, Some(diff)));
     let shown = play.committed();
-    // NOTE: at 41 columns the edit's row goes on in a second row.
-    let texts: Vec<String> =
-        cells(&shown).iter().map(efr_test_support::design::CellRow::text).collect();
-    let hunk = texts.iter().position(|row| row.starts_with("  @@")).unwrap();
-    check(&frame, 1..2, &rows(&shown, hunk..hunk + 1), depth, all);
-    let part = rows(&shown, hunk + 1..hunk + 5);
-    // The code of the rows, and of the row that goes on (from column 10); the mark of
-    // the cut at column 40 is muted.
-    let code = code_cells(&part, 4, depth);
-    check(&frame, 2..6, &part, depth, move |row, col| {
-        (row == 2 && col >= 10) || (code(row, col) && !(row == 1 && col == 40))
-    });
+    assert!(!shown.contains("\x1b[K"), "{shown:?}");
+    for number in [15, 16] {
+        let frame = Frame::load("Narrow", number).unwrap();
+        let real = soft_wrap(&shown, frame.cols);
+        check(&frame, .., &real, depth, code_cells(&real, 4, depth));
+    }
 }
 
 // --- whole runs of calls ----------------------------------------------------------

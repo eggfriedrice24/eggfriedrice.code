@@ -10,7 +10,7 @@
 //! `patch`, `udiff` or no info) show no label. No frame and no indent: the user copies
 //! code with the mouse. In truecolor each row of code is on the `code.bg` role (an
 //! added or a removed row of a diff on `diff.add.bg` or `diff.remove.bg`), which the
-//! caller paints to the end of the row with `ESC [ K` ([`CodeBlock::fill`]). Without
+//! caller paints under the text and 1 column after it ([`CodeBlock::fill`]). Without
 //! colour the fences come back, dim (` ```rust ` and ` ``` `), so the block still reads
 //! as code and a copy is Markdown; a comment stays italic (TM-Code).
 
@@ -275,7 +275,7 @@ impl CodeBlock {
     }
 
     /// The background of the row of the line that [`line`](Self::line) rendered last,
-    /// to fill to the end of the row: `code.bg`, or for an added or a removed line of a
+    /// under its text: `code.bg`, or for an added or a removed line of a
     /// diff its own. `None` outside truecolor and without a colour for it.
     pub(crate) fn fill(&self) -> Option<Colour> {
         match &self.body {
