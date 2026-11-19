@@ -198,6 +198,42 @@ fn unknown_sequences_and_control_characters_change_nothing() {
 }
 
 #[test]
+fn osc_dcs_and_apc_strings_are_dropped_to_their_end() {
+    // A clipboard event with its end as BEL, a DCS reply and an APC with `ESC \`.
+    let mut line = typed(b"keep");
+    let replies: &[&[u8]] = &[
+        b"\x1b]5522;type=read:status=DONE;bWFrZXMgYSBsaW5l\x07",
+        b"\x1bP1+r736d756c78=1b5b3f3e\x1b\\",
+        b"\x1b_Gi=31;OK\x1b\\",
+    ];
+    for reply in replies {
+        assert_eq!(feed(&mut line, reply), [], "{}", reply.escape_ascii());
+        assert_eq!(feed(&mut line, b"!"), [], "the key after the end is typed");
+    }
+    assert_eq!(line.text(), "keep!!!");
+    assert_eq!(line.cursor(), "keep!!!".len());
+}
+
+#[test]
+fn a_control_string_ends_at_an_escape_or_a_control_key_that_does_nothing() {
+    // A string cut by the start of a sequence: the sequence counts.
+    let mut line = typed(b"ab");
+    assert_eq!(feed(&mut line, b"\x1b]0;title\x1b[Dx"), []);
+    assert_eq!(line.text(), "axb");
+    // Alt+Shift+P sends `ESC P`: the keys after it are dropped, and Enter ends the
+    // string and does not steer.
+    let mut line = typed(b"fix");
+    assert_eq!(feed(&mut line, b"\x1bPlost\r"), []);
+    assert_eq!(feed(&mut line, b" it\r"), [Action::Steer]);
+    assert_eq!(line.text(), "fix it");
+    // Esc still interrupts in a string.
+    let mut line = typed(b"\x1b_Ga=T");
+    assert_eq!(line.key(Key::Esc), Action::Interrupt);
+    assert_eq!(feed(&mut line, b"y"), []);
+    assert_eq!(line.text(), "y");
+}
+
+#[test]
 fn appended_text_goes_on_a_line_of_its_own_after_the_draft() {
     let mut line = RowLine::default();
     line.append("first prompt");

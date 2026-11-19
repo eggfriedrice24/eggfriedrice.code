@@ -20,7 +20,9 @@
 //!   the line holds. Those keys only say so ([`Action`]); the follow loop acts. Ctrl+B
 //!   does not move the cursor: the Left arrow does.
 //!
-//! Other control characters and escape sequences change nothing. The line holds no
+//! Other control characters and escape sequences change nothing. The bytes of an OSC,
+//! DCS or APC string (`ESC ]`, `ESC P`, `ESC _` to BEL or `ESC \`), such as a late
+//! clipboard reply, are dropped and never typed into the line. The line holds no
 //! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
 //! prompt. The follow loop keeps the keys away from it while a call's output shows a
 //! password prompt.
@@ -75,6 +77,9 @@ enum State {
     /// In a bracketed paste: the text so far, and how many bytes of [`PASTE_END`]
     /// came last.
     Paste { text: Vec<u8>, matched: usize },
+    /// In a control string (OSC, DCS or APC), whose bytes are dropped; `escape` after
+    /// an escape byte in it.
+    String { escape: bool },
 }
 
 /// The text of the input row and its cursor.
@@ -202,7 +207,24 @@ impl RowLine {
             }
             State::Ss3 { alt } => self.ss3(byte, alt),
             State::Paste { text, matched } => self.paste(byte, text, matched),
+            State::String { escape } => self.string(byte, escape),
         }
+    }
+
+    /// One byte of a control string. BEL or `ESC \` ends it, and an escape byte with
+    /// another byte ends it and starts a sequence. A reply of the terminal holds no
+    /// other control character, so one of them also ends the string and does nothing
+    /// more: after Alt+Shift+P, which sends `ESC P` too, Enter does not send the text
+    /// before the keys that the string took.
+    fn string(&mut self, byte: u8, escape: bool) -> Action {
+        match byte {
+            b'\\' if escape => {}
+            _ if escape => return self.escape(byte, false),
+            ESC => self.state = State::String { escape: true },
+            0x00..=0x1f | 0x7f => {}
+            _ => self.state = State::String { escape: false },
+        }
+        Action::None
     }
 
     fn plain(&mut self, byte: u8) -> Action {
@@ -244,6 +266,8 @@ impl RowLine {
         match byte {
             b'[' => self.state = State::Csi { alt, params: Vec::new() },
             b'O' => self.state = State::Ss3 { alt },
+            // OSC, DCS, APC: a late reply of the terminal, never text.
+            b']' | b'P' | b'_' => self.state = State::String { escape: false },
             ESC if !alt => self.state = State::Escape { alt: true },
             b'b' | b'B' => return self.move_to(self.word_start()),
             b'f' | b'F' => return self.move_to(self.word_end()),
