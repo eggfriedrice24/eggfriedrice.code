@@ -54,11 +54,16 @@ directories, a store and provider traffic from one place and never from the mach
   frame 15 in 16 colours and without colour, 25 and 26 frame 22), `TM-Endings` 23 to 33
   and `TM-Commands` 7. The older frames of those boards stay as they were checked in;
   the canvas changed some of them since, so an export adds only the new frames to them.
+  `TM-Narrow` (0.0.13.1) keeps only its frames "after": a finished row does not depend
+  on the width of the window.
   `Frame::load(board,
   number)` reads a frame;
   `cells(ansi)` reads real output as a terminal shows it (SGR, `ESC [ K` and its fill,
-  OSC 8); `expect(frame, depth)` gives the board's own frame of a `Depth` or derives
-  it from the truecolor frame through one table; `assert_rows(frame, range, real,
+  OSC 8); `soft_wrap(out, cols)` wraps a logical line by cell, as a terminal of `cols`
+  columns does; `expect(frame, depth)` gives the board's own frame of a `Depth` or
+  derives it from the truecolor frame through one table, and gives a row that a board
+  fills to the edge tinted under its text and 1 column after it (`narrow`), because
+  TM-Narrow wins over the older boards; `assert_rows(frame, range, real,
   depth)` compares text, colour and attributes cell by cell and names the first row
   that differs. `DESIGN_ROLES` gives the 16 roles of efr's palette with the colours of
   the design. `DESIGN_THEME` is the folder of the theme of the design system

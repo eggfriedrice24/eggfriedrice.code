@@ -414,18 +414,15 @@ Replies:
   and follows the line of the answer at once. No blank line stands between calls, and
   one between a run of calls and prose (`Block::Row`).
 - Each line of a command of several lines shows on its own row, under the first, so
-  two commands never look like one with more arguments. A line wider than the screen
-  goes on in the next row, and nothing of what runs is cut. A row is cut after the
-  last pipe or other operator (`|`, `||`, `|&`, `&&`, `;`) that fits when the row is
-  then at least half full, so the next command starts a row (TM-Questions 11), else
-  after the last space that fits when the row is then at least half full: a muted `\` ends it,
-  and the rows after it start 4 columns after the column of the name (column 6), so
-  the indent stands for that space. Otherwise (no space fits, or the cut would leave a
-  short word such as `cp` alone in the row) the row is cut inside a word: a muted `↩`
-  ends it, and the word goes on in the next row at the column of the row it goes on
-  from, so the rows show no space that the command does not have. The time and what
-  follows it stand after the last row; a last row with no room for them is cut
-  shorter, else they go on in a row of their own.
+  two commands never look like one with more arguments. A finished row does not
+  depend on the width of the window (TM-Narrow): efr cuts no line of a command for
+  the width, so a line wider than the screen is one row, which the terminal wraps at
+  column 0, and a copy gives the command as it ran. The time and what follows it stand
+  after the last line. The same holds for every finished row of efr's own (the notes,
+  the changes row, the end lines, the `↪` and `⇄` rows, the answer lines, the
+  compaction line, the chip row): one logical row, never cut for the width. Only the
+  live rows (the status row, the running call, the input row, a card that waits) fit
+  the width, because efr draws them again.
 - Reads that follow each other with nothing between them fold into one row
   (`view/fold.rs`): `✓ read crates/app/src/lib.rs` for one, `✓ read 6 files
   crates/app/src/lib.rs, session.rs, json.rs (+3)` for more, each name after the
@@ -461,8 +458,8 @@ Replies:
   not a terminal, the rows and the list go to stderr, plain, in the same order, and
   the raw markdown on stdout has each mark as ` [1]` too (`follow::plain_marks`; a
   mark that a draft cut waits for its end), as has `efr history` off a terminal. `efr
-  history` writes the same rows from the same events, with the whole query (a long one
-  goes on in the next rows, 6 columns in), and `--verbose` adds under a search its
+  history` writes the same rows from the same events, with the whole query on one row
+  (the terminal wraps a long one), and `--verbose` adds under a search its
   first three results and `… 5 more · cited: 1, 3`, and under an open its finds.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
   spinner (`accent`), the name (`muted`) and what it does (`text`) cut to the width
@@ -486,10 +483,10 @@ Replies:
   `diff.hunk`; the hunk of a new file shows no row, and neither does a first hunk with
   no function context, whose place the row of the file gives (TM-Diffs 1). A line is its sign (bold in
   `diff.add` or `diff.remove`), one space and its text with the file's syntax colours
-  (`efr_render::diff_lines`), on the fill of its kind to the end of the row in
-  truecolor (`ESC [ K`, reset before the newline); a line that stays has two spaces in
-  place of its sign. A line wider than the screen goes on in the next row after a
-  muted `↩`, 2 columns before the code of the line, on the same fill. After
+  (`efr_render::diff_lines`), on the tint of its kind in truecolor, from the indent to
+  1 column after the text (no `ESC [ K`, reset before the newline); a line that stays
+  has two spaces in place of its sign. A line is one row, never cut (TM-Narrow): a
+  line wider than the screen wraps at column 0 with its tint. After
   `render.diff_lines` rows (20 by default; `render.diff_lines_long`, 8, from the 6th
   call of a turn on) a muted `… N more lines · efr diff` counts the lines left out
   and the lines that the daemon cut (its last line `... N more lines`). A deleted
@@ -509,8 +506,8 @@ Replies:
   file with `+N` in the `success` role and `-N` in the `error` role, and how many more
   files changed. A connection that efr's proxy blocked gets a muted row with the host
   in `warning`: `network: blocked registry.npmjs.org:443 (not on the allow list) · 3
-  times`. A row wider than the screen goes on in the next row, indented 2 more
-  columns. Every path passes through `format::one_line`. The row and the turn's line
+  times`. A row wider than the screen is one row, which the terminal wraps. Every
+  path passes through `format::one_line`. The row and the turn's line
   say what changed in the roots while the call or the turn ran, not who changed it:
   the snapshots cannot tell, so a file that another conversation or the user's editor
   saved at the same time shows too.
@@ -558,8 +555,9 @@ Replies:
   file of its headers and its counts (`hyprland.conf  +1 -1`, the counts in the
   `success` and the `error` role), the short hunk header (`@@ 41 input`, in the
   `diff.hunk` role), and each line from `efr_render::diff_lines` with its sign, one
-  space and the code, its background to the end of the row (`ESC [ K`), a cut row
-  with a muted `↩`. Without colour a removed line is dim and the signs are bold.
+  space and the code, its tint under the text and 1 column after it, one row for each
+  line with no cut (TM-Narrow). Without colour a removed line is dim and the signs are
+  bold.
   `render.bell = true` writes one BEL with the frame that first shows a card.
 - The approval of an `edit` call has the title `allow this edit`, and its preview shows
   as that of a patch of one file: a row that names the file, then its diff. Under the
@@ -570,7 +568,7 @@ Replies:
   `delete <path>` or `move <from> → <to>` whole in the `warning` role, because a "yes"
   allows a delete or a move. The daemon marks them with a line `delete <path>` or
   `move <from> -> <to>` before the diff of that file; the CLI reads the headers as
-  well. The rows of a diff are cut as in a call's block, with a muted `↩`, and the
+  well. The rows of a diff are as in a call's block, one row for each line, and the
   file headers stay out.
 - A shell call's card shows each line of its command when the summary quotes exactly
   the command of the call's `tool_call_started`; what the summary says besides follows
@@ -594,11 +592,12 @@ Replies:
   sandbox.allow[2]: …`; any other event of the turn writes it alone. While efr counts
   the user away, the card of a question has the muted row `efr counts you away: this
   question waits only a short time, then the call does not run`. A line of efr's own
-  wider than the screen goes on in the next row, indented 2 columns. The command is written
+  wider than the screen is one row, which the terminal wraps. The command is written
   once, in the block of the call that follows, also when the call did not run. A card taller than the screen (the live
   zone must stay smaller than the screen, or rows that scroll off the top could never
   be erased) is written to the scrollback whole instead, with its keys left in the
-  live zone; the line of the answer then follows it. When stdout is not a terminal,
+  live zone; the line of the answer then follows it. In the scrollback the card is a
+  finished row: efr cuts none of its lines for the width (TM-Narrow). When stdout is not a terminal,
   the card goes to stderr whole, then the line of the answer, then the rows of the
   call.
 - The model's question (`ask_user`, v0.0.12, TM-Questions 0.0.12,
@@ -1495,12 +1494,13 @@ of the progress bar, drafts that merge with persisted updates without a line twi
 pieces keeps what `render` makes of the whole text. The call tests cover the running rows with
 the spinner, time, the lines of a command and three lines of output at 40 and 80
 columns, the committed block of a call (with no time under 1 s, the exit code, the
-refusal and the failure's last lines), a long line that goes on in the next row and
-is never cut, a call whose approval waits, and no blank line between calls. The
+refusal and the failure's last lines), a long line that is one row and is never cut,
+a call whose approval waits, and no blank line between calls. The
 design tests (`follow/view/tests/layout/design.rs`) play real events through a view
 and compare the screen, cell by cell, with the frames of the Calls, Diffs, Legend,
-LongTurn, BeforeAfter, Sequence, Depths, Endings and Commands boards in truecolor, 16
-colours and `NO_COLOR` (`efr_test_support::design`); the colours inside the rows of a
+LongTurn, BeforeAfter, Sequence, Depths, Endings, Commands and Narrow boards in
+truecolor, 16 colours and `NO_COLOR` (`efr_test_support::design`; TM-Narrow 15, 16,
+19 and 20 through `soft_wrap` at 100 and 60 columns); the colours inside the rows of a
 diff are the render slice's, and those cells compare by their text and fill. The
 whole-turn tests (`follow/view/tests/layout/whole.rs`) play the turns of
 TM-BeforeAfter 4, TM-Sequence and TM-LongTurn 3 and 4 from their first line to their
@@ -1829,7 +1829,9 @@ design's palette), 16 colours and `NO_COLOR`: the corner in each mode, at home, 
 efrd ever ran, next to a theme's right side, on a plain and a two-line prompt, at 60
 columns and hidden by a long line (TM-Scope 1-10), the marker of sticky mode with and
 without the corner (TM-Scope 17, 18), TM-Legend 1-3, the line of `,model` and the
-corner after `,mode full` (TM-Endings 5, 8), the prompt rows of TM-Endings 1-9, and the
+corner after `,mode full` (TM-Endings 5, 8), the prompt rows of TM-Endings 1-9, the
+corner of an old prompt line 2 columns after its typed text and at the edge of the
+edit line (TM-Narrow 23; TM-Narrow wins over the older boards there), and the
 notices at the next prompt (TM-Endings 11-13).
 
 `tests/it/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s

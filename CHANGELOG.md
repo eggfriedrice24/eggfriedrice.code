@@ -35,6 +35,18 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, the value of an option of `ping`, `traceroute`, `tracepath` or `mtr`, such
   as the interval of `ping -i 0.2`, is no longer read as the host that the command
   reaches.
+- Rows that efr wrote no longer break apart when you make the window narrower. efr
+  writes each paragraph, heading, list item and quote of a reply as one line, and the
+  terminal wraps it again at the new width; a copy of a paragraph is one line. The
+  background of a code row and of a changed row of a diff ends 1 column after the
+  text, not at the edge of the window, and a long row of a diff wraps with its
+  background, with no `↩` cut. A long command, a note, an end line and efr's other
+  finished rows are one row each, with no `\` cut. The rows that efr draws again (the
+  status row, a running call, the input row, a question that waits) still fit the
+  window.
+- The prompt corner of an old prompt line moves to 2 columns after the text that you
+  typed when you press Enter, so it does not wrap onto a row of its own in a narrower
+  window. The line that you edit keeps the corner at the right edge.
 
 ## [0.0.13] - 2026-11-19
 

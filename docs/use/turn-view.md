@@ -141,9 +141,10 @@ When the call ends, one row stays. The first column tells how it ended:
 - `·`: you denied the call, so it did not run.
 - `→`: the command runs on as a background job (Ctrl+B), or in the hidden shell.
 
-No blank line stands between calls. A command that is too long for the screen goes on
-in the next row, 4 columns after the `$`. The row ends in a dim `\` where the command
-has a space, and in a dim `↩` inside a word.
+No blank line stands between calls. A command that is too long for the screen is one
+row: the terminal wraps it, and a copy gives the command as it ran. efr adds no
+line break to a finished row, so the rows stay whole when you make the window
+narrower.
 
 Reads that follow each other fold into one row, which grows while the reads come and
 stays when something else shows. A single read names its file:
@@ -601,7 +602,10 @@ Under `[notify]` (efrd also hands `terminal` to the zsh plugin at your next prom
 Then the fences of a code block come back, dim, and a removed line of a diff is dim,
 so the reply still reads as Markdown.
 
-efr wraps a long line of the reply at a word, so no word is cut in two at the edge of
-the terminal. The rows stay as they are when you change the width of the window. A
-code block is never wrapped: a long line of code goes on in the next row of the
-terminal, and a copy of it is one line.
+efr writes each paragraph, heading, list item and quote of the reply as one line, and
+the terminal wraps it. When you change the width of the window, the terminal wraps it
+again, so no short rows are left. The terminal can wrap inside a word. A copy of a
+paragraph is one line. A code block is never wrapped: a long line of code goes on in
+the next row of the terminal, and a copy of it is one line. The background of a code
+row and of a changed row of a diff is under the text and 1 column after it, not to
+the edge of the window.

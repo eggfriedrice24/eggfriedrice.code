@@ -36,8 +36,11 @@
 //! have. A line that ends in a shell's own `\` goes on in the next line, so its `\` is
 //! muted too. Text rows go on in the next row, two columns further in. A diff stands at
 //! the card's indent: a row with the file and its counts, the short hunk header, and the
-//! lines with their sign. When the output is not a terminal, nothing wraps and nothing is
-//! painted.
+//! lines with their sign, one row for each line, never cut, its tint under the text and
+//! 1 column after it (TM-Narrow). The cuts are for the live card only: a card that goes
+//! to the scrollback is a finished row, rendered with no width (`format::unbounded`), so
+//! efr cuts none of its lines. When the output is not a terminal, nothing wraps and
+//! nothing is painted.
 
 use efr_render::{
     Attrs, ColourMode, DiffLineKind, Glyphs, RenderOptions, Role, diff_lines, text_width,

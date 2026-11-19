@@ -30,9 +30,10 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   cut into rows of the width, and the fill of its rows (the SGR parameters of
   `diff.add.bg` or `diff.remove.bg`, or of the blended tint). The sign and each span
   of the rows are on the fill already; the caller writes the fill before its indent and
-  again before the `ESC [ K` that ends a row. The seam of the terminal look: this crate
-  paints the lines in the colours of each depth (TM-Diffs), the CLI lays them out.
-  `diff_rows` stays for the callers of today.
+  again before the one cell after the text that ends the tint, never to the edge
+  (TM-Narrow). The CLI asks for one row for each line: it gives no width to cut at.
+  The seam of the terminal look: this crate paints the lines in the colours of each
+  depth (TM-Diffs), the CLI lays them out. `diff_rows` stays for the callers of today.
 - `RenderOptions`: the width, the `ColourMode` (none, 16 colours, truecolor), the
   `Palette`, the `Theme` for code or a `CodeTheme` from a `.tmTheme` file (and one in
   bat's ANSI encoding for 16 colours, `with_code_theme_ansi`), OSC 8 hyperlinks on or
@@ -45,7 +46,7 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   without colour. `RenderOptions::tint` gives the colour of a role without its
   attributes, for the CLI's context gauge, whose colour changes with its level.
   `RenderOptions::fill` gives the SGR parameters of a background role, for a row that
-  the caller fills to the edge with `ESC [ K` and resets before its newline.
+  the caller tints under its text and 1 column after it, and resets before its newline.
 - `Glyphs`: every glyph of the CLI's own lines (the marks of the design's legend and
   the mark of the thought row), with `Glyphs::UNICODE` and `Glyphs::ASCII`. The CLI
   picks the table from the locale; `RenderOptions::glyphs` gives it. No other file of
@@ -106,8 +107,8 @@ the width of every emoji in it. Ghostty counts by grapheme cluster (mode 2027): 
 cluster takes the width of its first code point, a variation selector 16 makes a narrow
 emoji wide, a variation selector 15 makes a wide one narrow, and a flag takes two
 columns. `WidthMethod::Grapheme` counts the same way. The row count of the live zone and
-the cut of a trace line and the word wrap of prose use the method of the options; the
-layout of tables counts by code point.
+the cut of a trace line use the method of the options; the layout of tables counts by
+code point.
 
 What commits when:
 
@@ -161,11 +162,13 @@ language and the file when the fence names both (`rust · src/main.rs` from
 `rust src/main.rs`, `title="x"` or `file=x`), else the one it names; a short table
 gives the language of a short fence word (`ts` gives `typescript`); plain text
 (`text`, `txt`, `plain`, `plaintext` or no info) and diffs (`diff`, `patch`, `udiff`)
-show no label. In truecolor each row of code is on `code.bg` to the end of the row:
-each span on the background, then `ESC [ K` with the background set, then a reset
-before the newline; the label and the blank line after the block are not. A row as
-wide as a whole number of terminal rows gets no `ESC [ K`, which would erase its last
-character there. In 16 colours and without colour a code block has no background.
+show no label. In truecolor each row of code is on `code.bg` under its text and 1
+column after it: each span on the background, then one cell with the background
+alone, then a reset before the newline; the spaces at the end of the row go first.
+The tint is per row, not a block, and never runs to the edge (no `ESC [ K`), so the
+rows do not change when the window gets narrower; only a row longer than the window
+wraps, with its tint (TM-Narrow). The label and the blank line after the block have no
+tint. In 16 colours and without colour a code block has no background.
 Without colour the fences come back, dim: the opening fence with the fence word as
 typed and no file (` ```rust `), and the closing fence, also while the block streams,
 under its lines in the live zone. A comment stays italic without colour (a theme of
@@ -185,16 +188,18 @@ narrower. Links, bare URLs, absolute paths in links and inline code are OSC 8
 hyperlinks (`file://` for paths); without a hyperlink, the target follows in muted
 parentheses. A citation mark of web search, a link whose text is `[`, digits and `]`
 (`[1]`), never shows its target, because the list of sources after the answer names
-the URL, and a row never starts with it: it goes to the next row with the word before
-it. Images show as `[image: alt]`. The line of a rule and of the table's rule
+the URL. Images show as `[image: alt]`. The line of a rule and of the table's rule
 is the `rule` glyph of the options (`─`, or `-` in ASCII).
 
-Soft line breaks keep the author's lines. A line of prose or a heading wider than the
-terminal is wrapped at words into rows of the width, as the boards of the design draw
-it, so the terminal does not cut a word in two; text inside a list item or a quote is
-wrapped to keep its indent. The cost: the rows are hard, so a terminal no longer
-reflows a reply when its width changes, and a copy of a paragraph has a line break at
-each wrap. Code blocks are never wrapped, so a copy of code is the code.
+Soft line breaks keep the author's lines. A finished row does not depend on the width
+of the window (TM-Narrow): efr adds no newline for the width. A line of prose, a
+heading, a list item or a quote wider than the terminal is one logical line, which the
+terminal wraps, and wraps again when its width changes; the marker of an item or a
+quote is at its start only, and the rows that go on start at column 0. The next line
+that the author wrote in an item keeps the item's indent. The cost: the terminal wraps
+by cell, also inside a word. In exchange the rows never break apart in a narrower
+window, and a copy of a paragraph is one line. Code blocks are never wrapped, so a
+copy of code is the code. Only tables and rules take the width.
 
 Grammars and themes come from `two-face` (bat's set) on `syntect` with the pure-Rust
 `fancy-regex` backend, and decompress on the first code block that needs them, or
@@ -293,9 +298,13 @@ gives each line its kind, its sign apart and the rows that `diff_rows` paints. T
 test `design` of the test binary compares the output with a frame of the terminal
 design (`efr_test_support::design`) in the depths that each board draws: TM-Markdown
 1 to 5, TM-Code 1 to 6, the diff rows of TM-Diffs 1 to 3, TM-Depths 4, 8 and 12, and
-TM-Legend 6, 20, 21, 37 and 38. Each module of it says where a board and the output
-differ and which rule wins: the column gaps of a hand-drawn table, the syntax inside
-a diff in 16 colours, and the code inside a diff in a fence, which names no language.
+TM-Legend 6, 20, 21, 37 and 38, and TM-Narrow 3, 4, 7, 8, 11 and 12 (the output at
+100 columns as the terminal wraps it at 100 and at 60 columns). Each module of it says
+where a board and the output differ and which rule wins: the column gaps of a
+hand-drawn table, the syntax inside a diff in 16 colours, the code inside a diff in a
+fence, which names no language, and TM-Narrow over the rows that an older board breaks
+at words or fills to the edge. A unit test checks that a row of code has no `ESC [ K`
+after its background and that a long paragraph has no newline of efr's.
 Its code themes are the code themes of the design system
 (`efr_test_support::design::DESIGN_THEME`). The test `theme` renders the code blocks
 of TM-Code with them and compares the colour and the attributes of each cell of code

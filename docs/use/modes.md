@@ -64,7 +64,7 @@ A turn keeps its mode until it ends. A steer with `,!` takes no settings.
 The prompt corner shows the mode of the next prompt at the right edge of your zsh
 prompt, after the scope: `app · auto`, `⌂ · cautious`. The mode is muted, and `full`
 is in the error colour: `app · full`. It records the mode of each prompt in the
-scrollback. One line in `.zshrc` sets it up, after the setup of your prompt theme:
+scrollback, 2 columns after the text that you typed. One line in `.zshrc` sets it up, after the setup of your prompt theme:
 
 ```zsh
 efr_corner
