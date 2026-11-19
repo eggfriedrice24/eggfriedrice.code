@@ -4,6 +4,7 @@ import type { SubscribeItem, WatchItem } from "@/lib/protocol/wire";
 import {
   Client,
   LEASE_RENEW_MS,
+  leaseRenewMs,
   type ClientState,
   type SubscriptionSink,
   type SubscriptionStatus,
@@ -485,6 +486,20 @@ describe("the lease", () => {
     await clock.advance(1000);
     await completeHandshake(sockets.last);
     expect(leases(sockets.last)).toEqual([{ visible: true }]);
+  });
+
+  it("renews at half of a ttl of efrd that is shorter than twice the renew time", async () => {
+    expect(leaseRenewMs(60)).toBe(LEASE_RENEW_MS);
+    expect(leaseRenewMs(20)).toBe(10_000);
+    const { clock, sockets } = await started();
+    const socket = sockets.last;
+    socket.answer("lease.report", { ttl_secs: 20 });
+    await flush();
+    // The first timer started before the answer.
+    await idle(clock, socket, LEASE_RENEW_MS);
+    expect(leases(socket)).toHaveLength(2);
+    await idle(clock, socket, 10_000);
+    expect(leases(socket)).toHaveLength(3);
   });
 
   it("names the subscribed conversations, with one report for a move to the next one", async () => {

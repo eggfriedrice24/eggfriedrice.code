@@ -55,9 +55,10 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   composer, the tile row of a draft and of the transcript, the upload in chunks
   through the outbox), voice (the microphone of the composer, on iOS 26) and push (the
   row Notifications of Settings, the Expo push token, the tap on a notice). The app
-  now sends `lease.report` on each connection, at each change of the app state or of
-  the conversation on screen, and each 25 s while it is in front, so efrd sends no
-  push while you look at the conversation. The demo machines take attachments too
+  sends `lease.report` on each connection, at each change of the app state or of the
+  conversation on screen, and each 25 s while it is in front (at most half of the
+  `ttl_secs` that efrd answers), so efrd sends no push while you look at the
+  conversation. The demo machines take attachments too
   (`features/demo/model/demo-uploads.ts`).
 - A step of web search, which the provider of the model runs, shows as a tool block
   with the verb `web`: a search with its query, an opened page as `open <page>`. The

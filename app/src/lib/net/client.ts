@@ -18,8 +18,9 @@
 //   push for what the phone shows. The client reports it on each new connection, when
 //   the app goes to the background or comes back, when the subscribed conversations
 //   change, and each 25 s while the app is in the foreground: efrd drops a lease after
-//   60 s. The conversations of the lease are those that the client subscribes to, which
-//   are the conversations on screen.
+//   the `ttl_secs` of its answer (60 s). When that ttl is shorter than 50 s, the client
+//   renews at half of it. The conversations of the lease are those that the client
+//   subscribes to, which are the conversations on screen.
 
 import { decodeSubscribeItem, decodeWatchItem } from "@/lib/protocol/envelope";
 import type {
@@ -131,8 +132,16 @@ export interface Watch {
 /** The error codes after which a subscription subscribes again on its backoff ladder. */
 const RETRY_CODES: ReadonlySet<string> = new Set(["overflow", "busy", "cancelled", "internal"]);
 
-/** How often the client renews its lease in the foreground; efrd keeps one for 60 s. */
+/** How often the client renews its lease in the foreground (docs/protocol.md). */
 export const LEASE_RENEW_MS = 25_000;
+
+/**
+ * The time until the next report of a lease that efrd keeps for `ttlSecs`: at most half
+ * of it, so one lost report does not end the lease.
+ */
+export function leaseRenewMs(ttlSecs: number): number {
+  return Math.min(LEASE_RENEW_MS, (ttlSecs * 1000) / 2);
+}
 
 /** The stream of one entry: how it starts, and what it does with each raw item. */
 interface EntryTarget {
@@ -172,6 +181,8 @@ export class Client {
   /** The lease that the connection has, as JSON, so an equal lease is not sent again. */
   private leaseSent: string | undefined;
   private leaseQueued = false;
+  /** When the next report goes; it follows the `ttl_secs` of the last answer of efrd. */
+  private leaseRenew = LEASE_RENEW_MS;
 
   constructor(options: ClientOptions) {
     const url = socketUrl(options.endpoint);
@@ -362,7 +373,7 @@ export class Client {
 
   /**
    * Sends the lease of now on the ready connection, unless the connection has it already,
-   * and renews it each `LEASE_RENEW_MS` while the app is in the foreground.
+   * and renews it each `leaseRenew` while the app is in the foreground.
    */
   private reportLease(): void {
     this.leaseTimer?.cancel();
@@ -375,14 +386,22 @@ export class Client {
     const json = JSON.stringify(lease);
     if (json !== this.leaseSent) {
       this.leaseSent = json;
-      void connection.call("lease.report", lease).catch(() => undefined);
+      void this.sendLease(connection, lease).catch(() => undefined);
     }
     if (lease.visible) {
-      this.leaseTimer = this.options.clock.setTimer(LEASE_RENEW_MS, () => {
+      this.leaseTimer = this.options.clock.setTimer(this.leaseRenew, () => {
         this.leaseTimer = undefined;
         this.leaseSent = undefined;
         this.reportLease();
       });
+    }
+  }
+
+  /** Sends `lease` and keeps the renew time that the `ttl_secs` of the answer gives. */
+  private async sendLease(connection: Connection, lease: LeaseReport): Promise<void> {
+    const result = await connection.call("lease.report", lease);
+    if (this.connection === connection) {
+      this.leaseRenew = leaseRenewMs(result.ttl_secs);
     }
   }
 
@@ -391,6 +410,7 @@ export class Client {
     this.leaseTimer?.cancel();
     this.leaseTimer = undefined;
     this.leaseSent = undefined;
+    this.leaseRenew = LEASE_RENEW_MS;
   }
 
   private setState(state: ClientState): void {
