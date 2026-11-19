@@ -68,8 +68,13 @@ export interface Push {
   setOn(on: boolean): void;
   /** Sends no token to `machine` now, before the app forgets it. */
   release(machine: MachineId): void;
-  /** Conversation `id` is on screen: its delivered notices go. */
+  /**
+   * Conversation `id` is on screen: its delivered notices go now, and again each time
+   * the app comes back to the foreground on it.
+   */
   shown(conversation: string): void;
+  /** Conversation `id` left the screen. */
+  left(conversation: string): void;
   openSettings(): void;
   /** Stops every listener. */
   dispose(): void;
@@ -109,6 +114,8 @@ export function createPush(deps: PushDeps): Push {
   let token: string | undefined;
   let fetching = false;
   let disposed = false;
+  /** The conversation on screen, whose notices go at each return to the foreground. */
+  let onScreen: string | undefined;
 
   const update = (change: Partial<PushState>): void => {
     store.setState((state) => ({ ...state, ...change }));
@@ -213,6 +220,9 @@ export function createPush(deps: PushDeps): Push {
     deps.followAppState((active) => {
       if (active) {
         readPermission().catch(onError);
+        if (onScreen !== undefined) {
+          native.dismiss(onScreen).catch(onError);
+        }
       }
     }),
   ];
@@ -237,7 +247,13 @@ export function createPush(deps: PushDeps): Push {
       }
     },
     shown(conversation: string): void {
+      onScreen = conversation;
       native.dismiss(conversation).catch(onError);
+    },
+    left(conversation: string): void {
+      if (onScreen === conversation) {
+        onScreen = undefined;
+      }
     },
     openSettings(): void {
       native.openSettings();

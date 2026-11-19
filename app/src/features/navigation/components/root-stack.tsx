@@ -7,7 +7,8 @@
 // runtime read the paired machines; until then it shows the background colour.
 //
 // When a conversation gets the focus, its delivered push notices leave the Notification
-// Center: the screen shows what they said.
+// Center: the screen shows what they said. While it keeps the focus, they leave again at
+// each return of the app to the foreground.
 
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { Suspense, createContext, use, type ReactElement, type ReactNode } from "react";
@@ -56,10 +57,16 @@ const MachineMenuContext = createContext<MachineMenuSlot>(() => null);
 export function RootStack(props: RootStackProps) {
   const { push, voice } = useAppServices();
   const onFocus = (route: FrameRoute): void => {
-    const conversation =
-      route.name === ROUTE_NAMES.conversation ? conversationOfParams(route.params) : undefined;
+    const conversation = conversationOf(route);
     if (conversation !== undefined) {
       push?.shown(conversation.id);
+    }
+  };
+  const onBlur = (route: FrameRoute): void => {
+    voice?.stop();
+    const conversation = conversationOf(route);
+    if (conversation !== undefined) {
+      push?.left(conversation.id);
     }
   };
   return (
@@ -72,7 +79,7 @@ export function RootStack(props: RootStackProps) {
             // NOTE: only the composer of the recording has its stop button; a screen
             // that goes away stops the microphone, so it never writes into a draft that
             // no one sees.
-            blur: () => voice?.stop(),
+            blur: () => onBlur(route),
           })}
           screenLayout={screenLayout}
         >
@@ -94,6 +101,11 @@ export function RootStack(props: RootStackProps) {
 interface FrameRoute {
   readonly name: string;
   readonly params?: object | undefined;
+}
+
+/** The conversation of `route`, when it is the route of a conversation. */
+function conversationOf(route: FrameRoute) {
+  return route.name === ROUTE_NAMES.conversation ? conversationOfParams(route.params) : undefined;
 }
 
 /**

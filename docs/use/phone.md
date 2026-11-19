@@ -522,8 +522,8 @@ named under the row, such as "Not available on homelab".
 While the app is in front, a notice shows no banner and plays no sound, and the app
 tells efrd that you look at it, so efrd sends no notice then. A tap on a notice opens
 its conversation, after the Face ID unlock when it is on. The app ignores a notice of a
-machine that it does not know. When a conversation opens, its notices go from the
-Notification Center. When you turn the switch off or forget a machine, the app tells
+machine that it does not know. When a conversation opens, and each time that the app
+comes back to the foreground on it, its notices go from the Notification Center. When you turn the switch off or forget a machine, the app tells
 the machine to stop at once.
 
 A notice has the title `efr` and a body such as `app: a question waits`: the name of the

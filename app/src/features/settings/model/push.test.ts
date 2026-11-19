@@ -161,4 +161,20 @@ describe("the switch Notifications", () => {
     push.shown("019a9b1c-3d00-7a10-8b20-000000001001");
     expect(native.dismissed).toEqual(["019a9b1c-3d00-7a10-8b20-000000001001"]);
   });
+
+  it("removes them again when the app comes back on that conversation, not after it left", async () => {
+    const { parts, native, push } = await setup();
+    const conversation = "019a9b1c-3d00-7a10-8b20-000000001001";
+    push.shown(conversation);
+    parts.setActive(false);
+    parts.setActive(true);
+    await flush();
+    expect(native.dismissed).toEqual([conversation, conversation]);
+
+    push.left(conversation);
+    parts.setActive(false);
+    parts.setActive(true);
+    await flush();
+    expect(native.dismissed).toEqual([conversation, conversation]);
+  });
 });
