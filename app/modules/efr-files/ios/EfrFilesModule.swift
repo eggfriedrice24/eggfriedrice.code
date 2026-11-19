@@ -201,7 +201,7 @@ private enum AppFiles {
     // both as /var and as /private/var, and both sides of the test resolve the same way.
     let directory = standard.deletingLastPathComponent().resolvingSymlinksInPath()
     let file = directory.appendingPathComponent(name)
-    let roots = [
+    let roots: [URL?] = [
       FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
       FileManager.default.temporaryDirectory,
     ]
