@@ -23,7 +23,7 @@ import { useState } from "react";
 import { devWarn } from "@/lib/dev/dev-warn";
 import type { AttachmentLimits } from "@/lib/protocol/generated";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
-import type { AppAttach } from "@/features/navigation/model/app-services";
+import { quickLook, type AppAttach } from "@/features/navigation/model/app-services";
 import type { SendMode } from "@/features/settings/model/preferences";
 import {
   NO_ATTACHMENTS,
@@ -229,12 +229,12 @@ export function useComposer(options: ComposerOptions): ComposerModel {
  * the build, or no capability `attachments` of efrd.
  */
 function composerAttach(
-  attach: AppAttach | null | undefined,
+  attach: AppAttach | null,
   key: DraftKey,
   tiles: readonly TileView[],
   limits: AttachmentLimits | undefined,
 ): ComposerAttach | undefined {
-  if (attach === null || attach === undefined || limits === undefined) {
+  if (attach === null || limits === undefined) {
     return undefined;
   }
   const { native, attachments } = attach;
@@ -255,9 +255,7 @@ function composerAttach(
     quickLook: (id: string): void => {
       const file = selectDraftFiles(key)(attachments.store.get()).find((held) => held.id === id);
       if (file !== undefined) {
-        native.files.quickLook(file.uri, file.name).catch((error: unknown) => {
-          devWarn(`Quick Look of ${file.name} failed: ${String(error)}`);
-        });
+        quickLook(attach, file.uri, file.name);
       }
     },
   };
@@ -268,12 +266,12 @@ function composerAttach(
  * build, or no speech support on this iPhone.
  */
 function composerVoice(
-  voice: Voice | null | undefined,
+  voice: Voice | null,
   state: VoiceState,
   all: VoiceState,
   start: (cursor: number | undefined) => void,
 ): ComposerVoice | undefined {
-  if (voice === null || voice === undefined || state.kind === "off") {
+  if (voice === null || state.kind === "off") {
     return undefined;
   }
   return {

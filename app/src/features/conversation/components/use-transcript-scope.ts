@@ -62,9 +62,9 @@ export interface TranscriptScope {
   readonly questions?: ScopeQuestions;
   /**
    * The files of the prompts: the previews and Quick Look of their photos, and the
-   * withdraw of a prompt on its way. None in a build without them.
+   * withdraw of a prompt on its way. Null in a build without them.
    */
-  readonly attach?: AppAttach | null;
+  readonly attach: AppAttach | null;
 }
 
 /** What the row of a question of the model needs from the screen. */

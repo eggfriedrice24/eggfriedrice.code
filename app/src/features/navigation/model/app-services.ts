@@ -30,6 +30,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { AsyncStorage } from "@tanstack/react-query-persist-client";
 
+import { devWarn } from "@/lib/dev/dev-warn";
 import { type CheckOwner, DEFAULT_FACTS, type OwnerFacts } from "@/lib/lock/owner-check";
 import type { Clock } from "@/lib/net/clock";
 import { wireQueryManagers, type QueryManagers, type Subscribe } from "@/lib/query/managers";
@@ -83,7 +84,7 @@ import { createPush, type Push, type PushNative } from "@/features/settings/mode
 import { createAppLock, type AppLock, type LockPhase } from "./app-lock";
 import type { LinkGate } from "./link-gate";
 import type { NoticeSource, NoticeTaps } from "./notice-taps";
-import { wireOutboxDrains, type OutboxDrainsDeps } from "./outbox-drains";
+import { discardUpload, wireOutboxDrains, type OutboxDrainsDeps } from "./outbox-drains";
 import { withOutboxEcho } from "./outbox-echo";
 
 /** The runtime of the app: its streams are the full streams of the conversations. */
@@ -175,6 +176,13 @@ export interface AppAttach {
   readonly attachments: Attachments;
 }
 
+/** Shows the file `uri` full screen in Quick Look. A failure goes to the dev log only. */
+export function quickLook(attach: AppAttach, uri: string, name: string): void {
+  attach.native.files.quickLook(uri, name).catch((error: unknown) => {
+    devWarn(`Quick Look of ${name} failed: ${String(error)}`);
+  });
+}
+
 /** The effects of the Face ID unlock: the phases of the app and the checks of iOS. */
 export interface AppLockEffects {
   followAppPhase(listener: (phase: LockPhase) => void): () => void;
@@ -242,11 +250,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
           attachments: createAttachments({
             files: pickers.files,
             outbox,
-            discard: (machine, uploadId) => {
-              runtime
-                .call(machine, "attachment.discard", { upload_id: uploadId })
-                .catch(() => undefined);
-            },
+            discard: (machine, uploadId) => discardUpload(runtime, machine, uploadId),
             newId: deps.newId,
             storage: deps.keyValue,
             onError,

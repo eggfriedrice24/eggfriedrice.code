@@ -54,9 +54,9 @@ export interface ComposerDeps {
   /** The Face ID unlock of the app: auto from the phone needs it (round 9). */
   readonly lock: Pick<AppLock, "store" | "facts">;
   /** The pickers and the files of the drafts; null in a build without them. */
-  readonly attach?: AppAttach | null;
+  readonly attach: AppAttach | null;
   /** Voice input; null in a build without efr-speech. */
-  readonly voice?: Voice | null;
+  readonly voice: Voice | null;
 }
 
 /** The actions of one composer. */

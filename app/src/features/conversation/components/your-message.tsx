@@ -21,10 +21,9 @@ import { cn } from "@/components/ui/cn";
 import { MenuView } from "@/components/ui/menu-view";
 import { MonoText } from "@/components/ui/mono-text";
 import { PlainButton } from "@/components/ui/plain-button";
-import { devWarn } from "@/lib/dev/dev-warn";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
-import type { AppAttach } from "@/features/navigation/model/app-services";
+import { quickLook, type AppAttach } from "@/features/navigation/model/app-services";
 import { NO_ATTACHMENTS, selectPreviews } from "../model/attachments";
 import { promptTiles, type TileView } from "../model/attachments-tiles";
 import { clockTime } from "../model/durations";
@@ -176,13 +175,10 @@ export interface PromptRowProps {
 const NONE_WITHHELD: ReadonlySet<string> = new Set();
 
 /** Quick Look of a photo tile with its preview. */
-function lookAt(attach: AppAttach | null | undefined, tile: TileView): void {
-  if (attach === null || attach === undefined || tile.previewUri === undefined) {
-    return;
+function lookAt(attach: AppAttach | null, tile: TileView): void {
+  if (attach !== null && tile.previewUri !== undefined) {
+    quickLook(attach, tile.previewUri, tile.name);
   }
-  attach.native.files.quickLook(tile.previewUri, tile.name).catch((error: unknown) => {
-    devWarn(`Quick Look of ${tile.name} failed: ${String(error)}`);
-  });
 }
 
 /** The prompt of turn `turnId`. */
@@ -253,7 +249,7 @@ export function PendingPromptRow(props: PendingPromptRowProps) {
   const prompt = props.prompt;
   const attach = scope.attach;
   const withdraw =
-    prompt.withdrawable && attach !== null && attach !== undefined
+    prompt.withdrawable && attach !== null
       ? () => attach.attachments.withdraw(prompt.key)
       : undefined;
   let state: YourMessageState;

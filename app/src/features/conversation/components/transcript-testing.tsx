@@ -44,7 +44,7 @@ export function testScope(state: StreamState): TestScope {
   return {
     store,
     calls,
-    scope: { store, rowUi: createRowUiStore(), machineName: "desktop", actions },
+    scope: { store, rowUi: createRowUiStore(), machineName: "desktop", actions, attach: null },
   };
 }
 

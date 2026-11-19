@@ -48,6 +48,7 @@ export function sheetScope(kind: DemoConversationKind, expanded: boolean): Trans
     rowUi,
     machineName: "desktop",
     actions: NO_ACTIONS,
+    attach: null,
   };
 }
 

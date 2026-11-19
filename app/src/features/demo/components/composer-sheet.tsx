@@ -97,6 +97,8 @@ export function ComposerSheet() {
       newCommandId: () => "0199d3e0-de39-7000-8000-0000000000ff",
       // The gallery never asks iOS: each check passes.
       lock: DEMO_LOCK,
+      attach: null,
+      voice: null,
     },
     target: env.target,
     connection: env.connection,

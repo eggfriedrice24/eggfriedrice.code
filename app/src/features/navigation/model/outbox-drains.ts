@@ -45,6 +45,18 @@ export interface OutboxDrainsDeps {
   readonly onSent?: (entry: OutboxEntry) => void;
 }
 
+/**
+ * Sends `attachment.discard` of `uploadId` to `machine` and does not wait. An upload that
+ * efrd keeps after a lost discard ends with its owner or after its idle time.
+ */
+export function discardUpload(
+  runtime: Pick<Runtime, "call">,
+  machine: MachineId,
+  uploadId: string,
+): void {
+  runtime.call(machine, "attachment.discard", { upload_id: uploadId }).catch(() => undefined);
+}
+
 /** The uploads of the files of a prompt on the connection of `machine`. */
 function machineUploads(
   runtime: OutboxDrainsDeps["runtime"],
@@ -55,10 +67,7 @@ function machineUploads(
   return {
     chunkBytes: () => attachmentLimits(connection())?.chunk_bytes,
     put: (params) => runtime.call(machine, "attachment.put", params),
-    discard: (uploadId) => {
-      // NOTE: an upload that efrd keeps after a lost discard ends with its life.
-      runtime.call(machine, "attachment.discard", { upload_id: uploadId }).catch(() => undefined);
-    },
+    discard: (uploadId) => discardUpload(runtime, machine, uploadId),
     readChunk,
   };
 }
