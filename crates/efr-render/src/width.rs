@@ -40,7 +40,8 @@ pub fn text_width(text: &str, method: WidthMethod) -> usize {
 }
 
 /// The columns that painted text takes on a terminal that counts by `method`, without
-/// its CSI sequences (colours) and OSC sequences (hyperlinks).
+/// its CSI sequences (colours) and its control strings: OSC (hyperlinks), DCS and APC
+/// (images).
 pub fn display_width(painted: &str, method: WidthMethod) -> usize {
     if !painted.contains('\x1b') {
         return text_width(painted, method);
@@ -52,13 +53,20 @@ pub fn display_width(painted: &str, method: WidthMethod) -> usize {
 /// sequence. A grapheme cluster can continue across a colour change, as it does on the
 /// terminal, so the text is joined before it is measured.
 fn visible(painted: &str) -> String {
-    Visible { chars: painted.char_indices() }.map(|(_, c)| c).collect()
+    Visible::of(painted).map(|(_, c)| c).collect()
 }
 
 /// The characters of painted text that the terminal shows, each with its byte offset in
-/// the painted text.
+/// the painted text. Each escape sequence is skipped as [`sequence_len`] measures it.
 struct Visible<'a> {
-    chars: std::str::CharIndices<'a>,
+    painted: &'a str,
+    at: usize,
+}
+
+impl<'a> Visible<'a> {
+    fn of(painted: &'a str) -> Self {
+        Visible { painted, at: 0 }
+    }
 }
 
 impl Iterator for Visible<'_> {
@@ -66,33 +74,14 @@ impl Iterator for Visible<'_> {
 
     fn next(&mut self) -> Option<(usize, char)> {
         loop {
-            let (at, c) = self.chars.next()?;
+            let rest = &self.painted[self.at..];
+            let c = rest.chars().next()?;
             if c != '\x1b' {
+                let at = self.at;
+                self.at += c.len_utf8();
                 return Some((at, c));
             }
-            match self.chars.next() {
-                // A CSI sequence ends with its final byte, 0x40 to 0x7e.
-                Some((_, '[')) => {
-                    for (_, c) in self.chars.by_ref() {
-                        if ('\u{40}'..='\u{7e}').contains(&c) {
-                            break;
-                        }
-                    }
-                }
-                // An OSC sequence ends with BEL or with ST (ESC \).
-                Some((_, ']')) => {
-                    while let Some((_, c)) = self.chars.next() {
-                        if c == '\x07' {
-                            break;
-                        }
-                        if c == '\x1b' {
-                            self.chars.next();
-                            break;
-                        }
-                    }
-                }
-                _ => {}
-            }
+            self.at += sequence_len(rest);
         }
     }
 }
@@ -163,14 +152,14 @@ fn row_starts(painted: &str, width: usize, method: WidthMethod, mut start: impl 
     }
     match method {
         WidthMethod::CodePoint => {
-            Visible { chars: painted.char_indices() }.for_each(|(at, c)| place(at, char_width(c)));
+            Visible::of(painted).for_each(|(at, c)| place(at, char_width(c)));
         }
         WidthMethod::Grapheme => {
             // A cluster can go on across a colour change: join the text, then map each
             // cluster back to the offset of its first character.
             let mut text = String::with_capacity(painted.len());
             let mut offsets = Vec::with_capacity(painted.len());
-            for (at, c) in (Visible { chars: painted.char_indices() }) {
+            for (at, c) in Visible::of(painted) {
                 offsets.extend(std::iter::repeat_n(at, c.len_utf8()));
                 text.push(c);
             }
@@ -208,8 +197,11 @@ fn open_state(painted: &str) -> String {
     colours
 }
 
-/// The length in bytes of the escape sequence at the start of `text`, as [`Visible`]
-/// skips it.
+/// The length in bytes of the escape sequence at the start of `text`. A CSI sequence
+/// ends with its final byte, 0x40 to 0x7e. A control string (OSC `ESC ]`, DCS `ESC P`,
+/// APC `ESC _`) ends with BEL or with ST (`ESC \`), as the input row of the CLI reads
+/// them. An escape with any other character is two characters long. A sequence with no
+/// end takes the rest of `text`: a cut image never counts as text.
 fn sequence_len(text: &str) -> usize {
     let mut chars = text.char_indices().skip(1);
     match chars.next() {
@@ -220,7 +212,7 @@ fn sequence_len(text: &str) -> usize {
                 }
             }
         }
-        Some((_, ']')) => {
+        Some((_, ']' | 'P' | '_')) => {
             while let Some((at, c)) = chars.next() {
                 if c == '\x07' {
                     return at + 1;

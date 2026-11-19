@@ -51,6 +51,21 @@ fn display_width_skips_escape_sequences() {
 }
 
 #[test]
+fn display_width_skips_the_control_strings_of_an_image() {
+    let image = format!("\x1b_Ga=T,f=100,t=d,q=2,r=6,C=1;{}\x1b\\", "iVBORw0KGgo".repeat(400));
+    let dcs = "\x1bP1$r0m\x1b\\";
+    for method in [WidthMethod::CodePoint, WidthMethod::Grapheme] {
+        assert_eq!(display_width(&format!("a{image}b"), method), 2);
+        assert_eq!(display_width(&format!("{dcs}ok"), method), 2);
+        assert_eq!(display_width("\x1b_Gq=2;AAAA\x07ok", method), 2);
+        // A cut string takes the rest of the line, so its body never counts as text.
+        assert_eq!(display_width("ab\x1b_Ga=T,f=100;iVBORw0KGgo", method), 2);
+        assert_eq!(display_rows(&format!("{image}0123456789"), 10, method), 1);
+        assert_eq!(last_rows(&format!("abcd{image}ef"), 4, 1, method), "ef");
+    }
+}
+
+#[test]
 fn a_cluster_continues_across_a_colour_change() {
     let painted = "\x1b[1m\u{1f468}\x1b[0m\u{200d}\u{1f469}";
     assert_eq!(display_width(painted, WidthMethod::CodePoint), 4);
