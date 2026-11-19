@@ -889,6 +889,70 @@ fn a_row_of_a_diff_wider_than_the_screen_is_one_row_with_its_tint() {
     }
 }
 
+/// Prints the finished rows of TM-Narrow on stdout, for a person to look at in a real
+/// terminal and then make the window narrower: prose, a list and a quote, a code block,
+/// a file edit with its diff, and a long shell command, at 100 columns, in truecolor,
+/// in 16 colours and without colour. It is ignored, so a test run never prints it:
+///
+/// ```sh
+/// cargo nextest run -p efr-cli --run-ignored only --no-capture -E 'test(preview_narrow)'
+/// ```
+#[test]
+#[ignore = "a preview for a person, not a check"]
+#[expect(clippy::print_stdout, reason = "the preview is for a person to look at")]
+fn preview_narrow() {
+    for (name, depth) in [
+        ("truecolor", Depth::TrueColor),
+        ("16 colours", Depth::Ansi16),
+        ("NO_COLOR", Depth::NoColor),
+    ] {
+        print!("\n--- {name} ---\n\n{}", narrow_turn(depth));
+    }
+}
+
+/// The turn of [`preview_narrow`], as the terminal keeps it.
+fn narrow_turn(depth: Depth) -> String {
+    let mut play = Play::new(depth, 100);
+    let prose = "## What the import does\n\n\
+efrd keeps each conversation in one `SQLite` file. The JSON reader still builds, behind a \
+feature, and runs once to import the old files. A file that does not parse is skipped and \
+named in the log, so one bad file does not stop the import of the others.\n\n\
+- the importer reads `~/.local/share/efr/sessions` and leaves it in place, so a second run \
+finds the same files and imports nothing twice\n  \
+- a session with no `ended_at` takes its `started_at`, and the list of conversations sorts it \
+by that time\n\n\
+> Keep the JSON reader until two releases have shipped without it, then drop it in one commit.\n\n\
+```rust crates/efr-daemon/src/turn.rs\n\
+pub fn finish(&mut self) -> usize {\n    let mut drained = 0;\n    \
+while let Ok(msg) = self.rx.try_recv() {\n        self.pending.push(msg);\n        \
+drained += 1;\n    }\n    \
+tracing::debug!(\"turn {} drained {} steers\", self.id, drained);\n    drained\n}\n```\n";
+    play.event(10, message(0, prose));
+    play.event(20, edit_turn(1));
+    let diff = "--- a/crates/efr-daemon/src/turn.rs\n+++ b/crates/efr-daemon/src/turn.rs\n\
+                @@ -88,4 +88,8 @@ impl Turn {\n     pub fn finish(&mut self) -> usize {\n\
+                -        self.state = State::Done;\n\
+                +        while let Ok(msg) = self.rx.try_recv() {\n\
+                +            self.pending.push(msg);\n\
+                +            tracing::debug!(\"turn {} drained a steer before the end, {} still pending\", self.id, self.pending.len());\n\
+                +        }\n\
+                +        self.state = State::Done;\n         drained\n... 9 more lines\n";
+    let turn_rs = changes(vec![file("crates/efr-daemon/src/turn.rs", ChangeKind::Modified, 5, 1)]);
+    play.event(30, wrote(1, turn_rs, Some(diff)));
+    play.event(40, read(2, "crates/efr-daemon/src/turn.rs"));
+    play.event(50, ended(2, None, ""));
+    play.event(
+        60,
+        shell(
+            3,
+            "cargo test -p efr-daemon --features legacy-store -- turn::tests::steer_during_turn \
+             turn::tests::steer_after_finish --nocapture",
+        ),
+    );
+    play.event(38_060, ended(3, Some(0), ""));
+    play.committed()
+}
+
 // --- whole runs of calls ----------------------------------------------------------
 
 /// Call `n`, a shell call of `command` that started at `from` and ran `took`
