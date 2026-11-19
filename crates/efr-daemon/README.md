@@ -1968,8 +1968,8 @@ capability `attachments` while `attachments.enabled` is on.
 - **Uploads** (`attachments/uploads.rs`). `Owner::of` a connection: the device of the
   proof on the tailnet listener, the connection on the Unix socket. `Uploads` keeps
   each upload in `<state>/uploads/<upload-id>.part` (0600) by the one result rule of
-  `attachment.put`, checks it after its last chunk, and writes what a model gets of it
-  beside it (`.sent`). It sweeps every part at the start of efrd, drops the uploads of
+  `attachment.put`, checks it after its last chunk, and writes a prepared image beside
+  it (`.sent`); a PDF that goes as content stays in its part. It sweeps every part at the start of efrd, drops the uploads of
   a Unix connection when it closes (`Methods::closed`), the uploads of a revoked
   device (`remote::live::follow`), and an upload of a device after `UPLOAD_TTL` with no
   chunk, at the next put or the next look of `gc::collect`. A bind or a tool image
@@ -1979,16 +1979,17 @@ capability `attachments` while `attachments.enabled` is on.
   `invalid`, `forbidden` and `internal`. `prompt.send` asks it for the missing ids and
   answers `not_found` with `missing_uploads`.
 - **The intake** (`attachments/intake.rs`), one path for every origin, on the blocking
-  pool. `Checked` holds the type from the first bytes, the kind, the bytes that a model
-  gets and a `Note` when an image or a PDF goes as a path: `as a path: the image is
-  broken`, `as a path: the image is too large to send as content`, `as a path: the
-  PDF is too large to send as content` (also over 100 pages), `as a path: the image is
-  animated` (a WebP), `as a path: the PDF has a password`, `as a path: efr cannot count the pages of this PDF`. Only a debug line
-  of a tool image names the note; no label and no row shows it. A PNG or JPEG is
-  decoded once (`efr_media`); one with an edge over `attachments.max_edge_px`, over
-  `IMAGE_MAX_BYTES` (7.5 MB) or turned by its EXIF tag is made smaller or upright, each
-  other one only loses its metadata. A broken image has the kind `other`. Uploads and
-  the images of a tool share one decode semaphore, so one image decodes at a time.
+  pool. `Checked` holds the type from the first bytes, the kind, what a model gets
+  (`Sent::Original` for a PDF, `Sent::Prepared` for an image) and a `reason` when an
+  image or a PDF goes as a path: the image is broken, too large or animated (a WebP),
+  or the PDF is too large (also over 100 pages), has a password or has pages that efr
+  cannot count. Only a debug line of a tool image names the reason; no label and no
+  row shows it. A PNG or JPEG is decoded once (`efr_media`); one with an edge over
+  `attachments.max_edge_px`, over `IMAGE_MAX_BYTES` (7.5 MB) or turned by its EXIF tag
+  is made smaller or upright, each other one only loses its metadata. A broken image
+  has the kind `other`. An upload with no image or PDF in its first 8 KiB is never
+  read whole: the check reads its head and the hash reads the rest in pieces. Uploads
+  and the images of a tool share one decode semaphore, so one image decodes at a time.
 - **The blob dir** (`attachments/store.rs`): `<data>/attachments/<conversation-id>/<sha256>`
   (dir 0700, file 0600), the bytes that a model gets, one file for equal bytes. The
   conversation delete removes the dir, and `forget` removes each blob of a withdrawn

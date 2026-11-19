@@ -84,6 +84,31 @@ async fn an_image_gets_what_a_model_reads_and_waits_for_a_prompt() {
 }
 
 #[tokio::test]
+async fn a_pdf_waits_in_its_part_with_no_sent_file() {
+    let state = tempfile::tempdir().unwrap();
+    let uploads = uploads(state.path(), &TestClock::new());
+    let pdf = b"%PDF-1.4\n2 0 obj\n<< /Type /Pages /Kids [] /Count 1 >>\nendobj\n%%EOF\n";
+    let done = uploads.put(LOCAL, chunk(1, pdf, 0, pdf.len()), 2000).await.unwrap();
+    assert_eq!(done.upload.expect("finished").kind, AttachmentKind::Pdf { pages: Some(1) });
+    let finished = uploads.finished(upload(1)).expect("finished");
+    assert_eq!(finished.sent_file.as_deref(), Some(part(state.path(), 1).as_path()));
+    assert!(!state.path().join(UPLOADS_DIR).join(format!("{}.sent", upload(1))).exists());
+}
+
+#[tokio::test]
+async fn a_text_file_longer_than_the_head_is_hashed_whole() {
+    let state = tempfile::tempdir().unwrap();
+    let uploads = uploads(state.path(), &TestClock::new());
+    let text = "0123456789abcdef\n".repeat(20_000).into_bytes();
+    let done = uploads.put(LOCAL, chunk(1, &text, 0, text.len()), 2000).await.unwrap();
+    let info = done.upload.expect("finished");
+    assert_eq!((info.kind, info.bytes), (AttachmentKind::Text, text.len() as u64));
+    let finished = uploads.finished(upload(1)).expect("finished");
+    assert_eq!(finished.sha256, crate::judge::sha256_hex(&text));
+    assert_eq!(finished.sent_file, None);
+}
+
+#[tokio::test]
 async fn the_intake_of_a_whole_upload_waits_for_the_one_decode() {
     let state = tempfile::tempdir().unwrap();
     let decode = Arc::new(Semaphore::new(1));

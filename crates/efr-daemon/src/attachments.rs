@@ -245,7 +245,7 @@ impl Attachments for DaemonAttachments {
             move || {
                 let checked = check(&bytes, max_edge);
                 if let Some((_, sent)) = &checked.sent {
-                    blobs.write(conversation_id, &sha256, sent)?;
+                    blobs.write(conversation_id, &sha256, sent.bytes(&bytes))?;
                 }
                 Ok::<_, io::Error>(checked)
             }
@@ -261,8 +261,8 @@ impl Attachments for DaemonAttachments {
                 return None;
             }
         };
-        if let Some(note) = checked.note {
-            tracing::debug!(%conversation_id, attachment = %id, note = note.text(), "an image of a tool goes as a path");
+        if let Some(reason) = checked.reason {
+            tracing::debug!(%conversation_id, attachment = %id, reason, "an image of a tool goes as a path");
         }
         Some(Attachment {
             id,

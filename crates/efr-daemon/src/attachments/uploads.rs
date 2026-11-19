@@ -5,15 +5,16 @@
 //! runtime dir is a tmpfs). efrd writes a chunk only at the end of what it has, so a
 //! repeated chunk, a lost answer and a resume after a lost link are one case: the
 //! client goes on at `received`. After the last chunk the intake checks the file once,
-//! and what a model gets of it waits in `<upload id>.sent` until a prompt takes the
-//! upload ([`DaemonAttachments`](super::DaemonAttachments)). A start of efrd removes
+//! and what a model gets of it waits until a prompt takes the upload
+//! ([`DaemonAttachments`](super::DaemonAttachments)): a prepared image in
+//! `<upload id>.sent`, a PDF in its part. A start of efrd removes
 //! every part, a closed connection of the Unix socket removes its own, a revoke removes
 //! those of its device, and an upload of a device that got no chunk and no prompt for
 //! [`UPLOAD_TTL`] goes at the next put or the next look of the collector.
 
 use std::collections::HashMap;
 use std::fs::{DirBuilder, File, OpenOptions};
-use std::io;
+use std::io::{self, Read as _};
 use std::os::unix::fs::{DirBuilderExt as _, FileExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -25,13 +26,17 @@ use efr_protocol::{
 use efr_stdx::time::Clock;
 use efr_transport::{ConnId, ConnectionContext};
 use jiff::{SignedDuration, Timestamp};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::Semaphore;
 
-use super::intake::check;
+use super::intake::{Checked, HEAD_BYTES, Sent, check, needs_whole};
 use crate::DaemonError;
 
 /// The dir of the uploads below the state dir.
 pub(crate) const UPLOADS_DIR: &str = "uploads";
+
+/// The piece of a file that the hash of an upload with no image or PDF reads at a time.
+const HASH_PIECE_BYTES: usize = 64 * 1024;
 
 /// Who owns an upload: only its owner may add to it, drop it or name it in a prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,7 +122,8 @@ pub(crate) struct Finished {
     pub(crate) sent: Option<SentForm>,
     /// The bytes of the file.
     pub(crate) part: PathBuf,
-    /// The bytes that a model gets, when it gets any.
+    /// The bytes that a model gets, when it gets any: `part` itself for a PDF, else
+    /// the `.sent` file of the prepared image.
     pub(crate) sent_file: Option<PathBuf>,
 }
 
@@ -376,7 +382,7 @@ impl Uploads {
     }
 
     /// The intake of the whole upload `id`, one decode at a time: its type, its kind and
-    /// what a model gets of it, which waits in its `.sent` file.
+    /// what a model gets of it.
     async fn check(
         &self,
         id: UploadId,
@@ -393,11 +399,10 @@ impl Uploads {
         let dir = self.inner.dir.clone();
         tokio::task::spawn_blocking(move || {
             let part = part_path(&dir, id);
-            let bytes = std::fs::read(&part)?;
-            let sha256 = crate::judge::sha256_hex(&bytes);
-            let checked = check(&bytes, max_edge);
+            let (bytes, sha256, checked) = check_part(&part, max_edge)?;
             let (sent, sent_file) = match checked.sent {
-                Some((form, sent)) => {
+                Some((form, Sent::Original)) => (Some(form), Some(part.clone())),
+                Some((form, Sent::Prepared(sent))) => {
                     let path = sent_path(&dir, id);
                     let file = private_file(&path)?;
                     file.set_len(0)?;
@@ -409,7 +414,7 @@ impl Uploads {
             Ok(Finished {
                 name,
                 origin,
-                bytes: bytes.len() as u64,
+                bytes,
                 sha256,
                 media_type: checked.media_type,
                 kind: checked.kind,
@@ -465,6 +470,37 @@ fn is_expired(upload: &Upload, now: Timestamp) -> bool {
     matches!(upload.owner, Owner::Device(_))
         && !upload.busy
         && now.duration_since(upload.touched) >= ttl
+}
+
+/// The size, the SHA-256 and the intake of the finished part `part`. Only an image or a
+/// PDF is read whole into memory; each other file needs its head only, and the rest of
+/// it is hashed one piece at a time. It blocks.
+fn check_part(part: &Path, max_edge: u32) -> io::Result<(u64, String, Checked)> {
+    let mut file = File::open(part)?;
+    let mut bytes = Vec::new();
+    (&mut file).take(HEAD_BYTES as u64).read_to_end(&mut bytes)?;
+    if needs_whole(&bytes) {
+        file.read_to_end(&mut bytes)?;
+        let sha256 = crate::judge::sha256_hex(&bytes);
+        return Ok((bytes.len() as u64, sha256, check(&bytes, max_edge)));
+    }
+    let checked = check(&bytes, max_edge);
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let mut size = bytes.len() as u64;
+    let mut piece = vec![0; HASH_PIECE_BYTES];
+    loop {
+        match file.read(&mut piece) {
+            Ok(0) => break,
+            Ok(read) => {
+                hasher.update(&piece[..read]);
+                size += read as u64;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok((size, efr_stdx::text::hex(&hasher.finalize()), checked))
 }
 
 /// Opens the file `path` of an upload for writing (0600), made when it is missing.
