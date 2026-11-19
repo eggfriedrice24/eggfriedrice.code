@@ -120,7 +120,9 @@ bench-search:
 
 # The perf benches in release, one at a time: every ignored `bench_perf_*` test of the
 # workspace, with a real zsh and a copy of the release launcher, and the ghostty ones
-# when zig is on PATH. A bench that misses bwrap, zsh or zig prints a `skipped:` line.
+# when zig is on PATH: those of efr-screen-ghostty and the ghostty half of the daemon
+# benches that run on both backends. A bench that misses bwrap, zsh or zig prints a
+# `skipped:` line.
 # Each bench prints its lines after the load average and the CPU governor, and writes
 # them as JSON lines to the run's directory (target/bench/<time>, or EFR_BENCH_OUT),
 # which `just bench-compare` reads. The numbers of a busy machine are not valid: run it
@@ -144,15 +146,22 @@ bench-perf filter="":
     cp "$built" "$private/efr-sbx"
     export EFR_BENCH_OUT="$out" EFR_TEST_SBX_BIN="$private/efr-sbx" EFR_TEST_ZSH=1
     filter='test(/bench_perf_.*{{filter}}/)'
+    # The daemon benches that run once on each screen backend of their build. With zig
+    # on PATH they run only in the ghostty build, which has both backends.
+    both='test(/^perf::memory::bench_perf_daemon_shell_growth$/)'
+    first="$filter"
+    if command -v zig >/dev/null; then first="$filter & not $both"; fi
     status=0
     # A filter can match benches of one half only, so a half without a match passes.
     nice -n 19 cargo nextest run --release --workspace --exclude efr-screen-ghostty \
         --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
-        --no-tests pass -E "$filter" || status=$?
+        --no-tests pass -E "$first" || status=$?
     if command -v zig >/dev/null; then
-        nice -n 19 cargo nextest run --release -p efr-screen-ghostty \
+        nice -n 19 cargo nextest run --release -p efr-screen-ghostty -p efr-daemon \
+            --features efr-daemon/screen-ghostty \
             --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
-            --no-tests pass -E "$filter" || { s=$?; [[ $status -ne 0 ]] || status=$s; }
+            --no-tests pass -E "$filter & (package(efr-screen-ghostty) | $both)" \
+            || { s=$?; [[ $status -ne 0 ]] || status=$s; }
     else
         echo "bench-perf: skipped the ghostty benches: no zig on PATH"
     fi
