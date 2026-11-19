@@ -6,7 +6,9 @@
 //! requirement, and a declared requirement can only make a decision stricter, so it
 //! never fails. It reads quotes and backslashes as zsh does, starts a new command at
 //! `;`, `&`, `|`, newlines, parentheses, braces, backquotes and `$(`, so the commands
-//! inside a substitution are seen too, and keeps the targets of redirections apart.
+//! inside a substitution are seen too, and keeps the targets of redirections apart. A
+//! `<` or `>` in an arithmetic `(( ... ))` or `$(( ... ))`, or in a `[[ ... ]]`
+//! condition, compares two values and names no file.
 
 /// One word, unquoted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +87,7 @@ pub(super) fn split(line: &str) -> Line {
         command: Command::default(),
         word: None,
         slot: Slot::Word,
+        condition: false,
     };
     splitter.run();
     splitter.line
@@ -101,6 +104,10 @@ pub(super) fn is_assignment(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Reserved words that may come before the `((` of an arithmetic command or the `[[`
+/// of a condition, as in `if (( p > 90 ))`.
+const KEYWORDS: &[&str] = &["if", "elif", "while", "until", "then", "else", "do", "!"];
+
 struct Splitter {
     chars: Vec<char>,
     at: usize,
@@ -108,6 +115,8 @@ struct Splitter {
     command: Command,
     word: Option<Word>,
     slot: Slot,
+    /// True inside a `[[ ... ]]` condition, also past its `&&` and `||`.
+    condition: bool,
 }
 
 impl Splitter {
@@ -136,7 +145,24 @@ impl Splitter {
                     if matches!(c, '(' | ')' | '{' | '}' | '`') {
                         self.line.opaque = true;
                     }
+                    if !matches!(c, '&' | '|') {
+                        self.condition = false;
+                    }
+                    if c == '('
+                        && let Some(end) = self.arithmetic_command()
+                    {
+                        // NOTE: an arithmetic command, such as `(( p > 90 ))` or the
+                        // head of `for (( i = 0; i < 3; i++ ))`, names no path.
+                        self.end_command();
+                        self.at = end + 1;
+                        continue;
+                    }
                     self.end_command();
+                    self.at += 1;
+                }
+                '<' | '>' if self.condition && self.peek_at(1) != Some('(') => {
+                    // NOTE: in `[[ a > b ]]` the operator compares two strings.
+                    self.end_word();
                     self.at += 1;
                 }
                 '<' | '>' => {
@@ -209,11 +235,35 @@ impl Splitter {
             return;
         };
         match std::mem::replace(&mut self.slot, Slot::Word) {
-            Slot::Word => self.command.words.push(word),
+            Slot::Word => {
+                // NOTE: `[` is a pattern character, so a `[[` without quotes has its
+                // pattern at 0; `"[["` is a program, and its `>` writes.
+                if word.text == "[[" && word.pattern == Some(0) && self.leads(&[]) {
+                    self.condition = true;
+                } else if word.text == "]]" {
+                    self.condition = false;
+                }
+                self.command.words.push(word);
+            }
             Slot::Input => self.command.inputs.push(word),
             Slot::Output if word.text != "/dev/null" => self.command.outputs.push(word),
             Slot::Output | Slot::Skip => {}
         }
+    }
+
+    /// True when the words of the command so far are only [`KEYWORDS`] or `also`, so a
+    /// `((` or `[[` here starts a compound command.
+    fn leads(&self, also: &[&str]) -> bool {
+        self.command.words.iter().all(|word| {
+            KEYWORDS.contains(&word.text.as_str()) || also.contains(&word.text.as_str())
+        })
+    }
+
+    /// Where the `))` of an arithmetic command at the cursor ends, when a `((` there
+    /// starts one ([`arithmetic_end`]).
+    fn arithmetic_command(&self) -> Option<usize> {
+        let starts = self.word.is_none() && self.slot == Slot::Word && self.leads(&["for"]);
+        starts.then(|| arithmetic_end(&self.chars, self.at)).flatten()
     }
 
     fn end_command(&mut self) {
@@ -232,6 +282,7 @@ impl Splitter {
             (_, Some('(')) => {
                 // `<(...)` and `>(...)`: a command of its own.
                 self.line.opaque = true;
+                self.condition = false;
                 self.end_command();
                 self.at += 1;
             }
@@ -278,8 +329,19 @@ impl Splitter {
             return;
         }
         match self.peek_at(1) {
+            Some('(') if let Some(end) = arithmetic_end(&self.chars, self.at + 1) => {
+                // NOTE: `$(( p > 90 ))` is a number, not a command.
+                self.line.opaque = true;
+                let text: String =
+                    self.chars.get(self.at..=end).unwrap_or_default().iter().collect();
+                let word = self.current();
+                word.expansion = true;
+                word.text.push_str(&text);
+                self.at = end + 1;
+            }
             Some('(') => {
                 self.line.opaque = true;
+                self.condition = false;
                 self.end_command();
                 self.at += 2;
             }
@@ -376,7 +438,11 @@ impl Splitter {
                         _ => self.current().text.push('\\'),
                     }
                 }
-                '$' if self.peek_at(1) != Some('(') => self.dollar(),
+                '$' if self.peek_at(1) != Some('(')
+                    || arithmetic_end(&self.chars, self.at + 1).is_some() =>
+                {
+                    self.dollar();
+                }
                 '$' | '`' => {
                     // The command inside is seen as a command of its own; the rest of
                     // the quoted text is read as words, which may only add paths.
@@ -384,6 +450,7 @@ impl Splitter {
                     if self.word.as_ref().is_some_and(|word| word.text.is_empty()) {
                         self.word = None;
                     }
+                    self.condition = false;
                     self.end_command();
                     self.at += if c == '$' { 2 } else { 1 };
                     return;
@@ -396,6 +463,33 @@ impl Splitter {
         }
         self.line.opaque = true;
     }
+}
+
+/// Where the `))` that ends the arithmetic `((` at `open` ends, as the shell reads
+/// `(( p > 90 ))`: the `)` that closes the inner `(` comes right before the one that
+/// closes the outer. `None` when the text is a nested subshell, such as
+/// `((cd x) && ls)`, and when it holds a quote, a backslash or a substitution, which
+/// the split then reads as commands as before.
+// NOTE: `efr-permissions/src/exits/scan.rs` has the same function for the exits of the
+// `auto` sandbox, since this crate cannot name that one.
+fn arithmetic_end(chars: &[char], open: usize) -> Option<usize> {
+    if chars.get(open + 1) != Some(&'(') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut at = open + 2;
+    while let Some(&c) = chars.get(at) {
+        match c {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ')' => return (chars.get(at + 1) == Some(&')')).then_some(at + 1),
+            '\'' | '"' | '\\' | '`' => return None,
+            '$' if chars.get(at + 1) == Some(&'(') => return None,
+            _ => {}
+        }
+        at += 1;
+    }
+    None
 }
 
 #[cfg(test)]

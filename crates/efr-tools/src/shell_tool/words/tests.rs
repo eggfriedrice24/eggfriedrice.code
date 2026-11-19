@@ -42,6 +42,22 @@ fn shape(line: &Line) -> Vec<String> {
 #[case::braced_variable("cat ${DIR}/.netrc", &["cat ${DIR}/.netrc"], true)]
 #[case::history("ls; !!", &["ls", "!!"], true)]
 #[case::unclosed("echo 'a", &["echo a"], true)]
+// A `<` or `>` of arithmetic or of a `[[ ]]` condition compares; it names no file.
+#[case::arithmetic("(( p > 90 )) && echo big", &["echo big"], true)]
+#[case::arithmetic_after_keyword("if (( p > 90 )); then echo big; fi", &["if", "then echo big", "fi"], true)]
+#[case::arithmetic_for("for (( i = 0; i > -3; i-- )); do ls; done", &["for", "do ls", "done"], true)]
+#[case::arithmetic_expansion("echo $(( p > 90 ))", &["echo $(( p > 90 ))"], true)]
+#[case::arithmetic_quoted_expansion("echo \"n $((i > 1))\"", &["echo n $((i > 1))"], true)]
+#[case::condition("[[ b > a ]] && ls", &["[[ b a ]]", "ls"], false)]
+#[case::condition_after_keyword("if [[ a > b && c < d ]]; then ls; fi", &["if [[ a b", "c d ]]", "then ls", "fi"], false)]
+// A redirection after the arithmetic or the condition writes.
+#[case::after_arithmetic("(( p > 90 )) > out", &[">out"], true)]
+#[case::after_condition("[[ b > a ]] > out", &["[[ b a ]] >out"], false)]
+// A subshell, a substitution or a quoted `[[` is read as before.
+#[case::nested_subshell("((echo c) > x3)", &["echo c", ">x3"], true)]
+#[case::substitution_in_arithmetic("(( $(echo 3 > y1) + 1 ))", &["echo 3 >y1", "+ 1"], true)]
+#[case::substitution_in_condition("[[ $(echo 3 > y1) == 3 ]]", &["[[", "echo 3 >y1", "== 3 ]]"], true)]
+#[case::quoted_condition("\"[[\" a > b", &["[[ a >b"], false)]
 fn splits(#[case] line: &str, #[case] expected: &[&str], #[case] opaque: bool) {
     let split = split(line);
     assert_eq!(shape(&split), expected, "{line:?}");

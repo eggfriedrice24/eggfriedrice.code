@@ -59,6 +59,39 @@ fn the_lenient_split_records_output_redirections() {
     assert_eq!(truncation[0].redirects.len(), 1);
 }
 
+/// The targets of the output redirections of `line`, in order.
+fn redirect_targets(line: &str) -> Vec<String> {
+    scan(line)
+        .into_iter()
+        .flat_map(|segment| segment.redirects)
+        .map(|redirect| redirect.target.replace(OPAQUE, "$"))
+        .collect()
+}
+
+#[rstest]
+// A `<` or `>` of arithmetic or of a `[[ ]]` condition compares; it writes no file.
+#[case::arithmetic("(( p > 90 )) && echo big", &[])]
+#[case::arithmetic_after_keyword("if (( p > 90 )); then echo big; fi", &[])]
+#[case::arithmetic_in_a_loop("while read p m; do if (( p > 90 )); then echo $m; fi; done", &[])]
+#[case::arithmetic_for("for (( i = 0; i > -3; i-- )); do echo $i; done", &[])]
+#[case::arithmetic_shift("(( x = 1 << 4 ))", &[])]
+#[case::arithmetic_expansion("echo $(( p > 90 )) $((i+1))", &[])]
+#[case::arithmetic_quoted_expansion("echo \"check $((i > 1))\"", &[])]
+#[case::condition("[[ b > a ]] && echo gt", &[])]
+#[case::condition_after_keyword("if [[ $a > $b && $c < $d ]]; then echo x; fi", &[])]
+// A redirection after the arithmetic or the condition writes.
+#[case::after_arithmetic("(( p > 90 )) > out", &["out"])]
+#[case::after_condition("[[ b > a ]] > out", &["out"])]
+#[case::after_condition_ends("[[ b > a ]]; echo x > out", &["out"])]
+// A subshell, a substitution or a quoted `[[` is read as before.
+#[case::nested_subshell("((echo c) > x3)", &["x3"])]
+#[case::substitution_in_arithmetic("(( $(echo 3 > y1) + 1 ))", &["y1"])]
+#[case::substitution_in_condition("[[ $(echo 3 > y1) == 3 ]]", &["y1"])]
+#[case::quoted_condition("\"[[\" a > b", &["b"])]
+fn arithmetic_and_conditions_hold_no_redirection(#[case] line: &str, #[case] expected: &[&str]) {
+    assert_eq!(redirect_targets(line), words(expected), "{line:?}");
+}
+
 #[test]
 fn a_segment_after_cd_runs_in_an_unknown_directory() {
     let segments = scan("ls; cd /tmp && rm -r x; ls");

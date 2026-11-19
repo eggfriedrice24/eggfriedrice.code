@@ -422,7 +422,8 @@ pub(super) fn runs_mount_view(command: &[String], by_shell: bool) -> bool {
 
 /// Reserved words that start a compound command, before the command it runs, such as
 /// `do` in `for f in *; do curl ...; done`.
-const KEYWORDS: &[&str] = &["do", "then", "else", "elif", "if", "while", "until", "!", "{"];
+pub(super) const KEYWORDS: &[&str] =
+    &["do", "then", "else", "elif", "if", "while", "until", "!", "{"];
 
 /// `words` past the assignments and the reserved words before the program.
 fn skip_assignments(words: &[String]) -> &[String] {

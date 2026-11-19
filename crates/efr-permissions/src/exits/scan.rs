@@ -5,7 +5,9 @@
 //! find the exits it can, so this split reads every line: it takes quotes and escapes
 //! as zsh does, splits on `;`, `&`, `|`, newlines, parentheses and braces that stand
 //! alone, scans the text of every substitution as commands of its own, records the
-//! targets of output redirections, and skips the body of a here-document.
+//! targets of output redirections, and skips the body of a here-document. A `<` or `>`
+//! in an arithmetic `(( ... ))` or `$(( ... ))`, or in a `[[ ... ]]` condition, compares
+//! two values and writes no file.
 //!
 //! It may find a program too many, never one too few where it can see one: text
 //! analysis can only add a question, and the sandbox holds what it misses.
@@ -16,6 +18,8 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
+
+use super::programs::KEYWORDS;
 
 /// Stands in a word for text that only the shell knows: a substitution or a parameter
 /// expansion. A word that holds it names no path the engine can resolve.
@@ -216,6 +220,8 @@ struct Building {
     pending: Option<Pending>,
     /// The here-documents whose bodies follow the next newline.
     here_documents: Vec<(String, bool)>,
+    /// True inside a `[[ ... ]]` condition, also past its `&&` and `||`.
+    condition: bool,
 }
 
 impl Building {
@@ -240,8 +246,19 @@ impl Building {
             }
             None if self.words.is_empty() && matches!(word.as_str(), "{" | "}") => {}
             None => {
-                let raw = chars.get(self.start..end.min(chars.len())).unwrap_or_default();
-                self.raw.push(raw.iter().collect());
+                let raw: String = chars
+                    .get(self.start..end.min(chars.len()))
+                    .unwrap_or_default()
+                    .iter()
+                    .collect();
+                // NOTE: only `[[` without quotes, as the first word past the reserved
+                // words, starts a condition; `"[["` is a program, and its `>` writes.
+                if raw == "[[" && leads(&self.raw, &[]) {
+                    self.condition = true;
+                } else if raw == "]]" {
+                    self.condition = false;
+                }
+                self.raw.push(raw);
                 self.words.push(word);
             }
         }
@@ -279,12 +296,26 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>, depth: Depth) {
                 at += 1;
             }
             '\n' => {
+                building.condition = false;
                 building.end_segment(chars, at, out);
                 at += 1;
                 let bodies = std::mem::take(&mut building.here_documents);
                 at = skip_here_documents(chars, at, &bodies);
             }
+            '(' if !building.in_word()
+                && building.pending.is_none()
+                && leads(&building.raw, &["for"])
+                && let Some(end) = arithmetic_end(chars, at) =>
+            {
+                // NOTE: an arithmetic command, such as `(( p > 90 ))` or the head of
+                // `for (( i = 0; i < 3; i++ ))`, runs no command and writes no file.
+                building.end_segment(chars, at, out);
+                at = end + 1;
+            }
             ';' | '|' | '(' | ')' => {
+                if c != '|' {
+                    building.condition = false;
+                }
                 building.end_segment(chars, at, out);
                 at += 1;
             }
@@ -306,6 +337,11 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>, depth: Depth) {
             }
             '<' | '>' if next == Some('(') && !building.in_word() => {
                 at = substitution(chars, at + 1, out, &mut building, depth);
+            }
+            '<' | '>' if building.condition => {
+                // NOTE: in `[[ a > b ]]` the operator compares two strings.
+                building.end_word(chars, at);
+                at += 1;
             }
             '<' | '>' => {
                 if !building.quoted && building.word.chars().all(|c| c.is_ascii_digit()) {
@@ -455,7 +491,14 @@ fn dollar(
     depth: Depth,
 ) -> usize {
     match chars.get(at + 1) {
-        Some('(') => substitution(chars, at + 1, out, building, depth),
+        Some('(') => match arithmetic_end(chars, at + 1) {
+            // NOTE: `$(( p > 90 ))` is a number, not a command.
+            Some(end) => {
+                building.word.push(OPAQUE);
+                end + 1
+            }
+            None => substitution(chars, at + 1, out, building, depth),
+        },
         Some('{') => {
             building.word.push(OPAQUE);
             closing(chars, at + 1, '{', '}') + 1
@@ -532,6 +575,40 @@ fn nested(inner: &[char], out: &mut Vec<Segment>, depth: Depth) {
     } else {
         out.push(unread_segment());
     }
+}
+
+/// True when `raw`, the words of a simple command before a `((` or `[[`, as the line
+/// wrote them, are only reserved words of [`KEYWORDS`] or of `also`, as in
+/// `if (( p > 90 ))`: then the `((` or `[[` starts a compound command.
+fn leads(raw: &[String], also: &[&str]) -> bool {
+    raw.iter().all(|word| KEYWORDS.contains(&word.as_str()) || also.contains(&word.as_str()))
+}
+
+/// Where the `))` that ends the arithmetic `((` at `open` ends, as the shell reads
+/// `(( p > 90 ))`: the `)` that closes the inner `(` comes right before the one that
+/// closes the outer. `None` when the text is a nested subshell, such as
+/// `((cd x) && ls)`, and when it holds a quote, a backslash or a substitution, which
+/// the split then reads as commands as before.
+// NOTE: `efr-tools/src/shell_tool/words.rs` has the same function for the paths that
+// the shell tool declares, since that crate cannot name this one.
+fn arithmetic_end(chars: &[char], open: usize) -> Option<usize> {
+    if chars.get(open + 1) != Some(&'(') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut at = open + 2;
+    while let Some(&c) = chars.get(at) {
+        match c {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ')' => return (chars.get(at + 1) == Some(&')')).then_some(at + 1),
+            '\'' | '"' | '\\' | '`' => return None,
+            '$' if chars.get(at + 1) == Some(&'(') => return None,
+            _ => {}
+        }
+        at += 1;
+    }
+    None
 }
 
 /// The position of the bracket that closes the one at `open`, past nested pairs and
