@@ -159,6 +159,11 @@ wake turns start in a conversation in an hour (`jobs.max_wakes_per_hour`), and a
 12 in all conversations (`jobs.max_wakes_per_hour_daemon`). `0` means that a notice
 never starts a turn; it waits for your next prompt.
 
+A job that a wake turn starts also starts a wake turn, so the agent can tell you how
+the job ended. A job of that second wake turn starts no turn: its notices wait for
+your next prompt, and the agent knows this. Thus wake turns cannot go on in a chain
+while you are away.
+
 Between turns, your next prompt shows one muted line for each job that ended, with
 how long it ran, its exit code and its command:
 

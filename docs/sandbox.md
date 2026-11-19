@@ -1651,8 +1651,11 @@ format characters. A notice never enters a running turn. It waits until the turn
 - At most `jobs.max_wakes_per_hour` (6) wake turns start in a conversation in an hour,
   and `jobs.max_wakes_per_hour_daemon` (12) in all. efr counts them over restarts. 0
   means that notices never start a turn.
-- A wake turn runs at most 20 tool calls. A job that a wake turn starts never starts
-  another turn: its notices wait for your next prompt (`(job of a wake turn)`).
+- A wake turn runs at most 20 tool calls. A job that a wake turn starts starts one more
+  wake turn, so the model can report how the job ended. A job of that second wake turn
+  never starts another turn: its notices wait for your next prompt (`(job of a wake
+  turn)`), and the second wake turn tells the model so. Each wake turn counts
+  against the limits of the hour.
 - One turn takes at most 10 waiting notices and 32 KiB of their text.
 - A question in a wake turn waits only `presence.away_wait_secs`, unless a client of
   yours that can answer it follows the conversation. Its summary starts with `(job

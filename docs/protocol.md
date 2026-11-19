@@ -1287,3 +1287,7 @@ No protocol version has shipped yet.
   `device_push_set_result.json`, `admin_push_test_params.json`,
   `admin_push_test_result.json` and `push_test_results.json`; `device_list_result.json`
   and `hello_result_remote_attach.json` set the new members.
+- Version 1, no wire change (v0.0.13.1): `held_reason` `wake_turn_job` now means a
+  job of the second wake turn of a chain. A job of the first wake turn wakes the
+  conversation once more, so its `job_notice` says `woke`. Records of older builds
+  keep the old meaning. A reader needs no change.

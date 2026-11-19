@@ -8043,7 +8043,7 @@
         },
         {
           "const": "wake_turn_job",
-          "description": "A turn that a notice started started the job, so its notices never start a\nturn.",
+          "description": "A turn that a notice started started the job, so its notices never start a\nturn. From v0.0.13.1 only the last wake turn of a chain holds them: a job of\nthe first wake turn wakes once more, and a job of that second wake turn holds.",
           "type": "string"
         },
         {

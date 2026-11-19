@@ -66,11 +66,19 @@ it ends, and what its output can do in the conversation.
    1 second, and `max_wakes` counts batches, not lines. A notice still never enters a
    running turn.
 
-8. **A job of a wake turn never wakes.** A wake turn is a turn that a notice started
-   in an idle conversation in `auto`. If its jobs could wake the conversation, wake
+8. **A job of a wake turn never wakes (amended: of a second wake turn).** A wake turn
+   is a turn that a notice started in an idle conversation in `auto`. If its jobs could wake the conversation, wake
    turns could chain for hours with nobody there. So a job that a wake turn starts
    holds its notices for the next prompt, and the wake turns of an hour are counted
    per conversation and for the daemon, over restarts.
+   Amended on 2026-11-19 (v0.0.13.1): a chain may have two wake turns, not one. Real
+   runs of v0.0.13 showed the cost of one: a wake turn started a job, told the user
+   that it runs for 60 minutes, and the job ended after 0 s; the user never heard of
+   the end. Now a job of a prompt's turn wakes with depth 1, a job of that wake turn
+   wakes once more with depth 2, and a job of a wake turn of depth 2 holds its
+   notices for the next prompt. The block of the turn of depth 2 tells the model so.
+   The chain still ends without a prompt, and each wake turn counts against the
+   limits of the hour.
 
 9. **Jobs start in every mode; outside `auto` each job asks the user.** In `cautious`
    and `manual` no reviewer decides a job, and no rule of the mode skips the question.

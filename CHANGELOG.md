@@ -16,6 +16,14 @@ into the GitHub release notes, and it stops when the section is missing.
   sandbox, not Claude Haiku 5.5. In real runs, Haiku refused grants that a command
   needs. `classifier.model` still picks another model.
 
+### Fixed
+
+- A job that the agent starts in a job notice turn now tells the agent when it ends,
+  in one more job notice turn, so the agent can report the result or the failure to
+  you. Before, the agent never heard of the end. A job of that second turn still waits
+  for your next prompt, and the agent now knows this, so it does not promise you a
+  report that never comes.
+
 ## [0.0.13] - 2026-11-19
 
 ### Added
