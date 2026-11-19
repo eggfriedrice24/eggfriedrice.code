@@ -99,7 +99,7 @@ impl Vendor {
     }
 
     /// The model that reviews an exit of the `auto` sandbox first when
-    /// `classifier.model` names none: the small model of this company. Whether the
+    /// `classifier.model` names none: the reviewer model of this company. Whether the
     /// provider serves it is decided at run time.
     pub(crate) fn classifier_model(self) -> &'static str {
         match self {

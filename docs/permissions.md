@@ -517,7 +517,7 @@ is an `outside` exit with the host.
   in one of its jobs. This is a fact for the record and the question, never a name:
   it shows only that a command tried the host, never that you want it.
 
-The reviewer is the small model of your provider, then the turn's model:
+The reviewer is the reviewer model of your provider, then the turn's model:
 [`docs/providers.md`](providers.md) tells which models and what they cost. A missing
 model, an error, a timeout or an answer that does not fit goes to the next step, and
 never allows. When no step answers, the action does not run, and after 3 such reviews

@@ -356,7 +356,7 @@
         },
         "model": {
           "default": null,
-          "description": "The model that reviews first. Unset: the small model of the turn's provider,\nsuch as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude.",
+          "description": "The model that reviews first. Unset: the reviewer model of the turn's provider,\nsuch as `gpt-6-luna` for OpenAI or `claude-sonnet-5-5` for Claude.",
           "type": [
             "string",
             "null"

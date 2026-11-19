@@ -66,7 +66,7 @@ fn messages_text(text: &str) -> String {
             "message_start",
             json!({"message": {
                 "id": "msg_1", "type": "message", "role": "assistant", "content": [],
-                "model": "claude-haiku-5-5", "stop_reason": null, "stop_sequence": null,
+                "model": "claude-sonnet-5-5", "stop_reason": null, "stop_sequence": null,
                 "usage": {"input_tokens": 10, "output_tokens": 1},
             }}),
         ),
@@ -162,14 +162,14 @@ async fn judge_wire_anthropic_end_to_end() {
         .mount(&server)
         .await;
     let clock = TestClock::new();
-    let haiku = ModelInfo::new("claude-haiku-5-5")
+    let sonnet = ModelInfo::new("claude-sonnet-5-5")
         .with_max_output_tokens(64_000)
         .with_efforts(["low", "medium", "high"], Some("medium"))
         .with_edit_tool(EditTool::Replace);
     let config = AnthropicConfig::new()
         .with_base_url(&format!("{}/v1", server.uri()))
         .unwrap()
-        .with_models(vec![haiku]);
+        .with_models(vec![sonnet]);
     let provider = AnthropicProvider::new(
         ProviderId::new("anthropic-api").unwrap(),
         config,
@@ -183,12 +183,12 @@ async fn judge_wire_anthropic_end_to_end() {
 
     let outcome = judge.judge(input(&ids(1), &record)).await;
     assert_eq!(outcome.judgement, Some(allowed()));
-    assert_eq!(outcome.model.as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(outcome.model.as_deref(), Some("claude-sonnet-5-5"));
 
     let bodies = bodies(&server, "/v1/messages").await;
     assert_eq!(bodies.len(), 1);
     let body = &bodies[0];
-    assert_eq!(body["model"], json!("claude-haiku-5-5"));
+    assert_eq!(body["model"], json!("claude-sonnet-5-5"));
     assert_eq!(body["max_tokens"], json!(64_000));
     assert_eq!(body.get("tools"), None);
     assert_eq!(
@@ -216,7 +216,7 @@ async fn a_claude_model_without_a_cap_is_missing_and_the_turn_model_reviews() {
     let clock = TestClock::new();
     // The list holds the turn's model with its cap, and the small model without one.
     let models = vec![
-        ModelInfo::new("claude-haiku-5-5"),
+        ModelInfo::new("claude-sonnet-5-5"),
         ModelInfo::new("gpt-6.1-sol").with_max_output_tokens(128_000),
     ];
     let config = AnthropicConfig::new()
@@ -236,7 +236,7 @@ async fn a_claude_model_without_a_cap_is_missing_and_the_turn_model_reviews() {
 
     let outcome = judge.judge(input(&ids(1), &record)).await;
     assert_eq!(outcome.chain_step, ChainStep::TurnModel);
-    assert_eq!(outcome.skipped, ["claude-haiku-5-5: missing"]);
+    assert_eq!(outcome.skipped, ["claude-sonnet-5-5: missing"]);
     assert_eq!(bodies(&server, "/v1/messages").await.len(), 1);
 }
 
@@ -289,12 +289,12 @@ async fn the_wire_schema_puts_the_rationale_before_the_verdict() {
         clock.shared(),
         Arc::new(TestRng::new(8)),
     );
-    let haiku = ModelInfo::new("claude-haiku-5-5")
+    let sonnet = ModelInfo::new("claude-sonnet-5-5")
         .with_max_output_tokens(64_000)
         .with_efforts(["low", "medium", "high"], Some("medium"));
     let anthropic = AnthropicProvider::new(
         ProviderId::new("anthropic-api").unwrap(),
-        AnthropicConfig::new().with_base_url(&base).unwrap().with_models(vec![haiku]),
+        AnthropicConfig::new().with_base_url(&base).unwrap().with_models(vec![sonnet]),
         http(&clock),
         key(),
         clock.shared(),

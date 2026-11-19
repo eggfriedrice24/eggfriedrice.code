@@ -1440,7 +1440,7 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   it), the record as the one user message, no tools, no output limit, the verdict
   schema as the output form, `one_shot`, and no cache key. The chain is the classifier
   model (`classifier.model`, else `Vendor::classifier_model` in `catalog/list.rs`, the
-  small model of the provider's company), then the turn's model, then the user. A step
+  reviewer model of the provider's company), then the turn's model, then the user. A step
   that is missing, refuses, times out on the daemon's clock or answers outside the
   schema goes to the next step; refused credentials or a used-up quota go to the user
   at once. A step that refuses the output form goes once more without it. On the

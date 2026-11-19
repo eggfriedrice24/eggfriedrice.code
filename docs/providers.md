@@ -250,8 +250,8 @@ it off: `read_file` then refuses an image as a binary file.
 In `auto`, a reviewer model decides each action that leaves the sandbox
 ([`docs/sandbox.md`](sandbox.md), "Exits"). efr asks the models in this order:
 
-1. `classifier.model` when it is set, else the small model of the turn's provider:
-   `gpt-6-luna` for `openai-subscription` and `openai-api`, `claude-haiku-5-5` for
+1. `classifier.model` when it is set, else the reviewer model of the turn's provider:
+   `gpt-6-luna` for `openai-subscription` and `openai-api`, `claude-sonnet-5-5` for
    `anthropic-api`.
 2. The turn's model at the effort `classifier.effort` (default `low`), unless
    `classifier.fallback_to_turn_model = false`.

@@ -19,8 +19,8 @@ pub struct ClassifierSettings {
     /// you nothing about it. `false` asks you about every such action. Each review is
     /// one more request to your provider.
     pub enabled: bool,
-    /// The model that reviews first. Unset: the small model of the turn's provider,
-    /// such as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude.
+    /// The model that reviews first. Unset: the reviewer model of the turn's provider,
+    /// such as `gpt-6-luna` for OpenAI or `claude-sonnet-5-5` for Claude.
     pub model: Option<String>,
     /// `true` lets the turn's model review when the first model is missing, refuses,
     /// times out or gives an answer that does not fit. `false` then does not run the

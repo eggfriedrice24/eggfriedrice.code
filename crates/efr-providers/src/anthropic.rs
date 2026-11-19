@@ -14,7 +14,7 @@
 //! The models come only from the API: a [`CatalogClient`] fetches `GET /models`,
 //! [`read_cache`] and [`write_cache`] keep the list in a file, and a [`ModelCatalog`]
 //! holds the current [`Catalog`]. efr has no table of Claude models; it knows only
-//! [`DEFAULT_MODEL`], [`DEFAULT_EFFORT`] and [`CLASSIFIER_MODEL`], the small model that
+//! [`DEFAULT_MODEL`], [`DEFAULT_EFFORT`] and [`CLASSIFIER_MODEL`], the model that
 //! reviews an action of efr's `auto` sandbox first. [`check_key`] checks an API key with one
 //! request that runs no model, before a login stores the key.
 //!

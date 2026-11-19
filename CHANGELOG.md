@@ -10,6 +10,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- With a Claude API key, Claude Sonnet 5.5 reviews each action that leaves the `auto`
+  sandbox, not Claude Haiku 5.5. In real runs, Haiku refused grants that a command
+  needs. `classifier.model` still picks another model.
+
 ## [0.0.13] - 2026-11-19
 
 ### Added

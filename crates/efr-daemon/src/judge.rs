@@ -13,7 +13,7 @@
 //!
 //! The judge asks the provider of the exit's turn (`JudgeInput::turn_provider`), else
 //! the provider of new conversations. The chain: the classifier model
-//! (`classifier.model`, else the small model of that provider's company,
+//! (`classifier.model`, else the reviewer model of that provider's company,
 //! [`Vendor::classifier_model`]), then the turn's model when
 //! `classifier.fallback_to_turn_model` is on. A step goes to the next one
 //! when its model is missing, refuses, times out or gives an answer that does not fit
@@ -164,7 +164,7 @@ impl Placeholders {
 impl ClassifierJudge {
     /// A judge that asks the provider of each exit's turn among `providers`, with the
     /// `[classifier]` settings of `settings` at each exit. The company of that provider
-    /// names the small model.
+    /// names the reviewer model.
     pub(crate) fn new(
         providers: Arc<dyn ProviderRouter>,
         settings: watch::Receiver<Arc<Settings>>,

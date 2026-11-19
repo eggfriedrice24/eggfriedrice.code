@@ -567,7 +567,7 @@ proxy refused in the last command or a job is a fact for the reviewer
 (`refused_by_proxy`), never a name. A host that a script connects to has a fact only
 after the proxy refused it.
 
-The reviewer is the small model of your provider (`classifier.model` picks another),
+The reviewer is the reviewer model of your provider (`classifier.model` picks another),
 then the turn's model at a low effort (`classifier.fallback_to_turn_model`). When
 neither answers, the action does not run: `! reviewer: no answer (skipped gpt-6-luna:
 timeout): <command> did not run`, with the step that failed and why. A model that is missing or
