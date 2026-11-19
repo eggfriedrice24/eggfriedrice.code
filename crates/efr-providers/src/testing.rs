@@ -1,7 +1,8 @@
 //! The attachments of the converter tests of both providers.
 
-use efr_protocol::{Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, SentForm};
+use efr_protocol::{Attachment, AttachmentKind, AttachmentOrigin, SentForm};
 use efr_provider::{AttachmentPart, EncodedBytes};
+use efr_test_support::attachments;
 
 /// The base64 text of every part with data.
 pub(crate) const DATA: &str = "iVBORw0KGgo=";
@@ -10,12 +11,8 @@ pub(crate) const DATA: &str = "iVBORw0KGgo=";
 pub(crate) fn image(data: bool) -> AttachmentPart {
     part(
         Attachment {
-            id: AttachmentId::nth(1),
             name: "shot.png".to_owned(),
-            media_type: "image/png".to_owned(),
             bytes: 2_100_000,
-            sha256: "ab".repeat(32),
-            kind: AttachmentKind::Image { width: 3000, height: 1500 },
             origin: AttachmentOrigin::Path { path: "/home/u/shot.png".into() },
             copy: Some("/s/attachments/a1-shot.png".into()),
             sent: Some(SentForm {
@@ -24,6 +21,7 @@ pub(crate) fn image(data: bool) -> AttachmentPart {
                 width: Some(2000),
                 height: Some(1000),
             }),
+            ..attachments::image(1, 3000, 1500)
         },
         data,
     )
@@ -33,7 +31,6 @@ pub(crate) fn image(data: bool) -> AttachmentPart {
 pub(crate) fn pdf(data: bool) -> AttachmentPart {
     part(
         Attachment {
-            id: AttachmentId::nth(2),
             name: "report.pdf".to_owned(),
             media_type: "application/pdf".to_owned(),
             bytes: 90_000,
@@ -47,6 +44,7 @@ pub(crate) fn pdf(data: bool) -> AttachmentPart {
                 width: None,
                 height: None,
             }),
+            ..attachments::image(2, 1, 1)
         },
         data,
     )
@@ -56,20 +54,10 @@ pub(crate) fn pdf(data: bool) -> AttachmentPart {
 pub(crate) fn tool_image(data: bool) -> AttachmentPart {
     part(
         Attachment {
-            id: AttachmentId::nth(3),
             name: "plot.png".to_owned(),
-            media_type: "image/png".to_owned(),
-            bytes: 9_000,
             sha256: "ef".repeat(32),
-            kind: AttachmentKind::Image { width: 64, height: 32 },
             origin: AttachmentOrigin::Tool { path: "/home/u/plot.png".into() },
-            copy: None,
-            sent: Some(SentForm {
-                media_type: "image/png".to_owned(),
-                bytes: 9_000,
-                width: Some(64),
-                height: Some(32),
-            }),
+            ..attachments::image(3, 64, 32)
         },
         data,
     )

@@ -12,6 +12,7 @@ use efr_protocol::{
 };
 use efr_sandbox::ATTACH_DIR;
 use efr_store::Batch;
+use efr_test_support::attachments::PIXEL_PNG;
 use efr_test_support::{TestClock, TestStore};
 use efr_transport::ConnId;
 use pretty_assertions::assert_eq;
@@ -21,9 +22,6 @@ use uuid::Uuid;
 use super::DaemonAttachments;
 use super::store::ATTACHMENTS_DIR;
 use super::uploads::{Chunk, Owner, Uploads};
-
-/// A PNG of 1 x 1 pixel with alpha, the smallest whole image.
-pub(crate) const PIXEL_PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89\0\0\0\nIDATx\x9cc\0\x01\0\0\x05\0\x01\r\n-\xb4\0\0\0\0IEND\xaeB`\x82";
 
 fn conversation() -> ConversationId {
     ConversationId::from_uuid(Uuid::from_u128(7))
@@ -186,15 +184,10 @@ async fn a_new_attachment_of_bytes_with_a_blob_takes_the_form_of_that_blob() {
     let earlier =
         SentForm { media_type: "image/jpeg".to_owned(), bytes: 9, width: Some(1), height: Some(1) };
     let first = Attachment {
-        id: AttachmentId::nth(1),
-        name: "shot.png".to_owned(),
-        media_type: "image/png".to_owned(),
         bytes: PIXEL_PNG.len() as u64,
         sha256: crate::judge::sha256_hex(PIXEL_PNG),
-        kind: AttachmentKind::Image { width: 1, height: 1 },
-        origin: AttachmentOrigin::Tool { path: "/home/u/shot.png".into() },
-        copy: None,
         sent: Some(earlier.clone()),
+        ..efr_test_support::attachments::image(1, 1, 1)
     };
     let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
     let batch = Batch::new().event(conversation(), created).event(conversation(), queued(first));

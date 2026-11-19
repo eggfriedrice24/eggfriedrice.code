@@ -12,7 +12,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use super::{Chunk, Owner, UPLOADS_DIR, UploadError, Uploads};
-use crate::attachments::tests::PIXEL_PNG;
+use efr_test_support::attachments::PIXEL_PNG;
 
 const LOCAL: Owner = Owner::Connection(ConnId::new(1));
 

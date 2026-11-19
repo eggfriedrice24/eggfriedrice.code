@@ -58,12 +58,12 @@ impl Attachments for Binder {
             name: "notes.txt".to_owned(),
             media_type: "text/plain".to_owned(),
             bytes: 5,
-            sha256: "ab".repeat(32),
             kind: AttachmentKind::Text,
             origin: AttachmentOrigin::Clipboard,
             copy: Some(scratch.join("attachments").join(format!("{id}-notes.txt"))),
             sent: None,
             id,
+            ..efr_test_support::attachments::image(1, 1, 1)
         })
     }
 

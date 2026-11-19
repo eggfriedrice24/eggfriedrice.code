@@ -20,11 +20,12 @@ use std::time::Duration;
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    ActionFacts, CallId, Capabilities, CatalogOrigin, CatalogStatus, ClientFrame, Compaction,
-    CompactionTrigger, ConversationId, ConversationSubscribeItem, DaemonPaths, ErrorBody, Event,
-    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, Hello, HelloResult,
-    JobId, JobInfo, JobState, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
-    PROTOCOL_VERSION, ProgramFact, QuestionId, RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
+    ActionFacts, Attachment, AttachmentOrigin, CallId, Capabilities, CatalogOrigin, CatalogStatus,
+    ClientFrame, Compaction, CompactionTrigger, ConversationId, ConversationSubscribeItem,
+    DaemonPaths, ErrorBody, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
+    ExitSource, Hello, HelloResult, JobId, JobInfo, JobState, Launch, Method, ModelInfo,
+    ModelSource, ModelsListResult, PROTOCOL_VERSION, ProgramFact, QuestionId, RequestId, Scope,
+    SentForm, Seq, ServerFrame, TurnId, Usage,
 };
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role};
 use efr_stdx::env::{Env, Var};
@@ -81,6 +82,25 @@ pub(crate) fn conversation() -> ConversationId {
 
 pub(crate) fn turn() -> TurnId {
     TURN.parse().unwrap()
+}
+
+/// The attachment `a1`, `shot.png`: an image of 1920 x 1080 and 2.1 MB from
+/// `~/p/app/docs`, with its copy in `$SCRATCH`, which a model gets as it is.
+pub(crate) fn shot() -> Attachment {
+    let bytes = 2_100_000;
+    Attachment {
+        name: "shot.png".to_owned(),
+        bytes,
+        origin: AttachmentOrigin::Path { path: PathBuf::from("/home/you/p/app/docs/shot.png") },
+        copy: Some(PathBuf::from("/home/you/.local/share/efr/scratch/s/attachments/a1-shot.png")),
+        sent: Some(SentForm {
+            media_type: "image/png".to_owned(),
+            bytes,
+            width: Some(1920),
+            height: Some(1080),
+        }),
+        ..efr_test_support::attachments::image(1, 1920, 1080)
+    }
 }
 
 pub(crate) fn call() -> CallId {

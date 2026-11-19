@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, CommandId, Compaction,
-    CompactionId, CompactionTrigger, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope,
-    Origin, PtyId, Scope, SentForm, Seq, TurnId, TurnSettings,
+    Attachment, CallId, CommandId, Compaction, CompactionId, CompactionTrigger, ConversationId,
+    ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId, Scope, SentForm, Seq, TurnId,
+    TurnSettings,
 };
 use efr_provider::{AttachmentPart, ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
@@ -126,17 +126,7 @@ fn a_text_turn_is_the_prompt_and_the_answer() {
 
 /// The image `a<n>` that a tool read.
 fn image(n: u32) -> Attachment {
-    Attachment {
-        id: AttachmentId::nth(n),
-        name: format!("img-{n}.png"),
-        media_type: "image/png".to_owned(),
-        bytes: 9_000,
-        sha256: "ab".repeat(32),
-        kind: AttachmentKind::Image { width: 64, height: 32 },
-        origin: AttachmentOrigin::Tool { path: format!("/home/u/img-{n}.png").into() },
-        copy: None,
-        sent: None,
-    }
+    Attachment { sent: None, ..efr_test_support::attachments::image(n, 64, 32) }
 }
 
 #[test]

@@ -16,6 +16,7 @@ use efr_test_daemon::{
     ClientError, MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon,
     command_id, events_until,
 };
+use efr_test_support::attachments::PIXEL_PNG;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -70,9 +71,6 @@ async fn a_daemon_says_its_limits_and_with_attachments_off_refuses_an_upload() {
     drop(client);
     daemon.stop().await.unwrap();
 }
-
-/// A PNG of 1 x 1 pixel with alpha and no metadata: the model gets its bytes as they are.
-const PIXEL_PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89\0\0\0\nIDATx\x9cc\0\x01\0\0\x05\0\x01\r\n-\xb4\0\0\0\0IEND\xaeB`\x82";
 
 /// The base64 text of [`PIXEL_PNG`].
 fn pixel() -> String {

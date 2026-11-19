@@ -1,6 +1,5 @@
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, ConversationId, Event, Origin,
-    SentForm, WithheldReason,
+    Attachment, AttachmentId, ConversationId, Event, Origin, SentForm, WithheldReason,
 };
 use pretty_assertions::assert_eq;
 
@@ -11,15 +10,9 @@ use crate::{Batch, StoreWriter, WriterHandle};
 /// The attachment `n`, an image with the bytes of `sha`.
 fn image(n: u32, sha: &str) -> Attachment {
     Attachment {
-        id: AttachmentId::nth(n),
-        name: format!("shot-{n}.png"),
-        media_type: "image/png".to_owned(),
-        bytes: 1_000,
         sha256: sha.repeat(32),
-        kind: AttachmentKind::Image { width: 20, height: 10 },
-        origin: AttachmentOrigin::Tool { path: format!("/home/u/shot-{n}.png").into() },
-        copy: None,
         sent: None,
+        ..efr_test_support::attachments::image(n, 20, 10)
     }
 }
 

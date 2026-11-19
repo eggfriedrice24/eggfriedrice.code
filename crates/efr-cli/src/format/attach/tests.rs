@@ -20,17 +20,15 @@ fn attachment(n: u32, name: &str, bytes: u64, kind: AttachmentKind) -> Attachmen
     let sent = matches!(kind, AttachmentKind::Image { .. } | AttachmentKind::Pdf { .. })
         .then(|| SentForm { media_type: "image/png".to_owned(), bytes, width: None, height: None });
     Attachment {
-        id: id(n),
         name: name.to_owned(),
-        media_type: "application/octet-stream".to_owned(),
         bytes,
-        sha256: "00".repeat(32),
         kind,
         origin: AttachmentOrigin::Path { path: PathBuf::from(format!("/home/you/p/app/{name}")) },
         copy: Some(PathBuf::from(format!(
             "/home/you/.local/share/efr/scratch/s/attachments/a{n}-{name}"
         ))),
         sent,
+        ..efr_test_support::attachments::image(n, 1, 1)
     }
 }
 

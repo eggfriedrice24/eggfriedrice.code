@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, Compaction, CompactionId,
-    CompactionTrigger, ContextPartKind, ConversationId, Event, EventEnvelope, JobInfo, JobState,
-    SentForm, Seq, TurnId, Usage,
+    Attachment, CallId, Compaction, CompactionId, CompactionTrigger, ContextPartKind,
+    ConversationId, Event, EventEnvelope, JobInfo, JobState, SentForm, Seq, TurnId, Usage,
 };
 use efr_provider::{AttachmentPart, ContentBlock, InputKinds, Message, Role};
 use efr_stdx::id::uuid_v7;
@@ -383,20 +382,14 @@ fn the_count_is_gone_after_a_compaction() {
 /// An image of 2000 x 1500 pixels as a model gets it, named `name`.
 fn shot(n: u32, name: &str) -> AttachmentPart {
     AttachmentPart::new(Attachment {
-        id: AttachmentId::nth(n),
         name: name.to_owned(),
-        media_type: "image/png".to_owned(),
-        bytes: 900_000,
-        sha256: "ab".repeat(32),
-        kind: AttachmentKind::Image { width: 4000, height: 3000 },
-        origin: AttachmentOrigin::Path { path: format!("/home/u/{name}").into() },
-        copy: None,
         sent: Some(SentForm {
             media_type: "image/jpeg".to_owned(),
             bytes: 400_000,
             width: Some(2000),
             height: Some(1500),
         }),
+        ..efr_test_support::attachments::image(n, 4000, 3000)
     })
 }
 

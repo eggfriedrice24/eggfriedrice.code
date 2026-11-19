@@ -5,7 +5,7 @@ use super::{
     ANIMATED, BROKEN, HEAD_BYTES, PDF_PAGES, PDF_PASSWORD, PDF_TOO_LARGE, Sent, TOO_LARGE, check,
     needs_whole,
 };
-use crate::attachments::tests::PIXEL_PNG;
+use efr_test_support::attachments::PIXEL_PNG;
 
 /// A GIF of `width` x 1 pixel with one comment.
 fn gif(width: u16) -> Vec<u8> {

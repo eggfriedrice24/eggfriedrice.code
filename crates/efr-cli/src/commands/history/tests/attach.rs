@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CommandId, EffectiveSettings,
-    Event, Mode, Origin, OverriddenSettings, Scope, SentForm, TurnSettings, WithheldReason,
+    AttachmentId, AttachmentOrigin, CommandId, EffectiveSettings, Event, Mode, Origin,
+    OverriddenSettings, Scope, TurnSettings, WithheldReason,
 };
 use efr_render::RenderOptions;
 use jiff::tz::TimeZone;
@@ -16,29 +16,10 @@ use serde_json::json;
 
 use super::super::{Shown, transcript};
 use super::page_of;
-use crate::testing::{call, conversation, turn};
+use crate::testing::{call, conversation, shot, turn};
 
 fn id(n: u32) -> AttachmentId {
-    format!("a{n}").parse().unwrap()
-}
-
-fn shot() -> Attachment {
-    Attachment {
-        id: id(1),
-        name: "shot.png".to_owned(),
-        media_type: "image/png".to_owned(),
-        bytes: 2_100_000,
-        sha256: "00".repeat(32),
-        kind: AttachmentKind::Image { width: 1920, height: 1080 },
-        origin: AttachmentOrigin::Path { path: PathBuf::from("/home/you/p/app/docs/shot.png") },
-        copy: Some(PathBuf::from("/home/you/.local/share/efr/scratch/s/attachments/a1-shot.png")),
-        sent: Some(SentForm {
-            media_type: "image/png".to_owned(),
-            bytes: 2_100_000,
-            width: Some(1920),
-            height: Some(1080),
-        }),
-    }
+    AttachmentId::nth(n)
 }
 
 fn events() -> Vec<Event> {

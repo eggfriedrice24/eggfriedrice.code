@@ -37,6 +37,9 @@ directories, a store and provider traffic from one place and never from the mach
   database: the same migrations, writer and read functions as the daemon's, with event
   times from the clock the test passes. PTY recordings, which are files, go to a
   temporary directory removed with the value. `events()` reads the whole log.
+- `attachments`: `image(n, width, height)`, the one `Attachment` of the tests (a PNG
+  that a tool read, sent as it is), which each test changes with the struct update
+  syntax, so a new field changes one place; and `PIXEL_PNG`, the smallest whole PNG.
 - `design`: the frames of the terminal design as fixtures, and a check of real output
   against them. `cargo xtask design-frames` writes `fixtures/design/TM-<board>.jsonl`
   from the export of the design boards (one JSON object for each frame: its board,

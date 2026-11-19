@@ -23,22 +23,7 @@ use crate::{ToolImage, ToolOutcome};
 
 /// The image `n` that a tool read, as efrd keeps it: a blob of 64 x 32 pixels.
 fn image(n: u32) -> Attachment {
-    Attachment {
-        id: AttachmentId::nth(n),
-        name: format!("img-{n}.png"),
-        media_type: "image/png".to_owned(),
-        bytes: 9_000,
-        sha256: "ab".repeat(32),
-        kind: AttachmentKind::Image { width: 64, height: 32 },
-        origin: AttachmentOrigin::Tool { path: format!("/home/u/img-{n}.png").into() },
-        copy: None,
-        sent: Some(SentForm {
-            media_type: "image/png".to_owned(),
-            bytes: 9_000,
-            width: Some(64),
-            height: Some(32),
-        }),
-    }
+    efr_test_support::attachments::image(n, 64, 32)
 }
 
 fn both() -> InputKinds {

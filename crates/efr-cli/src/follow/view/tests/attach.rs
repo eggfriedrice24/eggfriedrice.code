@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CommandId, Event, Origin, Scope,
-    SentForm, SwitchedModel, TurnSettings, WithheldReason,
+    Attachment, AttachmentId, AttachmentOrigin, CommandId, Event, Origin, Scope, SentForm,
+    SwitchedModel, TurnSettings, WithheldReason,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -20,26 +20,18 @@ use crate::testing::{Grid, bare, now, turn};
 const SIZE: Size = Size { cols: 80, rows: 20 };
 
 fn id(n: u32) -> AttachmentId {
-    format!("a{n}").parse().unwrap()
+    AttachmentId::nth(n)
 }
 
+/// [`testing::shot`](crate::testing::shot), made smaller for the model.
 fn shot() -> Attachment {
-    Attachment {
-        id: id(1),
-        name: "shot.png".to_owned(),
-        media_type: "image/png".to_owned(),
-        bytes: 2_100_000,
-        sha256: "00".repeat(32),
-        kind: AttachmentKind::Image { width: 1920, height: 1080 },
-        origin: AttachmentOrigin::Path { path: PathBuf::from("/home/you/p/app/docs/shot.png") },
-        copy: Some(PathBuf::from("/home/you/.local/share/efr/scratch/s/attachments/a1-shot.png")),
-        sent: Some(SentForm {
-            media_type: "image/jpeg".to_owned(),
-            bytes: 400_000,
-            width: Some(1920),
-            height: Some(1080),
-        }),
-    }
+    let sent = SentForm {
+        media_type: "image/jpeg".to_owned(),
+        bytes: 400_000,
+        width: Some(1920),
+        height: Some(1080),
+    };
+    Attachment { sent: Some(sent), ..crate::testing::shot() }
 }
 
 fn queued(attachments: Vec<Attachment>) -> Event {

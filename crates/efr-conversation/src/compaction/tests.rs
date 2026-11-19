@@ -1,4 +1,4 @@
-use efr_protocol::{Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, SentForm, TurnId};
+use efr_protocol::TurnId;
 use efr_provider::{
     AttachmentPart, ContentBlock, EncodedBytes, IMAGE_MAX_TOKENS, Message, Request, Role,
 };
@@ -203,22 +203,7 @@ fn the_newest_call_and_its_result_are_never_pruned_however_large() {
 /// A result of `read_file` that sends an image of 2000 x 2000 pixels as content: few
 /// bytes of JSON and the most tokens of an image.
 fn image_result(id: &str) -> Message {
-    let attachment = Attachment {
-        id: AttachmentId::nth(1),
-        name: "plot.png".to_owned(),
-        media_type: "image/png".to_owned(),
-        bytes: 9_000,
-        sha256: "ab".repeat(32),
-        kind: AttachmentKind::Image { width: 2000, height: 2000 },
-        origin: AttachmentOrigin::Tool { path: "/home/u/plot.png".into() },
-        copy: None,
-        sent: Some(SentForm {
-            media_type: "image/png".to_owned(),
-            bytes: 9_000,
-            width: Some(2000),
-            height: Some(2000),
-        }),
-    };
+    let attachment = efr_test_support::attachments::image(1, 2000, 2000);
     let part = AttachmentPart { attachment, data: Some(EncodedBytes::new("AAAA")) };
     Message::new(
         Role::User,

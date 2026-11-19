@@ -1,5 +1,7 @@
 //! Light helpers for the tests of every efr crate.
 //!
+//! - [`attachments`]: one image attachment that each test changes, and
+//!   [`attachments::PIXEL_PNG`], the smallest whole image.
 //! - [`bench`](mod@bench): samples and their percentiles, the report of a `bench_perf_*` bench
 //!   with its JSON lines, the slope of a cost over its input size, and the resident
 //!   memory of a process.
@@ -36,6 +38,9 @@
 //! the scenario driver live in `efr-test-daemon`), and any provider's API, which is
 //! replayed at the HTTP level with wiremock instead.
 //!
+//! `attachments` is a public module because its names read as `attachments::image` at
+//! the call site.
+//!
 //! `bench` is a public module because its names (`run`, `slope`, `Report`) read as
 //! `bench::run` at the call site.
 //!
@@ -52,6 +57,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+pub mod attachments;
 pub mod bench;
 mod clock;
 pub mod design;
