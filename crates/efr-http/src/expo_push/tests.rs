@@ -55,14 +55,17 @@ fn push(server: &MockServer, clock: Arc<dyn Clock>) -> ExpoPush {
     ExpoPush::new(&format!("{}/", server.uri()), client.unwrap(), clock, rng).unwrap()
 }
 
-fn message(conversation: Option<&str>, ttl: u64) -> PushMessage {
-    PushMessage::new(
+fn message(group: Option<&str>, ttl: u64) -> PushMessage {
+    let message = PushMessage::new(
         TOKEN,
+        "efr".to_owned(),
         "app: a question waits".to_owned(),
         Duration::from_secs(ttl),
-        conversation.map(str::to_owned),
-        "d-1".to_owned(),
-    )
+    );
+    match group {
+        Some(group) => message.with_group(group.to_owned()),
+        None => message,
+    }
 }
 
 fn ok(body: serde_json::Value) -> ResponseTemplate {
@@ -94,12 +97,12 @@ async fn a_send_posts_the_messages_as_one_json_array_with_no_gzip() {
             "body": "app: a question waits",
             "sound": "default",
             "priority": "high",
-            "ttl": 3600,
-            "data": {"d": "d-1"}
+            "ttl": 3600
         }
     ]);
+    let data = json!({"d": "d-1", "c": "c-1"}).as_object().cloned().unwrap();
     Mock::given(method("POST"))
-        .and(path(SEND_PATH))
+        .and(path(ExpoPush::SEND_PATH))
         .and(header("accept", "application/json"))
         .and(header("content-type", "application/json"))
         .and(body_json(&expected))
@@ -112,7 +115,8 @@ async fn a_send_posts_the_messages_as_one_json_array_with_no_gzip() {
         .await;
     let push = push(&server, Arc::new(WaitClock::new()));
 
-    let answer = push.send(&[message(Some("c-1"), 300), message(None, 3600)]).await.unwrap();
+    let first = message(Some("c-1"), 300).with_data(data);
+    let answer = push.send(&[first, message(None, 3600)]).await.unwrap();
 
     let ids = ["XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", "YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY"];
     let tickets = ids.map(|id| Ticket::Ok(TicketId::new(id).unwrap())).to_vec();
@@ -126,7 +130,7 @@ async fn a_send_posts_the_messages_as_one_json_array_with_no_gzip() {
 async fn a_ticket_keeps_its_code_and_no_value_holds_the_text_of_its_message() {
     let server = MockServer::start().await;
     let refused = format!("\"{TOKEN}\" is not a registered push notification recipient");
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ok(json!({"data": [
             {"status": "error", "message": refused, "details": {"error": "DeviceNotRegistered"}},
             {"status": "error", "message": refused, "details": {"error": TOKEN}},
@@ -139,7 +143,7 @@ async fn a_ticket_keeps_its_code_and_no_value_holds_the_text_of_its_message() {
 
     let answer = push.send(&[message(None, 60)]).await.unwrap();
 
-    let not_registered = PushCode::new(DEVICE_NOT_REGISTERED);
+    let not_registered = PushCode::new("DeviceNotRegistered");
     let expected = vec![
         Ticket::Failed(not_registered),
         Ticket::Failed(None),
@@ -154,7 +158,7 @@ async fn a_ticket_keeps_its_code_and_no_value_holds_the_text_of_its_message() {
 async fn the_receipts_of_due_tickets_come_by_their_id() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path(RECEIPTS_PATH))
+        .and(path(ExpoPush::RECEIPTS_PATH))
         .and(header("accept", "application/json"))
         .and(body_json(json!({"ids": ["a-1", "b-2", "c-3"]})))
         .respond_with(ok(json!({"data": {
@@ -185,7 +189,7 @@ async fn an_errors_answer_refuses_the_whole_send_once_with_its_code() {
     let body = json!({"errors": [
         {"code": "PUSH_TOO_MANY_EXPERIENCE_IDS", "message": TOKEN, "details": {}}
     ]});
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ResponseTemplate::new(400).set_body_json(body))
         .mount(&server)
         .await;
@@ -194,7 +198,7 @@ async fn an_errors_answer_refuses_the_whole_send_once_with_its_code() {
 
     let answer = push.send(&[message(None, 60), message(None, 60)]).await.unwrap();
 
-    let code = PushCode::new(TOO_MANY_EXPERIENCE_IDS);
+    let code = PushCode::new("PUSH_TOO_MANY_EXPERIENCE_IDS");
     assert_eq!(answer, ExpoAnswer::Refused { status: StatusCode::BAD_REQUEST, code });
     assert_eq!(requests(&server).await.len(), 1, "a 400 goes once");
     assert_eq!(clock.waits(), []);
@@ -203,7 +207,7 @@ async fn an_errors_answer_refuses_the_whole_send_once_with_its_code() {
 #[tokio::test]
 async fn an_errors_array_with_a_success_status_refuses_too() {
     let server = MockServer::start().await;
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ok(json!({"errors": [{"code": "UNAUTHORIZED", "message": "no token"}]})))
         .mount(&server)
         .await;
@@ -219,12 +223,12 @@ async fn an_errors_array_with_a_success_status_refuses_too() {
 async fn a_429_and_a_503_go_again_after_the_waits_of_the_policy() {
     for status in [429, 503] {
         let server = MockServer::start().await;
-        Mock::given(path(SEND_PATH))
+        Mock::given(path(ExpoPush::SEND_PATH))
             .respond_with(ResponseTemplate::new(status).set_body_string("<html>busy</html>"))
             .up_to_n_times(2)
             .mount(&server)
             .await;
-        Mock::given(path(SEND_PATH))
+        Mock::given(path(ExpoPush::SEND_PATH))
             .respond_with(ok(json!({"data": [{"status": "ok", "id": "a-1"}]})))
             .mount(&server)
             .await;
@@ -247,7 +251,7 @@ async fn a_retry_after_is_followed_and_the_last_refusal_comes_back() {
     let busy = ResponseTemplate::new(429)
         .insert_header("retry-after", "7")
         .set_body_json(json!({"errors": [{"code": "TOO_MANY_REQUESTS"}]}));
-    Mock::given(path(SEND_PATH)).respond_with(busy).mount(&server).await;
+    Mock::given(path(ExpoPush::SEND_PATH)).respond_with(busy).mount(&server).await;
     let clock = Arc::new(WaitClock::new());
     let push = push(&server, clock.clone());
 
@@ -262,7 +266,10 @@ async fn a_retry_after_is_followed_and_the_last_refusal_comes_back() {
 #[tokio::test]
 async fn no_try_starts_after_the_ttl_of_a_message() {
     let server = MockServer::start().await;
-    Mock::given(path(SEND_PATH)).respond_with(ResponseTemplate::new(503)).mount(&server).await;
+    Mock::given(path(ExpoPush::SEND_PATH))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
     let push = push(&server, Arc::new(WaitClock::new()));
 
     let sent = push.send(&[message(None, 3600), message(None, 2)]).await;
@@ -275,7 +282,7 @@ async fn no_try_starts_after_the_ttl_of_a_message() {
 #[tokio::test]
 async fn a_try_ends_after_the_timeout_on_the_clock() {
     let server = MockServer::start().await;
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ok(json!({"data": []})).set_delay(Duration::from_secs(30)))
         .mount(&server)
         .await;
@@ -292,7 +299,7 @@ async fn a_try_ends_after_the_timeout_on_the_clock() {
 #[tokio::test]
 async fn a_success_whose_body_is_not_the_json_of_a_send_fails() {
     let server = MockServer::start().await;
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
         .mount(&server)
         .await;

@@ -6,7 +6,7 @@
 //! no secret for push; the Expo push token of each phone is in the store
 //! (`efr_store::device_push`).
 //!
-//! The rule (decision D3). A phone gets a push when all of these are true:
+//! The rule (ADR 0028). A phone gets a push when all of these are true:
 //!
 //! 1. Something needs you ([`Row`]): a row that `notices::desktop_what` gives (an
 //!    approval or a question of the model, the end, the fail or the wake limit of a job
@@ -47,10 +47,13 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_http::{
-    DEVICE_NOT_REGISTERED, EXPO_PUSH_BASE, ExpoAnswer, ExpoPush, HttpClient, INVALID_CREDENTIALS,
-    MAX_MESSAGES, PushCode, PushMessage, Receipt, TOO_MANY_EXPERIENCE_IDS, Ticket, TicketId,
+    EXPO_PUSH_BASE, ExpoAnswer, ExpoPush, HttpClient, PushCode, PushMessage, Receipt, Ticket,
+    TicketId,
 };
-use efr_protocol::{CallId, ConversationId, DeviceId, Event, EventEnvelope, Origin};
+use efr_protocol::{
+    CallId, ConversationId, DeviceId, Event, EventEnvelope, Origin, PUSH_DEVICE_NOT_REGISTERED,
+    PUSH_INVALID_CREDENTIALS, PUSH_TOO_MANY_EXPERIENCE_IDS, SecretText, TurnId,
+};
 use efr_stdx::rng::Rng;
 use efr_stdx::text::{QUESTION_WAITS, notice_body, notice_ended};
 use efr_stdx::time::Clock;
@@ -83,6 +86,9 @@ const NOTICE_TTL: Duration = Duration::from_secs(60 * 60);
 /// The rows that wait for the push task. A row is small, and a full queue drops the
 /// newest with a warning.
 const QUEUE_CAPACITY: usize = 64;
+
+/// The title of every push, as of the desktop notice. The body says the rest.
+const TITLE: &str = "efr";
 
 /// The push service of efrd.
 #[derive(Debug)]
@@ -291,7 +297,7 @@ fn waiting(
 async fn phone_turn(
     state: &State,
     conversation_id: ConversationId,
-    turn_id: efr_protocol::TurnId,
+    turn_id: TurnId,
 ) -> Option<Duration> {
     let read = state
         .readers
@@ -473,26 +479,36 @@ struct Message<'a> {
 }
 
 impl Message<'_> {
+    /// The push to the phone of `target`. Its group is the conversation, so a newer
+    /// notice of it replaces the older one; its data holds the daemon id (`d`) and the
+    /// conversation id (`c`), which a tap opens.
     fn to(&self, target: &PushTarget) -> PushMessage {
-        PushMessage::new(
+        let mut data = serde_json::Map::new();
+        data.insert("d".to_owned(), self.daemon.into());
+        let message = PushMessage::new(
             target.token.expose_secret(),
+            TITLE.to_owned(),
             self.body.to_owned(),
             self.ttl,
-            self.conversation.map(|id| id.to_string()),
-            self.daemon.to_owned(),
-        )
+        );
+        let Some(conversation) = self.conversation else { return message.with_data(data) };
+        let conversation = conversation.to_string();
+        data.insert("c".to_owned(), conversation.clone().into());
+        message.with_group(conversation).with_data(data)
     }
 }
 
-/// Sends `message` to each of `targets`, at most [`MAX_MESSAGES`] in a request, and
+/// Sends `message` to each of `targets`, at most [`ExpoPush::MAX_MESSAGES`] in a request, and
 /// returns what became of each push, in their order. A request that holds tokens of two
 /// Expo projects goes again as one request for each message.
 async fn send(expo: &ExpoPush, targets: &[PushTarget], message: &Message<'_>) -> Vec<Sent> {
     let mut sent = Vec::with_capacity(targets.len());
-    for chunk in targets.chunks(MAX_MESSAGES) {
+    for chunk in targets.chunks(ExpoPush::MAX_MESSAGES) {
         let messages: Vec<PushMessage> = chunk.iter().map(|target| message.to(target)).collect();
         match send_once(expo, &messages).await {
-            Err(Some(code)) if code.as_str() == TOO_MANY_EXPERIENCE_IDS && messages.len() > 1 => {
+            Err(Some(code))
+                if code.as_str() == PUSH_TOO_MANY_EXPERIENCE_IDS && messages.len() > 1 =>
+            {
                 for one in messages.chunks(1) {
                     match send_once(expo, one).await {
                         Ok(mut alone) => sent.append(&mut alone),
@@ -541,14 +557,9 @@ async fn send_once(
 
 /// What efrd does when Expo or Apple refused the push to `device` with `token`:
 /// `DeviceNotRegistered` turns push off for the device while it still has `token`.
-async fn refused(
-    state: &State,
-    device_id: DeviceId,
-    token: efr_protocol::SecretText,
-    code: Option<PushCode>,
-) {
+async fn refused(state: &State, device_id: DeviceId, token: SecretText, code: Option<PushCode>) {
     match code.as_ref().map(PushCode::as_str) {
-        Some(DEVICE_NOT_REGISTERED) => {
+        Some(PUSH_DEVICE_NOT_REGISTERED) => {
             match state.writer.device_push_drop(device_id, token).await {
                 Ok(true) => {
                     tracing::info!(%device_id, "push is off for a device: Expo says that its token is dead")
@@ -559,7 +570,7 @@ async fn refused(
                 }
             }
         }
-        Some(INVALID_CREDENTIALS) => {
+        Some(PUSH_INVALID_CREDENTIALS) => {
             if !state.push.warned_credentials.swap(true, Ordering::Relaxed) {
                 tracing::warn!("Expo has no valid push key for the app; run eas credentials");
             }

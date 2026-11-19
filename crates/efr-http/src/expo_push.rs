@@ -3,11 +3,13 @@
 //!
 //! efrd sends a push as JSON to the service, which sends it to Apple with the push key
 //! that EAS holds for the app (ADR 0028). [`ExpoPush::send`] posts at most
-//! [`MAX_MESSAGES`] messages and gets one [`Ticket`] for each, in their order;
-//! [`ExpoPush::receipts`] asks for the [`Receipt`] of at most [`MAX_RECEIPT_IDS`]
-//! tickets. Each request has no gzip and no `accept-encoding`, so the answer is plain
-//! JSON, and no access token: the "enhanced push security" option of the Expo account
-//! must be off.
+//! [`ExpoPush::MAX_MESSAGES`] messages and gets one [`Ticket`] for each, in their
+//! order; [`ExpoPush::receipts`] asks for the [`Receipt`] of at most
+//! [`ExpoPush::MAX_RECEIPT_IDS`] tickets. Each request has no gzip and no
+//! `accept-encoding`, so the answer is plain JSON, and no access token: the "enhanced
+//! push security" option of the Expo account must be off. The caller gives the title,
+//! the body, the group and the data of each notice ([`PushMessage`]); every notice
+//! has the default sound and the high priority.
 //!
 //! A push token is a secret, and the `message` text of an answer can hold one. So the
 //! parse reads only `status`, `id`, `details.error` and `errors[].code`, keeps a code
@@ -40,39 +42,15 @@ use crate::{HttpClient, HttpError, HttpRequest, HttpResponse, RetryPolicy, redac
 /// The base URL of the Expo push service.
 pub const EXPO_PUSH_BASE: &str = "https://exp.host";
 
-/// The path of a send, below the base URL.
-pub const SEND_PATH: &str = "/--/api/v2/push/send";
-
-/// The path of a receipts request, below the base URL.
-pub const RECEIPTS_PATH: &str = "/--/api/v2/push/getReceipts";
-
-/// The most messages of one send: the limit of Expo.
-pub const MAX_MESSAGES: usize = 100;
-
-/// The most ticket ids of one receipts request: the limit of Expo.
-pub const MAX_RECEIPT_IDS: usize = 1000;
-
 /// How long one try of a request may take. The read timeout of the shared client is
 /// for model streams and much longer.
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The longest code and ticket id that the parse keeps.
-pub const CODE_MAX_LEN: usize = 64;
-
-/// The title of every notice. The body says the rest.
-pub const TITLE: &str = "efr";
-
-/// The code of a token that Apple or Expo no longer knows: push is off for it.
-pub const DEVICE_NOT_REGISTERED: &str = "DeviceNotRegistered";
-
-/// The code of a project that has no valid push key at Expo.
-pub const INVALID_CREDENTIALS: &str = "InvalidCredentials";
-
-/// The code of a send that held tokens of two Expo projects.
-pub const TOO_MANY_EXPERIENCE_IDS: &str = "PUSH_TOO_MANY_EXPERIENCE_IDS";
+const CODE_MAX_LEN: usize = 64;
 
 /// Four tries, with waits of up to 2 s, 4 s and 8 s, and a `Retry-After` of up to 60 s.
-pub const EXPO_RETRY: RetryPolicy = RetryPolicy {
+const EXPO_RETRY: RetryPolicy = RetryPolicy {
     max_attempts: 4,
     initial_backoff: Duration::from_secs(2),
     max_backoff: Duration::from_secs(8),
@@ -83,30 +61,45 @@ pub const EXPO_RETRY: RetryPolicy = RetryPolicy {
 #[derive(Debug, Clone)]
 pub struct PushMessage {
     to: SecretString,
+    title: String,
     body: String,
     ttl: Duration,
-    conversation: Option<String>,
-    daemon: String,
+    group: Option<String>,
+    data: serde_json::Map<String, serde_json::Value>,
 }
 
 impl PushMessage {
     /// A notice for the phone of `token`, its Expo push token (`ExponentPushToken[...]`),
-    /// with `body` under the title [`TITLE`]. Apple keeps it `ttl` for a phone that is
-    /// off, and no try of its send starts after that. A tap opens `conversation` on the
-    /// efrd `daemon`; a newer notice of the same conversation replaces the older one,
-    /// and iOS groups them.
-    pub fn new(
-        token: &str,
-        body: String,
-        ttl: Duration,
-        conversation: Option<String>,
-        daemon: String,
-    ) -> Self {
-        PushMessage { to: SecretString::from(token), body, ttl, conversation, daemon }
+    /// with `title` and `body`. Apple keeps it `ttl` for a phone that is off, and no try
+    /// of its send starts after that.
+    pub fn new(token: &str, title: String, body: String, ttl: Duration) -> Self {
+        PushMessage {
+            to: SecretString::from(token),
+            title,
+            body,
+            ttl,
+            group: None,
+            data: serde_json::Map::new(),
+        }
+    }
+
+    /// Sets the group of the notice: a newer notice of the same group replaces the
+    /// older one (the collapse id), and iOS shows them together (the thread id).
+    #[must_use]
+    pub fn with_group(mut self, group: String) -> Self {
+        self.group = Some(group);
+        self
+    }
+
+    /// Sets the `data` that the app gets with the notice, such as what a tap opens.
+    #[must_use]
+    pub fn with_data(mut self, data: serde_json::Map<String, serde_json::Value>) -> Self {
+        self.data = data;
+        self
     }
 }
 
-/// A code of the Expo push service, such as [`DEVICE_NOT_REGISTERED`]: 1 to
+/// A code of the Expo push service, such as `DeviceNotRegistered`: 1 to
 /// [`CODE_MAX_LEN`] characters of `[A-Za-z_]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PushCode(String);
@@ -193,6 +186,18 @@ pub struct ExpoPush {
 }
 
 impl ExpoPush {
+    /// The path of a send, below the base URL.
+    pub const SEND_PATH: &str = "/--/api/v2/push/send";
+
+    /// The path of a receipts request, below the base URL.
+    pub const RECEIPTS_PATH: &str = "/--/api/v2/push/getReceipts";
+
+    /// The most messages of one send: the limit of Expo.
+    pub const MAX_MESSAGES: usize = 100;
+
+    /// The most ticket ids of one receipts request: the limit of Expo.
+    pub const MAX_RECEIPT_IDS: usize = 1000;
+
     /// A client of the service at `base`, such as [`EXPO_PUSH_BASE`] or a test's fake,
     /// over `client`. Its tries wait on `clock` and draw their jitter from `rng`. Fails
     /// for a base that is not an absolute `http` or `https` URL.
@@ -208,15 +213,15 @@ impl ExpoPush {
             Ok(request.header(ACCEPT, HeaderValue::from_static("application/json")).idempotent())
         };
         Ok(ExpoPush {
-            send: template(SEND_PATH)?,
-            receipts: template(RECEIPTS_PATH)?,
+            send: template(Self::SEND_PATH)?,
+            receipts: template(Self::RECEIPTS_PATH)?,
             client,
             clock,
             rng,
         })
     }
 
-    /// Sends `messages`, at most [`MAX_MESSAGES`], in one request: one ticket for each
+    /// Sends `messages`, at most [`Self::MAX_MESSAGES`], in one request: one ticket for each
     /// message that the answer holds, in their order. Fails when no answer came after
     /// the tries, or when the answer is not the JSON of a send.
     pub async fn send(
@@ -231,7 +236,7 @@ impl ExpoPush {
         Ok(map(answer, |tickets| tickets.into_iter().map(WireTicket::ticket).collect()))
     }
 
-    /// Asks for the receipts of `ids`, at most [`MAX_RECEIPT_IDS`]: each receipt that
+    /// Asks for the receipts of `ids`, at most [`Self::MAX_RECEIPT_IDS`]: each receipt that
     /// the answer holds, with its ticket id. A ticket with no receipt yet is not in it.
     pub async fn receipts(
         &self,
@@ -337,7 +342,7 @@ fn first_code(errors: &[WireError]) -> Option<PushCode> {
 #[serde(rename_all = "camelCase")]
 struct WireMessage<'a> {
     to: &'a str,
-    title: &'static str,
+    title: &'a str,
     body: &'a str,
     sound: &'static str,
     priority: &'static str,
@@ -346,33 +351,25 @@ struct WireMessage<'a> {
     collapse_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
-    data: WireData<'a>,
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    data: &'a serde_json::Map<String, serde_json::Value>,
 }
 
 impl<'a> WireMessage<'a> {
     fn of(message: &'a PushMessage) -> Self {
-        let conversation = message.conversation.as_deref();
+        let group = message.group.as_deref();
         WireMessage {
             to: message.to.expose_secret(),
-            title: TITLE,
+            title: &message.title,
             body: &message.body,
             sound: "default",
             priority: "high",
             ttl: message.ttl.as_secs(),
-            collapse_id: conversation,
-            thread_id: conversation,
-            data: WireData { daemon: &message.daemon, conversation },
+            collapse_id: group,
+            thread_id: group,
+            data: &message.data,
         }
     }
-}
-
-/// The `data` of a message: the two ids that a tap needs, and nothing else.
-#[derive(Serialize)]
-struct WireData<'a> {
-    #[serde(rename = "d")]
-    daemon: &'a str,
-    #[serde(rename = "c", skip_serializing_if = "Option::is_none")]
-    conversation: Option<&'a str>,
 }
 
 /// The body of a receipts request.

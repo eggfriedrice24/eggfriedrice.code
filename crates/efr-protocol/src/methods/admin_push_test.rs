@@ -29,6 +29,22 @@ pub struct PushTestRow {
     pub code: Option<String>,
 }
 
+/// The code of the Expo push service for a token that Apple or Expo no longer knows:
+/// push is off for its device.
+pub const PUSH_DEVICE_NOT_REGISTERED: &str = "DeviceNotRegistered";
+
+/// The code of the Expo push service for a project with no valid push key.
+pub const PUSH_INVALID_CREDENTIALS: &str = "InvalidCredentials";
+
+/// The code of the Expo push service for a send that held tokens of two projects.
+pub const PUSH_TOO_MANY_EXPERIENCE_IDS: &str = "PUSH_TOO_MANY_EXPERIENCE_IDS";
+
+/// The code of the Expo push service for an account that asks for an access token.
+pub const PUSH_UNAUTHORIZED: &str = "UNAUTHORIZED";
+
+/// The codes of the Expo push service for too many notices in a short time.
+pub const PUSH_RATE_LIMITED: [&str; 2] = ["MessageRateExceeded", "TOO_MANY_REQUESTS"];
+
 /// What became of a test notice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

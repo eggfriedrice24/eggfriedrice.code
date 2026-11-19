@@ -3,16 +3,20 @@
 //!
 //! Expo says to read a receipt 15 minutes after the send, and keeps it for 24 hours.
 //! A ticket waits [`RECEIPT_DELAY`] after its send; one with no receipt in the answer
-//! waits once more and then goes. At most [`MAX_RECEIPT_IDS`] wait, the oldest goes
+//! waits once more and then goes. At most [`MAX_RECEIPT_IDS`] wait (one receipts
+//! request, [`ExpoPush::MAX_RECEIPT_IDS`]), the oldest goes
 //! first, and a restart of efrd drops them all. The tickets stay in the order of their
 //! due time, because each one waits the same delay from the moment it is added.
 
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use efr_http::{MAX_RECEIPT_IDS, TicketId};
+use efr_http::{ExpoPush, TicketId};
 use efr_protocol::{DeviceId, SecretText};
 use jiff::Timestamp;
+
+/// The most tickets that wait.
+const MAX_RECEIPT_IDS: usize = ExpoPush::MAX_RECEIPT_IDS;
 
 /// How long a ticket waits before efrd reads its receipt.
 pub(crate) const RECEIPT_DELAY: Duration = Duration::from_secs(15 * 60);

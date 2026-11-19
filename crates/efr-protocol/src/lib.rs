@@ -93,7 +93,9 @@ pub use methods::admin_logout::{AdminLogout, AdminLogoutResult};
 pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
 pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
 pub use methods::admin_push_test::{
-    AdminPushTest, AdminPushTestResult, PushTestResult, PushTestRow,
+    AdminPushTest, AdminPushTestResult, PUSH_DEVICE_NOT_REGISTERED, PUSH_INVALID_CREDENTIALS,
+    PUSH_RATE_LIMITED, PUSH_TOO_MANY_EXPERIENCE_IDS, PUSH_UNAUTHORIZED, PushTestResult,
+    PushTestRow,
 };
 pub use methods::admin_sandbox_check::{AdminSandboxCheck, AdminSandboxCheckResult};
 pub use methods::admin_status::{

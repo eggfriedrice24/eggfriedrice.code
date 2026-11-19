@@ -15,7 +15,7 @@ use efr_protocol::{CallId, ConversationId, Presence};
 
 /// How often a waiting question reads the presence again. The daemon runs no timer per
 /// conversation, so this read is also what finds that the idle limit passed.
-pub(crate) const PRESENCE_CHECK: Duration = Duration::from_secs(15);
+pub const PRESENCE_CHECK: Duration = Duration::from_secs(15);
 
 /// Reads the presence of a conversation, and sends a question that waits while the user
 /// is away to the user's phones.

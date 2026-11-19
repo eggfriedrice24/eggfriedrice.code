@@ -12,7 +12,8 @@
 
 use std::time::Duration;
 
-use efr_http::{RECEIPTS_PATH, SEND_PATH};
+use efr_conversation::PRESENCE_CHECK;
+use efr_http::ExpoPush;
 use efr_protocol::{
     AdminPushTest, AdminPushTestResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     CallId, ConversationId, ConversationSubscribe, ConversationSubscribeItem, DeviceId, DeviceList,
@@ -33,9 +34,6 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use crate::sandbox::{REVIEWER_ALLOWS, ScriptedModel};
 use crate::support;
-
-/// The wait after which a waiting question reads the presence again.
-const PRESENCE_CHECK: Duration = Duration::from_secs(15);
 
 /// The Expo push token of phone `n`.
 fn token(n: usize) -> String {
@@ -100,8 +98,8 @@ fn receipts(receipts: Vec<(usize, Value)>) -> impl Fn(&Request) -> ResponseTempl
 /// A fake Expo push service with [`tickets`] of `refused` and [`receipts`] of `given`.
 async fn expo(refused: &'static [(usize, &'static str)], given: Vec<(usize, Value)>) -> MockServer {
     let server = MockServer::start().await;
-    Mock::given(path(SEND_PATH)).respond_with(tickets(refused)).mount(&server).await;
-    Mock::given(path(RECEIPTS_PATH)).respond_with(receipts(given)).mount(&server).await;
+    Mock::given(path(ExpoPush::SEND_PATH)).respond_with(tickets(refused)).mount(&server).await;
+    Mock::given(path(ExpoPush::RECEIPTS_PATH)).respond_with(receipts(given)).mount(&server).await;
     server
 }
 
@@ -110,7 +108,7 @@ async fn sends(server: &MockServer) -> Vec<Value> {
     let requests = server.received_requests().await.unwrap();
     requests
         .iter()
-        .filter(|request| request.url.path() == SEND_PATH)
+        .filter(|request| request.url.path() == ExpoPush::SEND_PATH)
         .map(|request| serde_json::from_slice(&request.body).unwrap())
         .collect()
 }
@@ -506,15 +504,19 @@ async fn a_429_and_a_503_are_sent_again_and_two_projects_go_one_by_one() {
     let server = MockServer::start().await;
     for status in [429, 503] {
         let busy = ResponseTemplate::new(status);
-        Mock::given(path(SEND_PATH)).respond_with(busy).up_to_n_times(1).mount(&server).await;
+        Mock::given(path(ExpoPush::SEND_PATH))
+            .respond_with(busy)
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
     }
     let mixed = json!({"errors": [{"code": "PUSH_TOO_MANY_EXPERIENCE_IDS", "message": token(1)}]});
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ResponseTemplate::new(400).set_body_json(mixed))
         .up_to_n_times(1)
         .mount(&server)
         .await;
-    Mock::given(path(SEND_PATH)).respond_with(tickets(&[])).mount(&server).await;
+    Mock::given(path(ExpoPush::SEND_PATH)).respond_with(tickets(&[])).mount(&server).await;
     let daemon = start(&server, 1).await;
     let terminal = daemon.client_for_tty(TTY).await.unwrap();
     let phones = phones(&daemon, 2).await;
@@ -578,7 +580,7 @@ async fn the_push_test_tells_what_became_of_each_phone() {
 async fn the_push_test_names_a_refused_send_and_no_answer() {
     let server = MockServer::start().await;
     let unauthorized = json!({"errors": [{"code": "UNAUTHORIZED", "message": "no access token"}]});
-    Mock::given(path(SEND_PATH))
+    Mock::given(path(ExpoPush::SEND_PATH))
         .respond_with(ResponseTemplate::new(401).set_body_json(unauthorized))
         .mount(&server)
         .await;
@@ -592,7 +594,10 @@ async fn the_push_test_names_a_refused_send_and_no_answer() {
     assert_eq!((row.result, row.code.as_deref()), (PushTestResult::NotSent, Some("UNAUTHORIZED")));
 
     server.reset().await;
-    Mock::given(path(SEND_PATH)).respond_with(ResponseTemplate::new(503)).mount(&server).await;
+    Mock::given(path(ExpoPush::SEND_PATH))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
     let tested = push_test(&daemon, &terminal, &[&try_wait(2), &try_wait(4), &try_wait(8)]).await;
     let [row] = tested.devices.as_slice() else { panic!("one phone: {tested:?}") };
     assert_eq!((row.result, row.code.as_deref()), (PushTestResult::NotSent, None));

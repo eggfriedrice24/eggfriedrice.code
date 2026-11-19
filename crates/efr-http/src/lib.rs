@@ -54,9 +54,7 @@ pub use bytes::Bytes;
 pub use client::{HttpClient, HttpConfig, POOL_IDLE_TIMEOUT};
 pub use error::HttpError;
 pub use expo_push::{
-    CODE_MAX_LEN, DEVICE_NOT_REGISTERED, EXPO_PUSH_BASE, EXPO_RETRY, ExpoAnswer, ExpoPush,
-    INVALID_CREDENTIALS, MAX_MESSAGES, MAX_RECEIPT_IDS, PushCode, PushMessage, RECEIPTS_PATH,
-    REQUEST_TIMEOUT, Receipt, SEND_PATH, TITLE, TOO_MANY_EXPERIENCE_IDS, Ticket, TicketId,
+    EXPO_PUSH_BASE, ExpoAnswer, ExpoPush, PushCode, PushMessage, Receipt, Ticket, TicketId,
 };
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 pub use json_lines::JsonLines;

@@ -129,7 +129,7 @@ pub use notice::{
     JobNoticeInput, NOT_USER_INPUT, NOT_USER_NOTE, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES,
     NOTICE_TAIL_LINES, NoticeBody, job_lifetime_fact, notice_text, notice_text_refused,
 };
-pub use presence::{AlwaysPresent, PresenceReader};
+pub use presence::{AlwaysPresent, PRESENCE_CHECK, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use router::{OneProvider, ProviderRouter, context_window};
 pub use scratch::scratch_dirs;

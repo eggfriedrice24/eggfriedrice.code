@@ -3,7 +3,10 @@
 //! became of the notice (TM-Commands, the 0.0.13 frames). efrd answers after the
 //! receipts, in about 14 seconds.
 
-use efr_protocol::{AdminPushTest, AdminPushTestResult, Method, Origin, PushTestResult};
+use efr_protocol::{
+    AdminPushTest, AdminPushTestResult, Method, Origin, PUSH_DEVICE_NOT_REGISTERED,
+    PUSH_INVALID_CREDENTIALS, PUSH_RATE_LIMITED, PUSH_UNAUTHORIZED, PushTestResult,
+};
 use efr_render::RenderOptions;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -64,20 +67,18 @@ fn not_sent(code: Option<&str>) -> String {
         return "not sent: no answer from exp.host.".to_owned();
     };
     match code.as_str() {
-        "DeviceNotRegistered" => {
+        PUSH_DEVICE_NOT_REGISTERED => {
             format!("not sent: {code}. Push is off for this phone now. Open the app.")
         }
-        "InvalidCredentials" => {
+        PUSH_INVALID_CREDENTIALS => {
             format!(
                 "not sent: {code}. Expo has no valid push key for this app. Run eas credentials."
             )
         }
-        "UNAUTHORIZED" => {
+        PUSH_UNAUTHORIZED => {
             format!("not sent: {code}. The Expo account asks for an access token. efr sends none.")
         }
-        "MessageRateExceeded" | "TOO_MANY_REQUESTS" => {
-            format!("not sent: {code}. Try again later.")
-        }
+        rate if PUSH_RATE_LIMITED.contains(&rate) => format!("not sent: {code}. Try again later."),
         _ => format!("not sent: {code}."),
     }
 }

@@ -73,15 +73,19 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   is the oldest tailscaled that efrd's remote listener supports. What efrd admits or
   binds from these answers is the daemon's decision, not this crate's.
 - `expo_push`: `ExpoPush`, a small typed client of the Expo push service for efrd's
-  pushes (ADR 0028), over the shared `HttpClient`. `send` posts at most `MAX_MESSAGES`
-  (100) messages (`PushMessage::new`) to `/--/api/v2/push/send` and gets one `Ticket`
-  for each, in their order; `receipts` asks `/--/api/v2/push/getReceipts` for the
-  `Receipt` of at most `MAX_RECEIPT_IDS` tickets. No gzip, no `accept-encoding` and no
-  access token. The parse reads only `status`, `id`, `details.error` and
+  pushes (ADR 0028), over the shared `HttpClient`. `send` posts at most
+  `ExpoPush::MAX_MESSAGES` (100) messages to `ExpoPush::SEND_PATH` and gets one
+  `Ticket` for each, in their order; `receipts` asks `ExpoPush::RECEIPTS_PATH` for the
+  `Receipt` of at most `ExpoPush::MAX_RECEIPT_IDS` tickets. A `PushMessage` has the
+  title, the body and the `ttl` that the caller gives, and optional a group (the
+  collapse id and the thread id) and `data`; each one has the default sound and the
+  high priority. The content of a notice is the daemon's decision. No gzip, no
+  `accept-encoding` and no access token. The parse reads only `status`, `id`,
+  `details.error` and
   `errors[].code`: a code stays only as 1 to 64 characters of `[A-Za-z_]`
   (`PushCode`), a ticket id only as 1 to 64 characters of `[A-Za-z0-9-]` (`TicketId`),
   and the `message` text, which can quote a token, is never parsed. Each try and each
-  read of an answer ends after 10 s on the injected clock. `EXPO_RETRY` gives 4 tries,
+  read of an answer ends after 10 s on the injected clock. The retry policy gives 4 tries,
   with waits of up to 2, 4 and 8 s and a `Retry-After` of up to 60 s, after 429, a
   5xx, a timeout or no connection, and no try starts after the smallest `ttl` of the
   messages. No request is `recorded()`, so a recorder never sees a token. The base URL
