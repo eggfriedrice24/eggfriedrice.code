@@ -152,6 +152,7 @@ private final class Recording: @unchecked Sendable {
   private var ended = false
   private var results: Task<Void, Never>?
   private var interruption: NSObjectProtocol?
+  private var configuration: NSObjectProtocol?
 
   init(locale: Locale, events: RecordingEvents) {
     transcriber = SpeechTranscriber(
@@ -187,6 +188,9 @@ private final class Recording: @unchecked Sendable {
       try checkRunning()
       let session = AVAudioSession.sharedInstance()
       try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+      // iOS mutes haptics while the input records; the haptics of the start and the
+      // stop must play.
+      try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
       try session.setActive(true, options: .notifyOthersOnDeactivation)
       interruption = NotificationCenter.default.addObserver(
         forName: AVAudioSession.interruptionNotification, object: session, queue: nil
@@ -195,6 +199,12 @@ private final class Recording: @unchecked Sendable {
         if type == AVAudioSession.InterruptionType.began.rawValue {
           Task { await self?.stop(reason: "interrupted") }
         }
+      }
+      // A new input (AirPods, CarPlay) stops the engine itself, and no more buffers come.
+      configuration = NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+      ) { [weak self] _ in
+        Task { await self?.stop(reason: "interrupted") }
       }
       try await analyzer.start(inputSequence: input)
       results = Task { await self.read() }
@@ -299,8 +309,8 @@ private final class Recording: @unchecked Sendable {
     }
     engine.inputNode.removeTap(onBus: 0)
     feed.finish()
-    if let interruption {
-      NotificationCenter.default.removeObserver(interruption)
+    for observer in [interruption, configuration].compactMap({ $0 }) {
+      NotificationCenter.default.removeObserver(observer)
     }
     if let results {
       try? await analyzer.finalizeAndFinishThroughEndOfInput()

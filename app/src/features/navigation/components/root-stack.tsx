@@ -54,7 +54,7 @@ const MachineMenuContext = createContext<MachineMenuSlot>(() => null);
 
 /** The root stack. */
 export function RootStack(props: RootStackProps) {
-  const push = useAppServices().push;
+  const { push, voice } = useAppServices();
   const onFocus = (route: FrameRoute): void => {
     const conversation =
       route.name === ROUTE_NAMES.conversation ? conversationOfParams(route.params) : undefined;
@@ -67,7 +67,13 @@ export function RootStack(props: RootStackProps) {
       <MachineMenuContext value={props.machineMenu}>
         <Stack
           screenOptions={({ route }) => screenOptions(route.params, LIQUID_GLASS)}
-          screenListeners={({ route }) => ({ focus: () => onFocus(route) })}
+          screenListeners={({ route }) => ({
+            focus: () => onFocus(route),
+            // NOTE: only the composer of the recording has its stop button; a screen
+            // that goes away stops the microphone, so it never writes into a draft that
+            // no one sees.
+            blur: () => voice?.stop(),
+          })}
           screenLayout={screenLayout}
         >
           <Stack.Screen name={ROUTE_NAMES.root} options={ROOT_OPTIONS} />

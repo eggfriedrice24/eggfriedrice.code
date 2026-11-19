@@ -717,11 +717,15 @@ Notifications frames of Settings.
     unlock on, shows the lock first and then the conversation; the same tap with the
     app killed starts the app, shows the lock and then the conversation. With the app
     in front for 2 minutes during a turn that asks: no push, no banner and no sound.
-    With input at the terminal in the last 10 minutes: no push.
+    With input at the terminal in the last 10 minutes: no push. Two questions in one
+    conversation: tap the two notices one after the other; each opens the
+    conversation.
 70. Voice on iOS 26: the first tap asks for the microphone (write down if iOS also
     asks for speech recognition). The text goes in at the cursor, nothing is sent, and
-    the draft keeps its text. Voice works in flight mode. A call stops the recording
-    and keeps the text. The microphone shows only on iOS 26 with a language that has a
+    the draft keeps its text. You feel the haptic at the start and at the stop. Voice
+    works in flight mode. A call stops the recording and keeps the text; so does a
+    connect or a disconnect of AirPods during the recording. Leave the conversation
+    during a recording: the recording stops. The microphone shows only on iOS 26 with a
     model; on iOS 18, with another language, or with `efr-speech` excluded from the
     build, the app shows no microphone.
 71. `efr device revoke` of the phone: the next approval sends no push. The switch off:
