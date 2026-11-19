@@ -75,6 +75,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::Device(command) => Box::pin(device::run(ctx, out, command)).await,
         Command::Push(command) => push::run(ctx, out, command).await,
         Command::Warm(args) => warm::run(ctx, args).await,
+        Command::Clip(args) => crate::clip::run(ctx, out, args).await,
     };
     match result {
         Ok(()) => Exit::Success,

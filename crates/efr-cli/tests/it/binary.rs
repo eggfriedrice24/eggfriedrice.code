@@ -682,3 +682,92 @@ fn config_show_reads_the_environment_and_the_config_file() {
     assert!(stdout.contains("runtime = "), "{stdout}");
     assert!(stdout.contains("  # EFR_RUNTIME_DIR\n"), "{stdout}");
 }
+
+/// A pseudo-terminal: the master, which plays Ghostty, and the path of the slave, which
+/// `efr clip` opens itself.
+fn pty() -> (std::os::fd::OwnedFd, PathBuf) {
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    (master, PathBuf::from(name.to_str().unwrap()))
+}
+
+/// `bytes` as base64, as OSC 5522 writes them.
+fn base64(bytes: &[u8]) -> String {
+    let serde_json::Value::String(text) =
+        serde_json::to_value(efr_protocol::Base64Bytes::new(bytes)).unwrap()
+    else {
+        unreachable!("base64 bytes are a JSON string");
+    };
+    text
+}
+
+/// One OSC 5522 packet.
+fn packet(keys: &str, payload: &str) -> String {
+    format!("\x1b]5522;{keys};{payload}\x1b\\")
+}
+
+#[test]
+fn efr_clip_reads_a_pasted_image_on_its_terminal_into_a_clip_file() {
+    let roots = Roots::new();
+    let (master, tty) = pty();
+    let event = [
+        packet("type=read:status=OK:pw=onetime", ""),
+        packet("type=read:status=DATA:mime=Lg==:pw=onetime", &base64(b"image/png text/plain\n")),
+        packet("type=read:status=DONE:pw=onetime", ""),
+    ]
+    .concat();
+    let ghostty = std::thread::spawn(move || {
+        let mut request = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !request.ends_with(b"\x1b\\") {
+            rustix::io::read(&master, &mut byte).unwrap();
+            request.push(byte[0]);
+        }
+        let mime = base64(b"image/png");
+        let reply = [
+            packet("type=read:status=OK", ""),
+            packet(&format!("type=read:status=DATA:mime={mime}"), &base64(b"\x89PNG")),
+            packet(&format!("type=read:status=DATA:mime={mime}"), &base64(b"rest")),
+            packet("type=read:status=DONE", ""),
+            "k".to_owned(),
+        ]
+        .concat();
+        rustix::io::write(&master, reply.as_bytes()).unwrap();
+        (String::from_utf8(request).unwrap(), master)
+    });
+    let output = roots
+        .efr()
+        .env("EFR_CLIP_EVENT", &event)
+        .args(["clip", "--tty", tty.to_str().unwrap(), "--shell", "42"])
+        .output()
+        .unwrap();
+    let (request, _master) = ghostty.join().unwrap();
+
+    let types = base64(b"image/png text/plain");
+    assert_eq!(request, packet("type=read:pw=onetime:name=UGFzdGUgZXZlbnQ=", &types));
+    let clip = std::fs::canonicalize(roots.path("state")).unwrap().join("clips/42.1.png");
+    let expected = format!("file\0{}\0k", clip.display());
+    assert_eq!(stdout_of(&output), expected, "{}", stderr_of(&output));
+    assert_eq!(std::fs::read(&clip).unwrap(), b"\x89PNGrest");
+}
+
+#[test]
+fn efr_clip_drain_drops_a_late_reply_and_gives_the_typed_keys_back() {
+    let roots = Roots::new();
+    let (master, tty) = pty();
+    let mime = base64(b"text/plain");
+    let late = [
+        packet(&format!("type=read:status=DATA:mime={mime}"), &base64(b"secret text")),
+        packet("type=read:status=DONE", ""),
+        "x".to_owned(),
+    ]
+    .concat();
+    rustix::io::write(&master, late.as_bytes()).unwrap();
+    let output =
+        roots.efr().args(["clip", "--drain", "--tty", tty.to_str().unwrap()]).output().unwrap();
+    assert_eq!(stdout_of(&output), "\0\0x", "{}", stderr_of(&output));
+    assert!(output.status.success());
+}

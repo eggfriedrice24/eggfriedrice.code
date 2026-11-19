@@ -124,6 +124,10 @@ pub enum Var {
     /// prompt of `EFR_PROMPT`, one per line, in their order. The zsh plugin hands them
     /// over for a paste whose lines are all `,` prompts. Private: see [`Var::PRIVATE`].
     QueuedPrompts,
+    /// `EFR_CLIP_EVENT`: the paste event of the terminal (OSC 5522) that the zsh plugin
+    /// hands to `efr clip`. It holds the one-time password of the clipboard read.
+    /// Private: see [`Var::PRIVATE`].
+    ClipEvent,
 }
 
 impl Var {
@@ -161,6 +165,7 @@ impl Var {
         Var::Corner,
         Var::ResumeWords,
         Var::QueuedPrompts,
+        Var::ClipEvent,
     ];
 
     /// The variables that carry what the user typed from the zsh plugin to `efr`.
@@ -177,6 +182,7 @@ impl Var {
         Var::Prompt,
         Var::ResumeWords,
         Var::QueuedPrompts,
+        Var::ClipEvent,
         Var::EvalAnthropicKey,
     ];
 
@@ -220,6 +226,7 @@ impl Var {
             Var::Corner => "EFR_CORNER",
             Var::ResumeWords => "EFR_RESUME_WORDS",
             Var::QueuedPrompts => "EFR_QUEUED_PROMPTS",
+            Var::ClipEvent => "EFR_CLIP_EVENT",
         }
     }
 }

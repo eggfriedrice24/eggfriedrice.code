@@ -1339,7 +1339,20 @@ Attachments (ADR 0026, `docs/use/attachments.md`):
   it uploads those files again and sends again, at most 3 times
   (`CliError::UploadLost`, `the upload did not arrive`). A file that cannot attach
   sends nothing: `CliError::NotAttached` prints its reason and exits 2 with no more
-  text. It removes a clip file after the prompt went.
+  text. It removes a clip file after the prompt went. A refusal whose `data` is
+  `SecretFile` prints `not attached: <path> is a secret file.`
+- `clip.rs` is `efr clip` (hidden, ADR 0027), which the widget of the paste event runs
+  with the event in `EFR_CLIP_EVENT`. It opens `--tty` itself with no echo, no line
+  editing and no signal keys (its `Terminal` puts the settings back when it drops),
+  asks for the best image type and `text/plain` in one read with the password and the
+  name `Paste event`, and reads the reply with `Packets` (OSC 5522 packets and the
+  keys between them) and `Reply` (the deadlines 3 s, 1 s and 30 s, the size limit
+  `attachments.max_file_mib`, Ctrl+C). Over a limit it reads on and drops the rest to
+  `DONE` or 0.5 s of quiet. An image, and a text over 16 KiB, go to
+  `<state>/clips/<shell>.<n>.<ext>` (0600, dir 0700; at most 10 for each shell, none
+  older than 1 day). It prints `<kind> NUL <text> NUL <keys typed meanwhile>`, with
+  the kinds `file`, `text`, `error`, `failed` and `off`. `--drain` reads a late reply
+  to its end and prints an empty kind.
 - `format/attach.rs` writes the row of a prompt with attachments (the kind, the name,
   the pixels of an image, the size, `as a path`) and the rows of
   `attachments_withheld`. The name is an OSC 8 link to the copy

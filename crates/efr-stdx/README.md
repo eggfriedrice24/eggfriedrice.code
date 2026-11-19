@@ -126,6 +126,7 @@ table names the same set. An empty value counts as unset.
 | `EFR_CORNER` | A flag. On when the user's zsh prompt has efr's corner (`efr_corner`), which shows the scope and the permission mode. The zsh plugin sets it for `efr send` and `efr new`; the status row of the turn then shows neither of them again. |
 | `EFR_RESUME_WORDS` | Private. The words of `,resume` that are not an option, such as the words of a search, which the zsh plugin hands to `efr resume`. |
 | `EFR_QUEUED_PROMPTS` | Private. The prompts that `efr send` and `efr new` queue behind the prompt, one per line. The zsh plugin hands them over for a paste whose lines are all `,` prompts. |
+| `EFR_CLIP_EVENT` | Private. The paste event of the terminal (OSC 5522) that the zsh plugin hands to `efr clip`, with the one-time password of the clipboard read. |
 
 A flag accepts `1`, `true`, `yes` or `on` for on and `0`, `false`, `no` or `off` for
 off, in any letter case. Any other value is an error.

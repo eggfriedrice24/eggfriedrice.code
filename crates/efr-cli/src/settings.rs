@@ -72,6 +72,9 @@ pub(crate) struct Settings {
     /// The whole `[notify]` table: the desktop notice of the terminal. The defaults
     /// when the file cannot be used.
     pub(crate) notify: efr_config::NotifySettings,
+    /// The whole `[attachments]` table: the size limit of a paste. The defaults when the
+    /// file cannot be used.
+    pub(crate) attachments: efr_config::AttachmentsSettings,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
 }
@@ -325,6 +328,7 @@ impl Settings {
         settings.diff = file.diff.clone();
         settings.resume = file.resume.clone();
         settings.notify = file.notify.clone();
+        settings.attachments = file.attachments.clone();
         let render = &file.render;
         let name = match render.theme.as_deref() {
             Some(AUTO_THEME) if settings.background == Some(Background::Light) => {

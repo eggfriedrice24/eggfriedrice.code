@@ -148,6 +148,10 @@ pub(crate) enum Command {
     /// it in the background while you type a prompt line).
     #[command(hide = true)]
     Warm(WarmArgs),
+    /// Read the clipboard on the terminal for a paste on a `,` line (the zsh plugin runs
+    /// it with the paste event of the terminal in EFR_CLIP_EVENT).
+    #[command(hide = true)]
+    Clip(ClipArgs),
 }
 
 /// The `efr device` commands.
@@ -519,7 +523,7 @@ impl Command {
     /// error message.
     pub(crate) fn is_quiet(&self) -> bool {
         matches!(self, Command::Search(args) if args.is_hidden())
-            || matches!(self, Command::Warm(_))
+            || matches!(self, Command::Warm(_) | Command::Clip(_))
     }
 }
 
@@ -622,6 +626,22 @@ pub(crate) struct WarmArgs {
     /// The next prompt starts a new conversation (`,new`).
     #[arg(long)]
     pub(crate) new: bool,
+}
+
+/// The arguments of `efr clip`.
+#[derive(Debug, Args)]
+pub(crate) struct ClipArgs {
+    /// The terminal of the paste.
+    #[arg(long, value_name = "TTY")]
+    pub(crate) tty: PathBuf,
+
+    /// The process id of the shell, which names its clip files.
+    #[arg(long, value_name = "PID", required_unless_present = "drain")]
+    pub(crate) shell: Option<u32>,
+
+    /// Read a reply of the terminal that came too late to its end and drop it.
+    #[arg(long)]
+    pub(crate) drain: bool,
 }
 
 /// The arguments of `efr away`.

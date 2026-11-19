@@ -68,6 +68,15 @@ impl Output {
         written
     }
 
+    /// Writes `bytes` to stdout in one call and flushes it: for an answer to the zsh
+    /// plugin that can hold bytes of no text, such as the keys typed during a read.
+    pub(crate) fn out_bytes(&mut self, bytes: &[u8]) -> Result<(), CliError> {
+        self.stdout
+            .write_all(bytes)
+            .and_then(|()| self.stdout.flush())
+            .map_err(|source| CliError::Output { source })
+    }
+
     /// Writes `text` to stderr. A failure is dropped: stderr is where failures are
     /// reported, so there is nowhere left to report this one.
     pub(crate) fn err(&mut self, text: &str) {

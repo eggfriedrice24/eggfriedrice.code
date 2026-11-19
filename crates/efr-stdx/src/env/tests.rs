@@ -161,6 +161,7 @@ fn all_lists_every_variant() {
         Var::Corner,
         Var::ResumeWords,
         Var::QueuedPrompts,
+        Var::ClipEvent,
     ];
     for var in every {
         match var {
@@ -195,7 +196,8 @@ fn all_lists_every_variant() {
             | Var::DraftFile
             | Var::Corner
             | Var::ResumeWords
-            | Var::QueuedPrompts => {
+            | Var::QueuedPrompts
+            | Var::ClipEvent => {
                 assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL")
             }
         }
@@ -216,7 +218,8 @@ fn the_plugins_handover_variables_are_the_private_ones() {
             "EFR_RECENT_COMMANDS",
             "EFR_PROMPT",
             "EFR_RESUME_WORDS",
-            "EFR_QUEUED_PROMPTS"
+            "EFR_QUEUED_PROMPTS",
+            "EFR_CLIP_EVENT"
         ]
     );
     assert_eq!(Var::PRIVATE.len(), private.len());
