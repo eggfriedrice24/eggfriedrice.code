@@ -147,7 +147,8 @@ async fn shell_a_contained_call_reads_an_attachment_and_cannot_change_the_dir() 
     let [(output, _)] = completed(&events).try_into().unwrap();
     assert!(output.contains("the notes of the user"), "the copy of the first prompt: {output}");
     assert!(output.to_lowercase().contains("read-only file system"), "{output}");
-    assert!(output.contains("status=1"), "{output}");
+    // NOTE: the status of a failed redirect is 1 in bash and 2 in dash (Ubuntu's sh).
+    assert!(output.contains("status=1") || output.contains("status=2"), "{output}");
     let copy = copy(&events);
     assert_eq!(std::fs::read(&copy).unwrap(), NOTES, "the copy is as it was attached");
     assert!(!copy.with_file_name("a2-notes.txt").exists(), "no call adds an entry");
