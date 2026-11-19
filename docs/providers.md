@@ -231,12 +231,14 @@ Before a model gets an image, efr checks it and makes it ready:
 - A PDF goes as content only with at most 5 MiB and 100 pages, and with no password.
 
 The limits of one request: at most 90 images, 100 MB of base64, and attachments of at
-most half of the model's window. Over a limit, the oldest attachments go as labels from
-then on, until the request is at half of that limit, so the prompt cache changes once.
-If a provider refuses a request with an attachment (a 400 or a 413), efr sends it again
-with the new attachments as labels, then with all of them as labels. Each step is
-recorded, so later requests send the labels too and one bad file cannot break the
-conversation.
+most half of the model's window. efr checks them before it decides to compact. Over a
+limit, an attachment that is over it alone goes as a label from then on first; then the
+oldest attachments go, until the request is at half of that limit, so the prompt cache
+changes once. If a provider refuses a request with an attachment (a 400 or a 413), efr
+sends it again with the new attachments as labels, then with all of them as labels.
+When such a request gets an answer, efr records the labels, so later requests send
+them too and one bad file cannot break the conversation. When the request with only
+labels fails too, the attachments were not the cause, and efr records nothing.
 
 An image costs tokens in each later request of the conversation until a compaction
 covers it: about 2,950 tokens for an image of 2000 x 1125 pixels on Claude, about 2,700

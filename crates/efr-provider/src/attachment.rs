@@ -240,11 +240,13 @@ fn part_tokens(part: &AttachmentPart) -> u64 {
 /// [`WINDOW_SHARE_PERCENT`] of `window` tokens. Empty when the copy is within each
 /// limit.
 ///
-/// Only parts with data count. When the copy is over one limit, the oldest parts lose
-/// their data until the copy is at half of that limit, so the cached prefix of the
-/// requests changes once and not at each new image. The parts of the newest prompt go
-/// last. The ids come in the order of the request.
-pub fn fit(messages: &[Message], window: u64) -> Vec<AttachmentId> {
+/// Only parts with data count. A part that is over a limit by itself loses its data
+/// first. When the copy is still over the limit, the oldest parts lose their data until
+/// the copy is at half of that limit, so the cached prefix of the requests changes once
+/// and not at each new image. The parts of the newest prompt go last. The ids come in
+/// the order of the request.
+pub fn fit<'a>(messages: impl IntoIterator<Item = &'a Message>, window: u64) -> Vec<AttachmentId> {
+    let messages: Vec<&Message> = messages.into_iter().collect();
     let newest_prompt = messages.iter().rposition(|message| {
         message.role == Role::User
             && message.content.iter().any(|block| matches!(block, ContentBlock::Attachment(_)))
@@ -284,6 +286,16 @@ pub fn fit(messages: &[Message], window: u64) -> Vec<AttachmentId> {
             .filter(|candidate| !candidate.withheld)
             .map(|candidate| candidate.weights[measure])
             .sum();
+        if total <= limit {
+            continue;
+        }
+        // NOTE: an older part cannot make room for a part that is over the limit alone.
+        for candidate in &mut candidates {
+            if !candidate.withheld && candidate.weights[measure] > limit {
+                candidate.withheld = true;
+                total -= candidate.weights[measure];
+            }
+        }
         if total <= limit {
             continue;
         }

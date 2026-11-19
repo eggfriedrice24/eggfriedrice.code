@@ -204,9 +204,14 @@ fn a_3_mb_image_counts_under_5000_tokens() {
     assert!(message_tokens(&label) < 200, "a label counts its text only");
 }
 
+/// The pages of the PDF of [`FakeAttachments`]: 135,000 tokens, over the hard cap of the
+/// window that efr counts with for a model of no known window.
+const LONG_PDF_PAGES: u32 = 30;
+
 /// The store of a test: it keeps each image of a tool as a blob of 64 x 32 pixels, but
-/// one whose first byte is `B` (broken) or `L` (too large), and gives `AAAA` as the
-/// bytes of every blob.
+/// one whose first byte is `B` (broken) or `L` (too large), keeps a file whose first
+/// byte is `P` as a PDF of [`LONG_PDF_PAGES`], and gives `AAAA` as the bytes of every
+/// blob.
 #[derive(Debug, Default)]
 pub(crate) struct FakeAttachments {
     loads: AtomicUsize,
@@ -239,6 +244,17 @@ impl Attachments for FakeAttachments {
             Some(b'L') => Attachment {
                 kind: AttachmentKind::Image { width: 9000, height: 9000 },
                 sent: None,
+                ..kept
+            },
+            Some(b'P') => Attachment {
+                media_type: "application/pdf".to_owned(),
+                kind: AttachmentKind::Pdf { pages: Some(LONG_PDF_PAGES) },
+                sent: Some(SentForm {
+                    media_type: "application/pdf".to_owned(),
+                    bytes: 9_000,
+                    width: None,
+                    height: None,
+                }),
                 ..kept
             },
             _ => kept,
@@ -450,8 +466,31 @@ async fn a_refused_image_goes_as_a_label_and_the_turn_and_the_next_prompt_work()
     );
 }
 
+/// The budget acts before the context guard: a PDF over half of the window goes as its
+/// label, with no compaction, and the turn completes.
 #[tokio::test]
-async fn a_second_refusal_withholds_all_and_a_third_fails_the_turn() {
+async fn a_pdf_over_half_of_the_window_is_withheld_before_the_guard_compacts() {
+    let (setup, paths) = images(&["long.pdf"]);
+    let model = Scripted::new(both(), vec![Ok(reads(&paths))]);
+    let mut h = setup.start_model(model.clone()).await;
+    serve(&h, &paths, b"PDF");
+    let sent = h.prompt("read the report").await;
+    let end = h.wait_end(sent.turn_id).await;
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+
+    assert_eq!(withheld_events(&h).await, [(vec![AttachmentId::nth(1)], WithheldReason::Budget)]);
+    let compacted =
+        h.events().await.into_iter().any(|event| matches!(event, Event::ConversationCompacted(_)));
+    assert!(!compacted, "no compaction");
+    let requests = model.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(result_parts(&requests[1]), [(1, false)]);
+}
+
+/// A 400 that the request without attachment data gets too has another cause: the
+/// turn fails, and no attachment goes as a label for good.
+#[tokio::test]
+async fn a_refusal_that_the_labels_get_too_withholds_nothing() {
     let (setup, paths) = images(&["one.png", "two.png"]);
     let first = reads(&paths[..1]);
     let second = reads(&paths[1..]);
@@ -464,14 +503,35 @@ async fn a_second_refusal_withholds_all_and_a_third_fails_the_turn() {
     let end = h.wait_end(sent.turn_id).await;
     assert!(matches!(end, Event::TurnFailed { .. }), "{end:?}");
 
-    assert_eq!(
-        withheld_events(&h).await,
-        [
-            (vec![AttachmentId::nth(2)], WithheldReason::Refused),
-            (vec![AttachmentId::nth(1)], WithheldReason::Refused),
-        ],
-        "the image that a good call carried goes last"
-    );
+    assert_eq!(withheld_events(&h).await, []);
+    let requests = model.requests();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(result_parts(&requests[3]), [(1, true), (2, false)], "the new one as a label");
+    assert_eq!(result_parts(&requests[4]), [(1, false), (2, false)], "then all");
+
+    let next = h.prompt("and now?").await;
+    h.wait_end(next.turn_id).await;
+    let last = model.requests().pop().unwrap();
+    assert_eq!(result_parts(&last), [(1, true), (2, true)], "the next turn fills them again");
+}
+
+/// The first refusal sends the new image as a label, the second each image; the answer
+/// to that request records them all, the image that a good call carried last.
+#[tokio::test]
+async fn an_answer_after_a_second_refusal_withholds_all() {
+    let (setup, paths) = images(&["one.png", "two.png"]);
+    let first = reads(&paths[..1]);
+    let second = reads(&paths[1..]);
+    let script = vec![Ok(first), Ok(second), Err(bad_request()), Err(bad_request())];
+    let model = Scripted::new(both(), script);
+    let mut h = setup.start_model(model.clone()).await;
+    serve(&h, &paths, b"\x89PNG");
+    let sent = h.prompt("look").await;
+    let end = h.wait_end(sent.turn_id).await;
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+
+    let withheld = vec![AttachmentId::nth(2), AttachmentId::nth(1)];
+    assert_eq!(withheld_events(&h).await, [(withheld, WithheldReason::Refused)]);
     assert_eq!(model.requests().len(), 5);
 }
 

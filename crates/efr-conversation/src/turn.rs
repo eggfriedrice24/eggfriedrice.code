@@ -873,6 +873,16 @@ impl Turn {
                 self.user_messages.steered(&steer.text);
                 self.push(&mut window, Message::user(steer.text));
             }
+            if self.attachments.any() {
+                let messages = window.placed.iter().map(|placed| &placed.message);
+                let over = fit(messages, self.limits().window);
+                if !over.is_empty() {
+                    self.withhold(&mut window, &over, WithheldReason::Budget).await?;
+                    // NOTE: the guard must estimate the request that goes, with these as
+                    // labels; the count of the last call still holds their data.
+                    self.meter.reset();
+                }
+            }
             let estimate = match self.guard(&mut window, &base).await? {
                 Guard::Send { estimate } => estimate,
                 Guard::Full(error) => return Ok(Ending::Failed(error)),
@@ -1198,26 +1208,25 @@ impl Turn {
         kept
     }
 
-    /// Sends `request` of a conversation with attachments. Before the call, the oldest
-    /// parts over the budget of a request go as labels ([`fit`]). When the provider
+    /// Sends `request` of a conversation with attachments; the loop of the turn kept it
+    /// within the budget of a request ([`fit`]) before its guard. When the provider
     /// refuses the request with a 400 or a 413 that can be an attachment, the turn does
-    /// not fail at once: it withholds the attachments that no good call carried yet and
-    /// sends again, then all that still have data, and sends once more. Each step is
-    /// one `attachments_withheld`, so later requests send labels too.
+    /// not fail at once: it sends again with the attachments that no good call carried
+    /// yet as labels, then with all as labels. Only an answer to such a request records
+    /// one `attachments_withheld` of the labels it sent, so later requests send labels
+    /// too; when the request without them fails as well, they were not the cause.
     async fn respond_with_attachments(
         &mut self,
         base: &Request,
         window: &mut Window,
         mut request: Request,
     ) -> Result<Response, ConversationError> {
-        let over = fit(&request.messages, self.limits().window);
-        if !over.is_empty() {
-            self.withhold(window, &over, WithheldReason::Budget).await?;
-            attachments::clear(request.messages.iter_mut(), &over);
-        }
         let mut sent = attachments::with_data(request.messages.iter_mut());
         let mut response = self.respond(request).await?;
         let mut first = true;
+        // NOTE: a 400 can have another cause. The attachments go as labels for good
+        // only when a request without them gets an answer.
+        let mut cleared: Vec<AttachmentId> = Vec::new();
         while let Response::Failed(error) = &response
             && attachments::is_refusal(error)
         {
@@ -1225,14 +1234,18 @@ impl Turn {
             if refused.is_empty() {
                 break;
             }
-            tracing::warn!(error = %error, attachments = refused.len(), "the provider refused a request with attachments; they go as labels");
-            self.withhold(window, &refused, WithheldReason::Refused).await?;
+            tracing::warn!(error = %error, attachments = refused.len(), "the provider refused a request with attachments; it goes again with their labels");
             first = false;
+            cleared.extend(refused);
             let mut request = with_window(base, window);
+            attachments::clear(request.messages.iter_mut(), &cleared);
             sent = attachments::with_data(request.messages.iter_mut());
             response = self.respond(request).await?;
         }
         if matches!(response, Response::Done(_)) {
+            if !cleared.is_empty() {
+                self.withhold(window, &cleared, WithheldReason::Refused).await?;
+            }
             self.attachments.carried(sent);
         }
         Ok(response)

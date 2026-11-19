@@ -133,7 +133,8 @@ its size, and an image also shows its pixels. The name links to the copy of the 
 - A HEIC photo goes as a path from the terminal. The phone app makes a photo into a
   JPEG first.
 - When a provider refuses a file, efr sends the request again with the path of that
-  file, and later requests send the path too. One row tells you, such as
+  file. When that request gets an answer, later requests send the path too. One row
+  tells you, such as
   `not sent: shot.png. The provider refused it; the model gets the path.`
 
 [Providers](../providers.md#images-and-pdfs) tells what each backend reads, and the

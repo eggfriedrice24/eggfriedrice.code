@@ -995,18 +995,27 @@ The files of a prompt and the images that `read_file` read (ADR 0026). The histo
   messages that it keeps. A conversation with no attachment skips this.
 - The withheld set: the ids of the attachments that go as a label from now on, from
   the `attachments_withheld` events (the column `withheld` of the store at a start).
-  Two rules add to it. The budget: after the fill the turn calls
-  `efr_provider::fit`, and when the request is over a limit it records the oldest
-  parts in one event (`budget`) before the call. The recovery: a model call whose
-  request holds attachment data and that fails with `ProviderError::Api` and the status
-  400 or 413 (`is_refusal`) records the parts that this request sent as content for the
-  first time (`refused`) and sends again; when that fails the same way, it withholds
-  each part with data and sends once more; a third failure ends the turn. A 413 that
+  Two rules add to it. The budget: before the context guard of each model call the
+  turn calls `efr_provider::fit` on its window, and when the request is over a limit
+  it records the parts that go in one event (`budget`) and resets the meter, so the
+  guard estimates the request that goes and a large PDF never starts a compaction. A
+  part over a limit by itself goes first; then the oldest parts go to half of the
+  limit. The recovery: a model call whose request holds attachment data and that fails
+  with `ProviderError::Api` and the status 400 or 413 (`is_refusal`) sends again with
+  the parts that this request sent as content for the first time as labels
+  (`refused`); when that fails the same way, it sends once more with each part as a
+  label. Only an answer to such a request records the labels in one event
+  (`refused`); a third failure ends the turn and records nothing, because the
+  attachments were not the cause. A 413 that
   `ProviderError::api` reads as an overflow of the window goes to compaction, not to
   the recovery. The actor keeps the ids that a good call carried already, and clears
   them at a change of model and at a start.
 - A compaction request carries labels only. The prune turns an old tool result with an
-  image into the stub, and its images go as labels from then on.
+  attachment that goes as content into the stub, and its images go as labels from then
+  on. The prune and the rebuild of a pruned history share one rule
+  (`context::prunes_result`), which reads `sent` and no data, so the next turn rebuilds
+  the stub too. A prune alone is enough only when its estimate with the attachments
+  that stay is under the trigger.
 - The meter and the prune count `efr_provider::attachment_tokens` for each part with
   data (`message_tokens`), and `,context` shows the part `attachments`.
 
@@ -1152,7 +1161,7 @@ rather than late.
    the breaker stopped it), the turn does not send the request. It fails, see "Failures".
 3. When the provider answers `ProviderError::ContextOverflow` (OpenAI
    `context_length_exceeded` or an HTTP 413, Anthropic's 400 `prompt is too long`;
-   an Anthropic 413 is a body above 32 MB and not an overflow), the turn never retries
+   an Anthropic 413 is a body above 128 MB and not an overflow), the turn never retries
    it as a transient error. With auto on, it compacts once (trigger `overflow`,
    `tokens_before` is the estimate of the refused request) and sends the call again
    once. A second overflow of the same call fails the turn. With auto off, the first

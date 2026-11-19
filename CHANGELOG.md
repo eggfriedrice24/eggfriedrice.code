@@ -42,8 +42,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - efr makes large PNG and JPEG images smaller and removes EXIF, GPS, C2PA and comment
   data, and each byte after the image, from PNG, JPEG, GIF and WebP images before a
-  model gets them. A GIF keeps its first frame. A broken image goes as a path. If a provider refuses an image, efr sends the request again with its path,
-  and later requests send the path too.
+  model gets them. A GIF keeps its first frame. A broken image goes as a path. If a
+  provider refuses an image, efr sends the request again with its path, and when that
+  request gets an answer, later requests send the path too.
 - efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the
   scrollback after a resize, for prompts after a resize and for a scrollback line
   limit that was slow. A build from source still needs Zig 0.17.0.

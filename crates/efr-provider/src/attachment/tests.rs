@@ -212,6 +212,13 @@ fn a_pdf_over_half_of_the_window_is_withheld() {
 }
 
 #[test]
+fn a_part_over_the_limit_alone_goes_and_the_older_parts_stay() {
+    let older = results((1..=5).map(|n| with_data(image(n, 2000, 1500), 10)).collect());
+    let newest = prompt(vec![with_data(pdf(6, Some(30), 1_000), 1_000)]);
+    assert_eq!(fit(&[older, newest], 200_000), ids(6..=6));
+}
+
+#[test]
 fn the_parts_of_the_newest_prompt_go_last() {
     let old = prompt(vec![with_data(image(1, 28, 28), 10)]);
     let calls = results((2..=60).map(|n| with_data(image(n, 28, 28), 10)).collect());
