@@ -24,6 +24,7 @@ use serde_json::json;
 
 use super::bodies::assert_page_without_bodies;
 use super::{completed, conversation, finished, key, started};
+use crate::attachments::TurnAttachments;
 use crate::compaction::with_window;
 use crate::context::breakdown;
 use crate::history::{Bodies, CachedTurn, Covered, HistoryLimits, ModelKey, Snapshot};
@@ -105,8 +106,8 @@ async fn assert_same(
                     |window| serde_json::to_string(&with_window(&base, window)).expect("json");
                 assert_eq!(json(&new), json(&old), "the request, {what}");
                 assert_eq!(
-                    breakdown::measure(&base, &new, &numbers),
-                    breakdown::measure(&base, &old, &numbers),
+                    breakdown::measure(&base, &new, &numbers, &TurnAttachments::default()),
+                    breakdown::measure(&base, &old, &numbers, &TurnAttachments::default()),
                     "the breakdown, {what}"
                 );
             }

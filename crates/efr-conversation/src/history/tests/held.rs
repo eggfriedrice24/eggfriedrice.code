@@ -22,6 +22,7 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt as _};
 use super::covered::{LIMITS, random_conversation};
 use super::{conversation, key, turn};
 use crate::actor::IDLE_TRIM;
+use crate::attachments::TurnAttachments;
 use crate::compaction::with_window;
 use crate::context::breakdown;
 use crate::history::{CachedTurn, HistoryLimits, Snapshot};
@@ -117,8 +118,8 @@ async fn assert_same(
                     |window| serde_json::to_string(&with_window(&base, window)).expect("json");
                 assert_eq!(json(&new), json(&old), "the request, {what}, {model:?}");
                 assert_eq!(
-                    breakdown::measure(&base, &new, &numbers),
-                    breakdown::measure(&base, &old, &numbers),
+                    breakdown::measure(&base, &new, &numbers, &TurnAttachments::default()),
+                    breakdown::measure(&base, &old, &numbers, &TurnAttachments::default()),
                     "the breakdown, {what}, {model:?}"
                 );
             }

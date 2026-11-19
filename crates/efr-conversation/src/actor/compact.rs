@@ -20,6 +20,7 @@ use efr_store::Batch;
 
 use super::receipt;
 use crate::ConversationError;
+use crate::attachments::TurnAttachments;
 use crate::compaction::{self, Job, Outcome, window_tokens};
 use crate::context::ContextLimits;
 use crate::fresh::{self, Fresh};
@@ -117,7 +118,11 @@ async fn compact(
         one_shot: false,
         provider_options: crate::turn::provider_options(&config, shared.conversation_id),
     };
-    let tokens_before = window_tokens(&base, &window);
+    // NOTE: the window of the actor holds no data, so the attachments that the model
+    // gets as content count by the rule of a turn.
+    let attachments =
+        TurnAttachments::new(&snapshot.attachments, crate::turn::model_inputs(&*provider, &model));
+    let tokens_before = window_tokens(&base, &window) + attachments.tokens(window.iter());
     let job = Job {
         provider: &*provider,
         base: &base,
@@ -161,7 +166,7 @@ async fn compact(
         window: limits.window,
         limit: limits.limit(),
         tokens_before,
-        tokens_after: window_tokens(&base, &built.window),
+        tokens_after: window_tokens(&base, &built.window) + attachments.tokens(built.window.iter()),
         through_turn: built.cut.through_turn,
         through_message: built.cut.through_message,
         kept_turns: built.kept_turns,

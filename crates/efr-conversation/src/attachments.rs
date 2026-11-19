@@ -171,6 +171,22 @@ impl TurnAttachments {
         kind && attachment.sent.is_some() && !self.withheld.contains(&attachment.id)
     }
 
+    /// The tokens of the attachments of `block` that the turn's model gets as content
+    /// ([`reads`](Self::reads)), counted with no data: for a window that no turn
+    /// filled, as `conversation.context` and a manual compaction build it.
+    pub(crate) fn content_tokens(&self, block: &ContentBlock) -> u64 {
+        block_parts(block)
+            .iter()
+            .filter(|part| self.reads(&part.attachment))
+            .map(|part| efr_provider::content_tokens(&part.attachment))
+            .sum()
+    }
+
+    /// The [`content_tokens`](Self::content_tokens) of each block of `messages`.
+    pub(crate) fn tokens<'a>(&self, messages: impl Iterator<Item = &'a Message>) -> u64 {
+        messages.flat_map(|message| &message.content).map(|block| self.content_tokens(block)).sum()
+    }
+
     /// The attachments of a prompt that the turn's model gets as a path, for
     /// `turn_started`.
     pub(crate) fn unread(&self, attachments: &[Attachment]) -> Vec<AttachmentId> {
@@ -203,6 +219,18 @@ impl TurnAttachments {
 /// variants).
 pub(crate) fn is_refusal(error: &ProviderError) -> bool {
     matches!(error, ProviderError::Api { status: Some(400 | 413), .. })
+}
+
+/// The parts of `block` that can go as content: an attachment block, or the attachments
+/// of a tool result that a prune did not cut.
+pub(crate) fn block_parts(block: &ContentBlock) -> &[AttachmentPart] {
+    match block {
+        ContentBlock::Attachment(part) => std::slice::from_ref(part),
+        ContentBlock::ToolResult { output, attachments, .. } if output != PRUNED_OUTPUT_STUB => {
+            attachments
+        }
+        _ => &[],
+    }
 }
 
 /// The parts of `message` that can go as content: those of the message itself and of

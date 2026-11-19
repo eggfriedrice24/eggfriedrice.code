@@ -20,8 +20,9 @@ use efr_protocol::{
 use efr_provider::{ContentBlock, Message, Request, Role};
 use serde_json::Value;
 
+use crate::attachments::TurnAttachments;
 use crate::compaction::{Window, with_window};
-use crate::context::{PRUNED_OUTPUT_STUB, estimate_tokens};
+use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB, estimate_tokens};
 
 /// How the live-state preamble of a prompt starts (`preamble.rs`, `LiveState::render`).
 const PREAMBLE_OPEN: &str = "<live_state>";
@@ -55,8 +56,15 @@ pub(crate) struct Measured {
 }
 
 /// Measures the request that `base` sends with `window`. `turns` gives the number of
-/// each turn in the conversation, counted from 1.
-pub(crate) fn measure(base: &Request, window: &Window, turns: &HashMap<TurnId, u32>) -> Measured {
+/// each turn in the conversation, counted from 1. An attachment that a turn with
+/// `attachments` sends as content counts its tokens as the turn's meter counts them,
+/// by its patches or pages, in its part and in its item, on top of its JSON.
+pub(crate) fn measure(
+    base: &Request,
+    window: &Window,
+    turns: &HashMap<TurnId, u32>,
+    attachments: &TurnAttachments,
+) -> Measured {
     let request = with_window(base, window);
     let total = json_len(&request);
     let mut tally = Tally::default();
@@ -88,13 +96,13 @@ pub(crate) fn measure(base: &Request, window: &Window, turns: &HashMap<TurnId, u
                 tally.add(ContextPartKind::Summary, bytes, 1);
                 tally.item(Item::new(ContextPartKind::Summary, bytes, None));
             }
-            Some(turn) => tally.message(original, sent, turn, &calls),
+            Some(turn) => tally.message(original, sent, turn, &calls, attachments),
         }
     }
 
     let counted: u64 = tally.bytes.values().sum();
     // NOTE: the request's own fields and the frame of its lists belong to no message.
-    tally.add(ContextPartKind::System, total.saturating_sub(counted), 0);
+    tally.add(ContextPartKind::System, total.saturating_sub(counted - tally.content), 0);
     tally.finish()
 }
 
@@ -203,6 +211,9 @@ struct Tally {
     bytes: HashMap<ContextPartKind, u64>,
     counts: HashMap<ContextPartKind, u32>,
     items: Vec<Item>,
+    /// The bytes in `bytes` that stand for the tokens of attachments as content, which
+    /// are not in the JSON of the request.
+    content: u64,
 }
 
 impl Tally {
@@ -227,6 +238,7 @@ impl Tally {
         sent: &Message,
         turn: Option<u32>,
         calls: &HashMap<String, (String, Option<String>)>,
+        attachments: &TurnAttachments,
     ) {
         let role = original.role;
         let mut answer: u64 = 0;
@@ -235,8 +247,12 @@ impl Tally {
         for (block, sent_block) in original.content.iter().zip(&sent.content) {
             let kind = kind_of(role, block);
             first.get_or_insert(kind);
-            let bytes = json_len(sent_block);
-            blocks += bytes;
+            let json = json_len(sent_block);
+            blocks += json;
+            // NOTE: the tokens as bytes, so that the parts still add up to the estimate.
+            let content = attachments.content_tokens(block) * BYTES_PER_TOKEN;
+            self.content += content;
+            let bytes = json + content;
             if kind == ContextPartKind::Answers {
                 answer += bytes;
                 self.add(kind, bytes, 0);
@@ -257,6 +273,9 @@ impl Tally {
                 }
                 ContentBlock::Text { text } if kind == ContextPartKind::Notices => {
                     item.label = notice_job(text);
+                }
+                ContentBlock::Attachment(part) => {
+                    item.label = Some(one_line(&part.attachment.name));
                 }
                 _ => {}
             }

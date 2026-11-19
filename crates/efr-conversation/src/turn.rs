@@ -2415,7 +2415,7 @@ pub(crate) async fn ensure_scratch(
 
 /// What `model` reads as content besides text, from the provider's list of models;
 /// only text for a model that the list does not name.
-fn model_inputs(provider: &dyn Provider, model: &str) -> InputKinds {
+pub(crate) fn model_inputs(provider: &dyn Provider, model: &str) -> InputKinds {
     provider
         .models()
         .iter()

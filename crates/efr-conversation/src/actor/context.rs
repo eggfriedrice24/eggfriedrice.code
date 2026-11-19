@@ -23,6 +23,7 @@ use efr_store::conversations::{Turn, TurnStatus};
 use efr_store::events;
 
 use crate::ConversationError;
+use crate::attachments::TurnAttachments;
 use crate::context::ContextLimits;
 use crate::context::breakdown::{self, end_usage};
 use crate::fresh::{self, Fresh};
@@ -106,7 +107,9 @@ pub(super) async fn run(
         .zip(1_u32..)
         .map(|(turn, number)| (turn.id, number))
         .collect();
-    let measured = breakdown::measure(&base, &window, &numbers);
+    let attachments =
+        TurnAttachments::new(&snapshot.attachments, crate::turn::model_inputs(&*provider, &model));
+    let measured = breakdown::measure(&base, &window, &numbers, &attachments);
 
     let ended = Ended::read(&shared.deps.readers, conversation_id, &snapshot).await?;
     Ok(ConversationContextResult {

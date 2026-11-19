@@ -108,10 +108,11 @@ Modules:
   does not go as content, the line that says so), `fit` (the budget of a request, a
   pure function: at most `MAX_IMAGE_BLOCKS` = 90 images, `MAX_DATA_BYTES` = 100 MB of
   base64 and attachments of at most `WINDOW_SHARE_PERCENT` = 50 percent of the window;
-  over a limit, the oldest parts lose their data until the request is at half of that
-  limit) and `attachment_tokens` (the one count of the meter and the prune: an image
-  is `ceil(w/28) * ceil(h/28)` tokens up to 4,784, a PDF 4,500 for each page, or its
-  bytes / 4 with no page count). The PDF limits `PDF_MAX_BYTES` (5 MiB) and
+  over a limit, a part that is over it alone loses its data first, then the oldest
+  parts lose their data until the request is at half of that limit) and
+  `attachment_tokens` (the one count of the meter and the prune, over the parts with
+  data, by `content_tokens` of each: an image is `ceil(w/28) * ceil(h/28)` tokens up
+  to 4,784, a PDF 4,500 for each page, or its bytes / 4 with no page count). The PDF limits `PDF_MAX_BYTES` (5 MiB) and
   `PDF_MAX_PAGES` (100) are here too. `ModelInfo::inputs` (`InputKinds { image, pdf }`)
   says what a model reads besides text.
 - `unoffered`: `unoffered_call_text` and `unoffered_result_text`, the text in place of

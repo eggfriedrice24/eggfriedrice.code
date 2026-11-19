@@ -56,7 +56,7 @@ mod usage;
 pub use attachment::{
     AttachmentPart, EncodedBytes, IMAGE_MAX_TOKENS, IMAGE_PATCH_PX, LABEL_CLOSE, Label,
     MAX_DATA_BYTES, MAX_IMAGE_BLOCKS, PDF_BYTES_PER_TOKEN, PDF_MAX_BYTES, PDF_MAX_PAGES,
-    PDF_PAGE_TOKENS, WINDOW_SHARE_PERCENT, attachment_tokens, fit, label,
+    PDF_PAGE_TOKENS, WINDOW_SHARE_PERCENT, attachment_tokens, content_tokens, fit, label,
 };
 pub use completion::{Completion, CompletionBuilder};
 // NOTE: the limit of an account in `ProviderError::LimitReached` and the windows of

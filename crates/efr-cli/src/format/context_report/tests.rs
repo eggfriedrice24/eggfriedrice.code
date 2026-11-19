@@ -143,6 +143,20 @@ fn without_a_count_the_estimate_carries_the_gauge() {
 }
 
 #[test]
+fn the_attachments_stand_after_the_prompts_with_their_count_and_name() {
+    let mut report = report();
+    report.parts.push(part(ContextPartKind::Attachments, 5_900, 2));
+    report.largest = vec![item(ContextPartKind::Attachments, 2_900, 3, "", "shot.png")];
+    let text = lines(&report, now(), &RenderOptions::new(200).with_terminal(false));
+
+    let rows: Vec<&str> = text.lines().filter(|line| line.starts_with("  ")).collect();
+    assert_eq!(rows[3], "  prompts         2.0k  14 prompts");
+    assert_eq!(rows[4], "  attachments     5.9k  2 attachments");
+    let largest = text.lines().find(|line| line.starts_with("largest")).unwrap();
+    assert!(largest.ends_with("2.9k  attachment shot.png, turn 3"), "{largest}");
+}
+
+#[test]
 fn auto_compaction_off_shows_the_cap() {
     let mut report = report();
     report.auto = false;

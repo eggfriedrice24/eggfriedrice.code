@@ -205,7 +205,10 @@ fn size(attachment: &Attachment) -> String {
 /// at most [`IMAGE_MAX_TOKENS`]. A PDF counts [`PDF_PAGE_TOKENS`] for each page, or
 /// its bytes divided by [`PDF_BYTES_PER_TOKEN`] when the page count is not known.
 pub fn attachment_tokens(message: &Message) -> u64 {
-    parts(message).filter(|part| part.data.is_some()).map(part_tokens).sum()
+    parts(message)
+        .filter(|part| part.data.is_some())
+        .map(|part| content_tokens(&part.attachment))
+        .sum()
 }
 
 /// The parts of `message`, of its own blocks and of its tool results, in their order.
@@ -217,9 +220,10 @@ fn parts(message: &Message) -> impl Iterator<Item = &AttachmentPart> {
     })
 }
 
-/// The tokens of one part as content.
-fn part_tokens(part: &AttachmentPart) -> u64 {
-    let attachment = &part.attachment;
+/// The tokens of `attachment` when a model gets it as content, by the rule of
+/// [`attachment_tokens`]. A caller with no data, such as the breakdown of
+/// `conversation.context`, decides itself which attachments go as content.
+pub fn content_tokens(attachment: &Attachment) -> u64 {
     let sent = attachment.sent.as_ref();
     match attachment.kind {
         AttachmentKind::Image { width, height } => {
@@ -264,7 +268,11 @@ pub fn fit<'a>(messages: impl IntoIterator<Item = &'a Message>, window: u64) -> 
                 let image = matches!(part.attachment.kind, AttachmentKind::Image { .. });
                 candidates.push(Candidate {
                     id: &part.attachment.id,
-                    weights: [u64::from(image), data.len() as u64, part_tokens(part)],
+                    weights: [
+                        u64::from(image),
+                        data.len() as u64,
+                        content_tokens(&part.attachment),
+                    ],
                     newest: in_prompt && Some(at) == newest_prompt,
                     withheld: false,
                 });

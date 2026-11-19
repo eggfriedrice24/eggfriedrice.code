@@ -1017,7 +1017,12 @@ The files of a prompt and the images that `read_file` read (ADR 0026). The histo
   the stub too. A prune alone is enough only when its estimate with the attachments
   that stay is under the trigger.
 - The meter and the prune count `efr_provider::attachment_tokens` for each part with
-  data (`message_tokens`), and `,context` shows the part `attachments`.
+  data (`message_tokens`). `conversation.context` and a manual compaction build a
+  window with no data, so they count each attachment that the model would get as
+  content (`TurnAttachments::content_tokens`, by `efr_provider::content_tokens`):
+  `,context` shows it in the part `attachments` (an image of a tool result in
+  `tool outputs`) and names it in its item, and `tokens_before` and `tokens_after`
+  of a manual compaction hold it.
 
 ## The index redaction
 

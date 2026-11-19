@@ -18,6 +18,7 @@ use pretty_assertions::assert_eq;
 use super::covered::{LIMITS, random_conversation};
 use super::held::caches;
 use super::{conversation, key};
+use crate::attachments::TurnAttachments;
 use crate::compaction::{parts_len, with_window};
 use crate::context::breakdown::{self, end_usage};
 use crate::context::{context_base, json_len};
@@ -140,8 +141,8 @@ async fn assert_same(
                         );
                     }
                     assert_eq!(
-                        breakdown::measure(&base, &new, &numbers),
-                        breakdown::measure(&base, &old, &numbers),
+                        breakdown::measure(&base, &new, &numbers, &TurnAttachments::default()),
+                        breakdown::measure(&base, &old, &numbers, &TurnAttachments::default()),
                         "the breakdown, {what}, {model:?}"
                     );
                 }

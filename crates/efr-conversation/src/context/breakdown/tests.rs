@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 
 use efr_protocol::{
-    CallId, Compaction, CompactionId, CompactionTrigger, ContextPartKind, ConversationId, Event,
-    EventEnvelope, JobInfo, JobState, Seq, TurnId, Usage,
+    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, Compaction, CompactionId,
+    CompactionTrigger, ContextPartKind, ConversationId, Event, EventEnvelope, JobInfo, JobState,
+    SentForm, Seq, TurnId, Usage,
 };
-use efr_provider::{ContentBlock, Message, Role};
+use efr_provider::{AttachmentPart, ContentBlock, InputKinds, Message, Role};
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Clock as _;
+use efr_store::attachments::Summary;
 use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{cache, call_label, counted, measure};
+use crate::attachments::TurnAttachments;
 use crate::compaction::{Placed, Window, request_tokens, summary_message, with_window};
 use crate::context::PRUNED_OUTPUT_STUB;
 use crate::notice::{NoticeBody, notice_text};
@@ -22,6 +25,11 @@ type Shown<'a> = (ContextPartKind, Option<u32>, Option<&'a str>, Option<&'a str>
 
 fn turn(n: u64) -> TurnId {
     TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(n)))
+}
+
+/// The attachments of a turn whose model reads only text.
+fn no_content() -> TurnAttachments {
+    TurnAttachments::default()
 }
 
 /// The job `j<number>` that ran `command` and exited.
@@ -109,7 +117,7 @@ fn parts_sum_to_the_request_estimate() {
     let (window, turns) = two_turns(&setup);
     let base = request(Vec::new());
 
-    let measured = measure(&base, &window, &numbers(&turns));
+    let measured = measure(&base, &window, &numbers(&turns), &no_content());
 
     let whole = request_tokens(&with_window(&base, &window));
     assert_eq!(measured.estimate, whole, "the estimate is the turn's own estimate");
@@ -155,7 +163,7 @@ fn pruned_outputs_count_as_pruned() {
         }
     }
 
-    let measured = measure(&request(Vec::new()), &window, &numbers(&turns));
+    let measured = measure(&request(Vec::new()), &window, &numbers(&turns), &no_content());
 
     assert_eq!(part(&measured, ContextPartKind::Pruned).1, 1);
     assert_eq!(part(&measured, ContextPartKind::ToolOutputs).1, 1, "the read keeps its output");
@@ -170,7 +178,7 @@ fn the_summary_and_the_fresh_block_count_as_the_summary() {
     window.head =
         vec![Message::user("<fresh-context>\n</fresh-context>"), summary_message("Done.")];
 
-    let measured = measure(&request(Vec::new()), &window, &numbers(&turns));
+    let measured = measure(&request(Vec::new()), &window, &numbers(&turns), &no_content());
 
     assert_eq!(part(&measured, ContextPartKind::Summary).1, 2);
     assert!(
@@ -207,7 +215,7 @@ fn largest_lists_five_items_with_labels() {
     let mut turns = turns.to_vec();
     turns.push(three);
 
-    let measured = measure(&request(Vec::new()), &window, &numbers(&turns));
+    let measured = measure(&request(Vec::new()), &window, &numbers(&turns), &no_content());
 
     let largest: Vec<Shown<'_>> = measured
         .largest
@@ -265,7 +273,7 @@ fn a_notice_item_names_its_job() {
         omitted: 0,
     };
 
-    let measured = measure(&request(Vec::new()), &window, &numbers(&[one]));
+    let measured = measure(&request(Vec::new()), &window, &numbers(&[one]), &no_content());
 
     let item = measured
         .largest
@@ -370,4 +378,56 @@ fn the_count_is_gone_after_a_compaction() {
     let compacted = envelope(4, Event::ConversationCompacted(compaction()));
     assert_eq!(counted(&[ended.clone(), compacted]), None);
     assert_eq!(counted(&[envelope(3, completed(turn(2), None))]), None, "no real count");
+}
+
+/// An image of 2000 x 1500 pixels as a model gets it, named `name`.
+fn shot(n: u32, name: &str) -> AttachmentPart {
+    AttachmentPart::new(Attachment {
+        id: AttachmentId::nth(n),
+        name: name.to_owned(),
+        media_type: "image/png".to_owned(),
+        bytes: 900_000,
+        sha256: "ab".repeat(32),
+        kind: AttachmentKind::Image { width: 4000, height: 3000 },
+        origin: AttachmentOrigin::Path { path: format!("/home/u/{name}").into() },
+        copy: None,
+        sent: Some(SentForm {
+            media_type: "image/jpeg".to_owned(),
+            bytes: 400_000,
+            width: Some(2000),
+            height: Some(1500),
+        }),
+    })
+}
+
+#[test]
+fn an_attachment_that_goes_as_content_counts_its_patches_in_its_part_and_its_item() {
+    let one = turn(2);
+    let prompt = Message::new(
+        Role::User,
+        vec![
+            ContentBlock::Attachment(shot(1, "shot.png")),
+            ContentBlock::Text { text: "what is this".to_owned() },
+        ],
+    );
+    let window = Window { head: Vec::new(), placed: vec![placed(one, 0, prompt)], omitted: 0 };
+    let base = request(Vec::new());
+    let reads = TurnAttachments::new(&Summary::default(), InputKinds { image: true, pdf: true });
+
+    let label = measure(&base, &window, &numbers(&[one]), &no_content());
+    let content = measure(&base, &window, &numbers(&[one]), &reads);
+
+    // NOTE: ceil(2000 / 28) * ceil(1500 / 28) = 72 * 54 = 3888.
+    let patches = 3_888;
+    let (label_tokens, count) = part(&label, ContextPartKind::Attachments);
+    assert_eq!(count, 1);
+    assert!(label_tokens < 200, "only the label: {label_tokens}");
+    let (tokens, _) = part(&content, ContextPartKind::Attachments);
+    assert!(tokens >= patches && tokens < patches + 200, "{tokens}");
+    assert_eq!(content.estimate, content.parts.iter().map(|part| part.tokens).sum::<u64>());
+    let item = &content.largest[0];
+    assert_eq!(
+        (item.kind, item.turn, item.label.as_deref()),
+        (ContextPartKind::Attachments, Some(1), Some("shot.png"))
+    );
 }

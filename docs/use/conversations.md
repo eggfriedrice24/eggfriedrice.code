@@ -408,7 +408,9 @@ It starts no turn. Give a focus to tell the summary what it must keep:
 
 - the model's last count, with its `ctx N%`,
 - efr's estimate of the next request by part: the system prompt, the tools, the
-  summary, the prompts, the answers, the tool calls and their outputs,
+  summary, the prompts, the attachments, the answers, the tool calls and their
+  outputs. An image or a PDF that the model gets as content counts as the model
+  counts it: an image by its pixels, a PDF by its pages,
 - the five largest items,
 - the compactions and the use of the prompt cache.
 

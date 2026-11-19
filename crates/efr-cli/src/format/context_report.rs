@@ -82,7 +82,9 @@ pub(crate) fn lines(
     }
     let estimate_gauge = if result.counted.is_none() { gauge(result.estimate) } else { None };
     lines.push(Line::gauged(row("estimate", &estimate), estimate_gauge));
-    lines.extend(result.parts.iter().map(part_row));
+    let mut parts: Vec<&ContextPart> = result.parts.iter().collect();
+    parts.sort_by_key(|part| place(part.kind));
+    lines.extend(parts.into_iter().map(part_row));
     for (index, item) in result.largest.iter().enumerate() {
         let key = if index == 0 { "largest" } else { "" };
         lines.push(Line::plain(row(
@@ -167,6 +169,14 @@ fn model(result: &ConversationContextResult) -> String {
     text
 }
 
+/// The place of a part of `kind` in the lines: the order of efrd, but the files of the
+/// prompts stand right after the prompts, as the board shows them. efrd sends the
+/// prompts first, so a stable sort keeps them before their files.
+fn place(kind: ContextPartKind) -> usize {
+    let kind = if kind == ContextPartKind::Attachments { ContextPartKind::Prompts } else { kind };
+    ContextPartKind::ALL.iter().position(|known| *known == kind).unwrap_or(usize::MAX)
+}
+
 /// One part: its name, its estimated tokens and its count in words, muted on a terminal.
 fn part_row(part: &ContextPart) -> Line {
     let name = match part.kind {
@@ -180,6 +190,7 @@ fn part_row(part: &ContextPart) -> Line {
         ContextPartKind::ToolCalls => "tool calls",
         ContextPartKind::ToolOutputs => "tool outputs",
         ContextPartKind::Pruned => "pruned",
+        ContextPartKind::Attachments => "attachments",
         _ => "other",
     };
     let count = part.count;
@@ -196,6 +207,7 @@ fn part_row(part: &ContextPart) -> Line {
         ContextPartKind::ToolCalls => counted(count, "call"),
         ContextPartKind::ToolOutputs => counted(count, "output"),
         ContextPartKind::Pruned => format!("{} replaced with a stub", counted(count, "output")),
+        ContextPartKind::Attachments => counted(count, "attachment"),
         _ => String::new(),
     };
     let head = format!("  {name:<PART$}{:>6}", tokens(part.tokens));
@@ -237,6 +249,10 @@ fn item_words(item: &ContextItem) -> String {
         ContextPartKind::ToolCalls => format!("call {}", call()),
         ContextPartKind::ToolOutputs => format!("output of {}", call()),
         ContextPartKind::Pruned => format!("pruned output of {}", call()),
+        ContextPartKind::Attachments => match &item.label {
+            Some(name) => format!("attachment {}", one_line(name)),
+            None => "attachment".to_owned(),
+        },
         _ => "other".to_owned(),
     };
     if let Some(turn) = item.turn {
