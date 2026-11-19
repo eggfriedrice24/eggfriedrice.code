@@ -194,7 +194,14 @@ describe("the files of a prompt", () => {
     await flush();
     files.finish("file:///caches/p");
     await flush();
-    attachments.sent(entryWith(outbox, attachments));
+    const entry = entryWith(outbox, attachments);
+    outbox.succeed(entry.commandId, {
+      conversation_id: CONVERSATION_A,
+      queued: false,
+      seq: 1,
+      turn_id: "00000000-0000-4000-8000-0000000000f1",
+    });
+    attachments.sent(entry);
     const other = draftKey(LAPTOP, CONVERSATION_A);
     attachments.add(other, [{ kind: "file", uri: "file:///caches/l", name: "l", bytes: 1 }], 2000);
     attachments.add(KEY, [{ kind: "file", uri: "file:///caches/d", name: "d", bytes: 1 }], 2000);
@@ -207,5 +214,20 @@ describe("the files of a prompt", () => {
     expect(files.removed).toEqual(["file:///caches/d", "file:///caches/p-preview.jpg"]);
     await flush();
     expect(storage.getItemSync(PREVIEWS_KEY)).toBe("{}");
+  });
+
+  it("removes the files of the prompts on their way to a forgotten machine", async () => {
+    const { attachments, files, outbox } = setup();
+    attachments.add(
+      KEY,
+      [{ kind: "file", uri: "file:///caches/a.txt", name: "a.txt", bytes: 3 }],
+      2000,
+    );
+    await flush();
+    entryWith(outbox, attachments);
+    attachments.removeMachine(LAPTOP);
+    expect(files.removed).toEqual([]);
+    attachments.removeMachine(DESKTOP);
+    expect(files.removed).toEqual(["file:///caches/a.txt"]);
   });
 });

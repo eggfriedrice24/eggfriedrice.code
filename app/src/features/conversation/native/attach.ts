@@ -23,8 +23,10 @@ function lastPart(uri: string): string {
   return decodeURIComponent(uri.slice(uri.lastIndexOf("/") + 1));
 }
 
-/** A picked photo, named `fallback` when it has no name. Its size comes with its JPEG
- * from efr-files. */
+/**
+ * A picked photo, named `fallback` when it has no name. Its size comes with its JPEG from
+ * efr-files.
+ */
 function photoOf(asset: ImageAsset, fallback: string): PickedFile {
   return { kind: "photo", uri: asset.uri, name: asset.fileName ?? fallback };
 }
@@ -56,6 +58,14 @@ export function nativeAttach(): AttachNative | null {
     exif: false,
     preferredAssetRepresentationMode: images.UIImagePickerPreferredAssetRepresentationMode.Current,
   };
+  // The first `limit` assets. Each picked asset is a copy in the caches, so the copies
+  // over the room of the draft go at once.
+  const within = <T extends { readonly uri: string }>(assets: readonly T[], limit: number) => {
+    for (const extra of assets.slice(limit)) {
+      void files.remove(extra.uri).catch(() => undefined);
+    }
+    return assets.slice(0, limit);
+  };
   return {
     files,
     async pick(source, limit) {
@@ -67,7 +77,7 @@ export function nativeAttach(): AttachNative | null {
         if (result.canceled) {
           return [];
         }
-        return result.assets.slice(0, limit).map((asset) => {
+        return within(result.assets, limit).map((asset) => {
           const pdf = asset.mimeType === "application/pdf" || /\.pdf$/i.test(asset.name);
           const file: { -readonly [K in keyof PickedFile]: PickedFile[K] } = {
             kind: pdf ? "pdf" : "file",
@@ -94,7 +104,7 @@ export function nativeAttach(): AttachNative | null {
         allowsMultipleSelection: true,
         selectionLimit: limit,
       });
-      const picked = result.canceled ? [] : result.assets.slice(0, limit);
+      const picked = result.canceled ? [] : within(result.assets, limit);
       return picked.map((asset) => photoOf(asset, lastPart(asset.uri)));
     },
   };

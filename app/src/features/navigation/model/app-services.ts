@@ -256,14 +256,16 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
             onError,
           }),
         };
+  // The purges start in this order: the attachments remove the files of the outbox
+  // entries of the machine before the outbox removes the entries.
   const purges: MachinePurge[] = [
     (machine, caches) => caches?.removeMachine(machine),
-    (machine) => outbox.removeMachine(machine),
     (machine) => {
       drafts.removeMachine(machine);
       modelChoices.removeMachine(machine);
       attach?.attachments.removeMachine(machine);
     },
+    (machine) => outbox.removeMachine(machine),
     (machine) => {
       preferences.forgetMachine(machine);
     },

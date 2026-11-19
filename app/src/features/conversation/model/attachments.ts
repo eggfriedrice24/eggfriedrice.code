@@ -203,7 +203,10 @@ export interface Attachments {
   sent(entry: OutboxEntry): void;
   /** Takes back a prompt on its way, with its uploads and its files. */
   withdraw(commandId: string): void;
-  /** Removes the drafts and the previews of a forgotten machine. */
+  /**
+   * Removes the drafts, the previews and the files of the outbox entries of a forgotten
+   * machine. Call it before the outbox removes those entries.
+   */
   removeMachine(machine: DaemonId): void;
 }
 
@@ -391,6 +394,16 @@ export function createAttachments(deps: AttachmentsDeps): Attachments {
     },
 
     removeMachine(machine: DaemonId): void {
+      // The outbox drops the entries of the machine after this; their files go first. A
+      // sent entry lost its copies at `sent`, and its preview is in `previews`.
+      for (const entry of outbox.store.get().entries) {
+        if (entry.machine === machine && entry.state !== "sent") {
+          for (const file of entry.attachments ?? []) {
+            drop(file.uri);
+            drop(file.previewUri);
+          }
+        }
+      }
       const prefix = `${machine}:`;
       const state = store.state;
       const drafts = new Map(state.drafts);
