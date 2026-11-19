@@ -27,8 +27,8 @@
 //! ([`PresenceTable::not_at_terminal`]); only then may a question push to the phone
 //! (`push.rs`). For that rule, a conversation with no input of a person since efrd
 //! started counts its away time from the start, so a question after an update of efrd
-//! still pushes when nobody is there. The push of a question that a turn finds with nobody there goes to the
-//! push task through [`PushQueue`].
+//! still pushes when nobody is there. The push of a question that a turn finds with
+//! nobody there goes to the push task through [`PushQueue`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

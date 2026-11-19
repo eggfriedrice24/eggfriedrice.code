@@ -2,8 +2,8 @@
 //! live in their own crates.
 //!
 //! It understands printable ASCII, CR, LF, BS, HT and BEL, deferred wrap, scrolling
-//! into scrollback, cursor movement (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`), `ED` and
-//! `EL`, OSC 0 and 2 titles, `RIS`, and answers DA1 and DSR the way libghostty-vt does. It
+//! into scrollback, cursor movement (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`), `ED` and `EL`,
+//! OSC 0 and 2 titles, `RIS`, and answers DA1 and DSR the way libghostty-vt does. It
 //! skips every other escape sequence and drops bytes outside ASCII. It holds an `Rc`,
 //! so it is not `Send`: the actor tests prove that a screen needs no `Send`.
 

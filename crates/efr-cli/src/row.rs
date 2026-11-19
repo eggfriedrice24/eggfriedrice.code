@@ -24,10 +24,9 @@
 //! DCS or APC string (`ESC ]`, `ESC P`, `ESC _` to BEL or `ESC \`), such as a late
 //! clipboard reply, are dropped and never typed into the line. A string that ends in
 //! another way was typed (Alt+], Alt+Shift+P and Alt+_ send its start), so its text
-//! goes into the line. The line holds no
-//! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
-//! prompt. The follow loop keeps the keys away from it while a call's output shows a
-//! password prompt.
+//! goes into the line. The line holds no secret: it is shown as it is typed, and it
+//! goes to the daemon as a steer or a prompt. The follow loop keeps the keys away from
+//! it while a call's output shows a password prompt.
 
 use efr_render::{WidthMethod, text_width};
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation as _};

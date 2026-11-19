@@ -31,9 +31,9 @@
 //! from `secrecy` because they appear in that trait.
 //!
 //! Allowed dependencies: `efr-protocol` (for `Attachment` and `Usage`) and `efr-stdx`
-//! (the text rules of a label). What does not belong here: any provider's API, endpoints or event names
-//! (`efr_providers::openai`), HTTP (`efr-http`), how a token is obtained or refreshed
-//! (`efr-oauth-openai`), and tools themselves (`efr-tools`).
+//! (the text rules of a label). What does not belong here: any provider's API,
+//! endpoints or event names (`efr_providers::openai`), HTTP (`efr-http`), how a token
+//! is obtained or refreshed (`efr-oauth-openai`), and tools themselves (`efr-tools`).
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
