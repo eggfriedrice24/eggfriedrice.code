@@ -99,8 +99,8 @@ impl PushMessage {
     }
 }
 
-/// A code of the Expo push service, such as `DeviceNotRegistered`: 1 to
-/// [`CODE_MAX_LEN`] characters of `[A-Za-z_]`.
+/// A code of the Expo push service, such as `DeviceNotRegistered`: 1 to 64 characters
+/// of `[A-Za-z_]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PushCode(String);
 
@@ -118,8 +118,8 @@ impl PushCode {
     }
 }
 
-/// The id of a ticket, with which efrd asks for its receipt: 1 to [`CODE_MAX_LEN`]
-/// characters of `[A-Za-z0-9-]`.
+/// The id of a ticket, with which efrd asks for its receipt: 1 to 64 characters of
+/// `[A-Za-z0-9-]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TicketId(String);
 
@@ -166,7 +166,7 @@ pub enum ExpoAnswer<T> {
     /// The service handled the request.
     Data(T),
     /// The service refused the request as a whole: an `errors` array, or a status that
-    /// is not a success, after the tries of [`EXPO_RETRY`].
+    /// is not a success, after the last try.
     Refused {
         /// The status of the last answer.
         status: StatusCode,
