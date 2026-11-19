@@ -1979,7 +1979,8 @@ capability `attachments` while `attachments.enabled` is on.
   gets and a `Note` when an image or a PDF goes as a path: `as a path: the image is
   broken`, `as a path: the image is too large to send as content`, `as a path: the
   PDF is too large to send as content` (also over 100 pages), `as a path: the PDF has
-  a password`, `as a path: efr cannot count the pages of this PDF`. A PNG or JPEG is
+  a password`, `as a path: efr cannot count the pages of this PDF`. Only a debug line
+  of a tool image names the note; no label and no row shows it. A PNG or JPEG is
   decoded once (`efr_media`); one with an edge over `attachments.max_edge_px`, over
   `IMAGE_MAX_BYTES` (7.5 MB) or turned by its EXIF tag is made smaller or upright, each
   other one only loses its metadata. A broken image has the kind `other`. Uploads and

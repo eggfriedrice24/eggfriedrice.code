@@ -128,7 +128,8 @@ its size, and an image also shows its pixels. The name links to the copy of the 
   and removes EXIF, GPS, XMP and comment data from each image. A GIF or WebP that is
   too large goes as a path.
 - A cut or broken image, an image over 50 megapixels and a PDF that a provider would
-  refuse go as a path, with a note.
+  refuse go as a path. The row of the prompt says `as a path`, and a broken image shows
+  as the kind `file`.
 - A HEIC photo goes as a path from the terminal. The phone app makes a photo into a
   JPEG first.
 - When a provider refuses a file, efr sends the request again with the path of that

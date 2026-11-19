@@ -58,8 +58,8 @@ A file in a conversation is different from text in four ways:
    images of a tool together. A GIF or WebP has no decoder in efrd: the walk of its
    blocks is the check, and one that is too large goes as a path. A PDF goes as content
    only up to 5 MiB and 100 pages and with no password. A file that fails a check gets
-   no blob and goes as a path, with a note such as `as a path: the image is broken`. A
-   broken image has the kind `other`, because its header is not to be trusted.
+   no blob and goes as a path, and its row says `as a path`. A broken image has the
+   kind `other`, because its header is not to be trusted.
 
 5. **The budget and the recovery keep a conversation alive.** Before each model call,
    a request holds at most 90 images, 100 MB of base64 and attachments of at most half
