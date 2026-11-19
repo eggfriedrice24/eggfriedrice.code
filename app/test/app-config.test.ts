@@ -1,6 +1,6 @@
 // The native config of each variant, as `expo config --type introspect` resolves it from
 // app.json, app.config.ts and the config plugins. Linux builds no iOS app, so this is the
-// check of the Info.plist and the entitlements before an EAS build (probe PB4).
+// check of the Info.plist and the entitlements before an EAS build.
 //
 // The plugins run in the reverse order of the list, after the static `ios.infoPlist`. A
 // plugin option `false` deletes its key, also a key of `ios.infoPlist`, so the test reads

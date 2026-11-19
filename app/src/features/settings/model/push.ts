@@ -1,4 +1,4 @@
-// Push notices of efrd on the phone (spec 7.2, ADR 0028). efrd sends a notice through the
+// Push notices of efrd on the phone (ADR 0028). efrd sends a notice through the
 // Expo push service when something needs you and you are not at the terminal. The phone
 // gives each machine its Expo push token with `device.push_set`; the lease of the client
 // (lib/net/client.ts) tells efrd when the app is on screen.

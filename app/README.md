@@ -710,7 +710,7 @@ Notifications frames of Settings.
     the camera or the file picker.
 67. VoiceOver reads each tile with its kind, size and progress, and "Remove".
 68. Notifications: the switch asks iOS once; denied, the row says so and opens the
-    iOS settings. `efr push test` reaches the dev build first (probe PB1), then the
+    iOS settings. `efr push test` reaches the dev build first, then the
     preview and the TestFlight build (each bundle id needs its push key at EAS), and
     `efr device list` shows `push on`.
 69. Lock the phone during a turn that the phone started: an approval comes as a push

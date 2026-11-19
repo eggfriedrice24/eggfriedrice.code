@@ -298,7 +298,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     };
     let offset = file.received;
     for (;;) {
-      // oxlint-disable-next-line no-await-in-loop -- one chunk in flight (spec 7.1).
+      // oxlint-disable-next-line no-await-in-loop -- one chunk in flight.
       const answer = await put(offset);
       if (current(commandId) === undefined) {
         // NOTE: the withdraw sent its discard before this chunk arrived.
@@ -328,7 +328,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     }
     for (const file of files) {
       if (!file.uploaded) {
-        // oxlint-disable-next-line no-await-in-loop -- one chunk in flight (spec 7.1).
+        // oxlint-disable-next-line no-await-in-loop -- one chunk in flight.
         await uploadFile(commandId, file, uploads, chunk);
       }
     }

@@ -1,4 +1,4 @@
-// The taps on a push notice of efrd, on their way to the router (spec 7.2). A tap opens
+// The taps on a push notice of efrd, on their way to the router (ADR 0028). A tap opens
 // the conversation of the notice as a link to it does: `+native-intent.ts` gives each
 // path to the gate of the links, so it waits for the Face ID unlock.
 //

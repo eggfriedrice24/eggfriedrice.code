@@ -1,4 +1,4 @@
-// The attachments of the phone (spec 7.1, board S-Attach): the files of each draft, the
+// The attachments of the phone (ADR 0026, board S-Attach): the files of each draft, the
 // files of a prompt after its send, and the previews of the photos.
 //
 // - A draft holds its files in the order that the user picked them. A photo is
@@ -34,7 +34,7 @@ export const PREVIEWS_KEY = "efr.previews";
  */
 export const MAX_PREVIEW_PROMPTS = 200;
 
-/** The JPEG quality of an attached photo (spec 7.1). */
+/** The JPEG quality of an attached photo, the quality that efrd encodes with too. */
 export const PHOTO_QUALITY = 0.85;
 
 /** A file that a picker of iOS gave: its copy in the caches of the app. */

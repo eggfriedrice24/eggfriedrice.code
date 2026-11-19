@@ -1,4 +1,4 @@
-// The native side of attach (spec 7.1): the three pickers of iOS and efr-files. A build
+// The native side of attach (ADR 0026): the three pickers of iOS and efr-files. A build
 // without them gives null: the package of a picker throws when it loads with no native
 // module, so this file loads them only when the build has them (lib/native/native-parts.ts).
 //

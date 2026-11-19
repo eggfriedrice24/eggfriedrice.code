@@ -14,7 +14,7 @@
 //   target, also on the disk, and a later prompt for the local id goes there too.
 // - An entry stays after its result (`sent`) until the stream shows its echo, the
 //   `prompt_queued` event with its command id (`acknowledge`, or `settle` by cursor).
-// - An entry can hold the files of the prompt (spec 7.1). The drain uploads them with
+// - An entry can hold the files of the prompt (ADR 0026). The drain uploads them with
 //   `attachment.put` before `prompt.send` names them. The progress of an upload lives in
 //   the store only: the one result rule of `attachment.put` lets the drain go on from any
 //   offset, so the disk needs no copy of each chunk.
@@ -144,7 +144,8 @@ export const MAX_SEND_ATTEMPTS = 5;
 
 /**
  * How often the drain sends the uploads that efrd lost (`missing_uploads`) before the
- * entry fails (spec 3.1): efrd removes an upload at its start and after its life.
+ * entry fails (ADR 0026, point 9): efrd removes an upload at its start and after its
+ * life.
  */
 export const MAX_REUPLOADS = 3;
 
