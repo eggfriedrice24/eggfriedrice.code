@@ -520,18 +520,9 @@ off for efr in iOS Settings, and a tap on the row opens those settings. A machin
 efrd sends no notices (an efrd before 0.0.13, or one with `presence.push = false`) is
 named under the row, such as "Not available on homelab".
 
-While the app is in front, a notice shows no banner and plays no sound, and the app
-tells efrd that you look at it, so efrd sends no notice then. A tap on a notice opens
-its conversation, after the Face ID unlock when it is on. The app ignores a notice of a
-machine that it does not know. When a conversation opens, and each time that the app
-comes back to the foreground on it, its notices go from the Notification Center. When you turn the switch off or forget a machine, the app tells
-the machine to stop at once.
-
-A notice has the title `efr` and a body such as `app: a question waits`: the name of the
-project, then what happened. It never holds a prompt, a command, a title or text of the
-model. efrd sends each notice through the Expo push service, which gives it to Apple.
-So the title, the name of the project, and the ids of the machine and the conversation
-pass through the servers of Expo and of Apple.
+When you turn the switch off or forget a machine, the app tells the machine to stop at
+once. [Push notifications](#push-notifications) tells when efrd sends a notice, what it
+holds and which servers it passes.
 
 Settings also has the Haptics switch, which turns off all the haptics of the app, and
 the version of the app.
@@ -564,7 +555,12 @@ conversation shows the question.
 A push shows the title `efr` and one short line, such as `app: a question waits` or
 `app: done in 4m 12s`. `app` is the name of the project of the conversation, or the
 name of its directory. A push never holds a prompt, a command, a title of a
-conversation or text of the model. A tap opens the conversation.
+conversation or text of the model.
+
+A tap on a notice opens its conversation, after the Face ID unlock when it is on. The
+app ignores a notice of a machine that it does not know. When a conversation opens, and
+each time that the app comes back to the foreground on it, its notices go from the
+Notification Center.
 
 The lock screen of the iPhone shows the body of a push, so it shows the name of the
 place. To hide the body there, set "Show Previews" to "When Unlocked" in the iOS
