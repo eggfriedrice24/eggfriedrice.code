@@ -54,7 +54,7 @@ pub(crate) enum Note {
 }
 
 impl Note {
-    /// The note of a label and of a chip.
+    /// The reason, for the debug line of a tool image. No label and no row shows it.
     pub(crate) fn text(self) -> &'static str {
         match self {
             Note::Broken => "as a path: the image is broken",
