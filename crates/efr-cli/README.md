@@ -1921,8 +1921,10 @@ that takes more than 10 s stops its ladder.
   256 bytes, because each line of the block commits when it ends.
 - `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
   `_efr_precmd` over 200 prompts in zsh, the `source` of the plugin, and the redraw
-  hook of the warm-up (`_efr_warm_line`) for each key of the command line and of a
-  prompt line, with 50 to 5,000 exported variables, 0 and 1,000 draft files, a deep
-  `PWD`, a projects file and a long command line. Its budget: the hook takes less than
-  0.2 ms a key (p50 of each case; about 0.01 to 0.03 ms), and no key runs `efr` while
-  the daemon has no socket.
+  hooks of the warm-up (`_efr_warm_line`), of the `@path` colours
+  (`_efr_attach_colour`) and of the paste mode (`_efr_paste_line`) for each key of the
+  command line and of a prompt line, typed into a real line editor on a zsh/zpty
+  pseudo-terminal, with 50 to 5,000 exported variables, 0 and 1,000 draft files, a
+  deep `PWD`, a projects file and a long command line. Its budget: each hook takes less
+  than 0.2 ms a key (p50 of each case; about 0.01 to 0.06 ms), and no key runs `efr`
+  while the daemon has no socket.

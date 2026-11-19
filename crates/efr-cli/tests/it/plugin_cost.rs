@@ -1,9 +1,11 @@
 //! The bench of the zsh plugin's cost per prompt (`bench_perf_zsh_prompt`), which
 //! `just bench-perf` runs in release: `_efr_preexec` and `_efr_precmd` around each of
 //! 200 prompts, timed by `$EPOCHREALTIME` inside zsh, the `source` of the plugin, and
-//! the redraw hooks of the warm-up (`_efr_warm_line`) and of the colours of `@path`
-//! words (`_efr_attach_colour`) for each key of a command line and of a prompt line,
-//! which have a budget.
+//! the redraw hooks of the warm-up (`_efr_warm_line`), of the colours of `@path` words
+//! (`_efr_attach_colour`) and of the paste mode (`_efr_paste_line`) for each key of a
+//! command line and of a prompt line, which have a budget. The keys go to a real line
+//! editor: a second `zsh -f -i` on a pseudo-terminal of zsh/zpty, where `BUFFER` is the
+//! special parameter of ZLE.
 //!
 //! zsh starts as `zsh -f -i` with its stdin on a pseudo-terminal, a cleared
 //! environment, a temp `HOME`, an empty runtime root of its own (`EFR_RUNTIME_DIR`)
@@ -31,6 +33,7 @@ const FAKE_EFR: &str = "#!/bin/sh\n: > \"$EFR_CALLS.$$\"\n";
 
 /// Sources the plugin, then runs `$EFR_BENCH_PROMPTS` prompts; one row each into
 /// `$EFR_BENCH_OUT_FILE`, after the time of the `source` and the `TTY` that zsh sees.
+/// Then the rows of the redraw hooks in a line editor ([`ZLE_SETUP`]) follow.
 const SCRIPT: &str = r#"
 zmodload zsh/datetime || exit 90
 typeset -F loading=$EPOCHREALTIME
@@ -53,35 +56,68 @@ for (( i = 1; i <= EFR_BENCH_PROMPTS; i++ )); do
   c=$EPOCHREALTIME
   out+=("prompt $(( (b - a) * 1e6 )) $(( (c - b) * 1e6 ))")
 done
-# The redraw hook for each key: of the command line, then of a prompt line, whose
-# first key that makes it a prompt starts the warm-up (with no socket, no efr runs).
-# BUFFER and CONTEXT are plain variables outside the line editor.
-typeset -g CONTEXT=start BUFFER
-local typed
-for typed in "$EFR_BENCH_LINE" ", how is the build going after the change of the cache"; do
-  _efr_warmed=0
-  for (( i = 1; i <= $#typed; i++ )); do
-    BUFFER=${typed[1,i]}
-    a=$EPOCHREALTIME
-    _efr_warm_line
-    b=$EPOCHREALTIME
-    out+=("key $(( (b - a) * 1e6 ))")
-  done
-done
-# The redraw hook of the colours of @path words for each key: of a line with no `@`,
-# then of a prompt line with two words that name files of the PWD.
+print -rl -- $out > $EFR_BENCH_OUT_FILE
+# The redraw hooks for each key, in a real line editor: a zsh on a pseudo-terminal of
+# zsh/zpty reads the keys as a person types them, and $EFR_BENCH_ZLE times the hooks
+# there. Each key waits for its echo, so ZLE redraws the line for each one. The keys:
+# the command line (its tabs as blanks, so no completion runs), then a prompt line
+# with two @path words that name files of the PWD, whose first key that makes it a
+# prompt starts the warm-up (with no socket, no efr runs).
 : > shot.png
 : > notes.md
-for typed in "$EFR_BENCH_LINE" ", compare the header in @shot.png with @notes.md and @alice"; do
-  for (( i = 1; i <= $#typed; i++ )); do
-    BUFFER=${typed[1,i]}
-    a=$EPOCHREALTIME
-    _efr_attach_colour
-    b=$EPOCHREALTIME
-    out+=("attach $(( (b - a) * 1e6 ))")
+zmodload zsh/zpty zsh/zselect || exit 92
+zpty zle 'TERM=xterm zsh -f -i' || exit 93
+integer fd=$REPLY
+# Reads the output of the line editor until it holds the pattern $1, for at most 5
+# seconds at each wait.
+shown() {
+  local more seen
+  while [[ $seen != *$~1* ]]; do
+    zselect -t 500 -r $fd || exit 94
+    zpty -r -t zle more && seen+=$more
   done
+}
+local ready=$'\e\\[\\?2004h' typed key
+shown $ready
+zpty -w -n zle "source ${(q)EFR_BENCH_ZLE}"$'\r'
+shown $ready
+for typed in "${EFR_BENCH_LINE//$'\t'/ }" ", compare the header in @shot.png with @notes.md and @alice"; do
+  for (( i = 1; i <= $#typed; i++ )); do
+    key=${typed[i]}
+    zpty -w -n zle $key
+    shown ${(b)key}
+  done
+  zpty -w -n zle $'\C-u'
 done
-print -rl -- $out > $EFR_BENCH_OUT_FILE
+zpty -w -n zle $'_bench_done\r'
+shown $ready
+zpty -w -n zle $'exit\r'
+zpty -d zle
+"#;
+
+/// Sourced in the zsh of the line editor: the plugin, with each of its redraw hooks
+/// timed by a hook of the bench, which writes one row per key and hook at
+/// `_bench_done`. `EFR_TERMINAL_BG` is set, so the plugin asks the terminal nothing.
+const ZLE_SETUP: &str = r#"
+EFR_TERMINAL_BG=dark
+source $EFR_BENCH_PLUGIN
+zmodload zsh/datetime
+typeset -ga _bench_rows
+_bench_time() {
+  local -F a=$EPOCHREALTIME
+  $2
+  _bench_rows+=("$1 $(( (EPOCHREALTIME - a) * 1e6 ))")
+}
+_bench_warm() { _bench_time key _efr_warm_line }
+_bench_attach() { _bench_time attach _efr_attach_colour }
+_bench_paste() { _bench_time paste _efr_paste_line }
+for hook in _efr_warm_line _efr_attach_colour _efr_paste_line; do
+  add-zle-hook-widget -d line-pre-redraw $hook
+done
+for hook in _bench_warm _bench_attach _bench_paste; do
+  add-zle-hook-widget line-pre-redraw $hook
+done
+_bench_done() { print -rl -- $_bench_rows >> $EFR_BENCH_OUT_FILE }
 "#;
 
 fn plugin() -> PathBuf {
@@ -122,6 +158,8 @@ struct Run {
     /// The redraw hook of the colours of `@path` words, for each key of a command line
     /// and a prompt with two of them.
     attach: Vec<Duration>,
+    /// The redraw hook of the paste mode, for each key of both lines.
+    paste: Vec<Duration>,
     tty: String,
 }
 
@@ -192,6 +230,8 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         .unwrap();
     }
     let out_file = dir.path().join("bench.out");
+    let zle_setup = dir.path().join("zle.zsh");
+    std::fs::write(&zle_setup, ZLE_SETUP).unwrap();
     let calls = dir.path().join("calls");
     let (master, slave) = super::picker::pty();
     if case.wake {
@@ -218,6 +258,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         .env("EFR_BENCH_PROMPTS", prompts.to_string())
         .env("EFR_BENCH_LINE", command_line(case.line))
         .env("EFR_BENCH_OUT_FILE", &out_file)
+        .env("EFR_BENCH_ZLE", &zle_setup)
         .env("EFR_BENCH_CORNER", u8::from(case.corner).to_string())
         .env("COLORTERM", "truecolor")
         .envs(
@@ -241,6 +282,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         precmd: Vec::new(),
         keys: Vec::new(),
         attach: Vec::new(),
+        paste: Vec::new(),
         tty: String::new(),
     };
     for row in text.lines() {
@@ -254,6 +296,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
             }
             ["key", key] => run.keys.push(micros(key)),
             ["attach", key] => run.attach.push(micros(key)),
+            ["paste", key] => run.paste.push(micros(key)),
             _ => panic!("an unknown row {row:?}"),
         }
     }
@@ -296,6 +339,7 @@ fn bench_perf_zsh_prompt() {
     let mut tty_set = 0;
     let mut worst_key = Duration::ZERO;
     let mut worst_attach = Duration::ZERO;
+    let mut worst_paste = Duration::ZERO;
     for case in cases {
         let run = run(zsh, case, PROMPTS);
         tty_set = u64::from(run.tty != "none");
@@ -309,6 +353,8 @@ fn bench_perf_zsh_prompt() {
         worst_key = worst_key.max(keys.p50);
         let attach = report.time(&format!("{label}: @path colour hook per key"), &run.attach);
         worst_attach = worst_attach.max(attach.p50);
+        let paste = report.time(&format!("{label}: paste mode hook per key"), &run.paste);
+        worst_paste = worst_paste.max(paste.p50);
         if case.drafts == 0
             && case.depth == 3
             && case.projects == 0
@@ -324,11 +370,12 @@ fn bench_perf_zsh_prompt() {
     report.time("source the plugin (base, 10 shells)", &loads);
     report.count("TTY is set in zsh", tty_set);
     report.finish();
-    // The budget: the redraw hook runs for each key, so it stays a few tests of a
+    // The budget: a redraw hook runs for each key, so it stays a few tests of a
     // variable with no fork (about 10 to 30 µs in zsh on a desktop machine).
     assert!(worst_key < KEY_BUDGET, "warm-up hook per key: p50 {worst_key:?}");
     assert!(worst_attach < KEY_BUDGET, "@path colour hook per key: p50 {worst_attach:?}");
+    assert!(worst_paste < KEY_BUDGET, "paste mode hook per key: p50 {worst_paste:?}");
 }
 
-/// The budget of the warm-up's redraw hook for one key (p50 of each case).
+/// The budget of each redraw hook of the plugin for one key (p50 of each case).
 const KEY_BUDGET: Duration = Duration::from_micros(200);
