@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use efr_conversation::PRESENCE_CHECK;
 use efr_protocol::{
     ConversationSubscribeItem, ErrorCode, Event, EventEnvelope, Method, Origin, PromptSendResult,
     QuestionId, QuestionReply, QuestionRespondResult, TurnInterrupt, TurnInterruptResult,
@@ -17,6 +18,7 @@ use efr_test_daemon::{
     Client, ClientError, ItemStream, TTY, TestDaemon, TestDaemonBuilder, answer_question,
     command_id, events_until,
 };
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -86,12 +88,22 @@ fn end(events: &[EventEnvelope]) -> Option<(UserAnswer, Option<Origin>)> {
 }
 
 /// Moves the clock past the away wait once the question sleeps on it.
-async fn pass_the_away_wait(daemon: &TestDaemon) {
+/// The away wait of the question is the first sleep of its length after the first look
+/// of the question ([`PRESENCE_CHECK`]) that came after the first `after` sleeps of
+/// the clock. The job guard of efrd sleeps as long from its start, and a move before
+/// the question sleeps would leave the question waiting.
+async fn pass_the_away_wait(daemon: &TestDaemon, after: usize) {
     let clock = daemon.clock();
-    while !clock.requested_sleeps().contains(&Duration::from_secs(300)) {
-        clock.wait_for_sleeps(clock.pending_sleeps() + 1).await;
-    }
-    clock.advance(Duration::from_secs(300));
+    let away_wait = Duration::from_secs(300);
+    Wait::new("the away wait of the question")
+        .until_some(|| {
+            let sleeps = clock.requested_sleeps();
+            let look = sleeps.iter().skip(after).position(|&sleep| sleep == PRESENCE_CHECK)?;
+            sleeps[after + look..].contains(&away_wait).then_some(())
+        })
+        .await
+        .unwrap();
+    clock.advance(away_wait);
 }
 
 /// The error code of a refused call.
@@ -202,8 +214,9 @@ async fn a_client_that_cannot_answer_leaves_the_question_to_the_away_wait() {
     let client = daemon.client_for_tty(TTY).await.unwrap();
     // NOTE: a follower with no `answers_questions`, as a piped `efr send`, efr 0.0.11
     // and the phone app of 0.0.11 subscribe.
+    let before = daemon.clock().requested_sleeps().len();
     let (_, mut follow, _) = asked(&daemon, &client, false).await;
-    pass_the_away_wait(&daemon).await;
+    pass_the_away_wait(&daemon, before).await;
     let events = until_end(&mut follow).await;
 
     // NOTE: the user is there; only no client that can answer follows.
