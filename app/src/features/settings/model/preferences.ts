@@ -26,7 +26,7 @@
 import { createStore, type Readable } from "@tanstack/store";
 
 import type { DaemonId } from "@/lib/protocol/generated";
-import type { KeyValueStorage } from "@/lib/store/key-value";
+import { readSaved, type KeyValueStorage } from "@/lib/store/key-value";
 import { savedPreferencesSchema } from "./preferences-schemas";
 
 /** The key-value key of the preferences. */
@@ -87,34 +87,18 @@ export interface PreferencesStore {
   settled(): Promise<void>;
 }
 
-/** The saved preferences, or the defaults when there are none or they are broken. */
-export function parsePreferences(json: string | null): Preferences {
-  if (json === null) {
-    return DEFAULT_PREFERENCES;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return DEFAULT_PREFERENCES;
-  }
-  const parsed = savedPreferencesSchema.safeParse(value);
-  if (!parsed.success) {
-    return DEFAULT_PREFERENCES;
-  }
-  const preferences: Preferences = parsed.data;
-  return preferences;
-}
-
-/** Makes the preferences store and reads the saved value. */
+/**
+ * Makes the preferences store and reads the saved value, or the defaults when there is
+ * none or it is broken.
+ */
 export function createPreferences(deps: PreferencesDeps): PreferencesStore {
-  let initial = DEFAULT_PREFERENCES;
-  try {
-    initial = parsePreferences(deps.storage.getItemSync(PREFERENCES_KEY));
-  } catch (error) {
-    deps.onStorageError?.(error);
-  }
-  const store = createStore<Preferences>(initial);
+  const saved: Preferences | undefined = readSaved(
+    deps.storage,
+    PREFERENCES_KEY,
+    savedPreferencesSchema,
+    deps.onStorageError,
+  );
+  const store = createStore<Preferences>(saved ?? DEFAULT_PREFERENCES);
   let writes: Promise<void> = Promise.resolve();
 
   const update = (next: Preferences): void => {

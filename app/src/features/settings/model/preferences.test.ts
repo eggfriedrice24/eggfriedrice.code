@@ -5,12 +5,21 @@ import {
   DEFAULT_PREFERENCES,
   PREFERENCES_KEY,
   createPreferences,
-  parsePreferences,
+  type Preferences,
 } from "./preferences";
 import { savedPreferencesSchema } from "./preferences-schemas";
 
 const DESKTOP = "019a9b1c-3d00-7a10-8b20-000000000001";
 const LAPTOP = "019a9b1c-3d00-7a10-8b20-000000000002";
+
+/** The preferences that a launch reads from the saved text `json`, or from none. */
+function launch(json: string | null): Preferences {
+  const storage = new MemoryKeyValue();
+  if (json !== null) {
+    storage.items.set(PREFERENCES_KEY, json);
+  }
+  return createPreferences({ storage }).store.get();
+}
 
 describe("the preferences", () => {
   it("start with haptics on, steer, no machine, asking before a costly switch, no legacy", () => {
@@ -77,13 +86,11 @@ describe("the preferences", () => {
   });
 
   it("keep each good field of a saved value and default the others", () => {
-    expect(parsePreferences(null)).toBe(DEFAULT_PREFERENCES);
-    expect(parsePreferences("{")).toBe(DEFAULT_PREFERENCES);
-    expect(parsePreferences("[]")).toBe(DEFAULT_PREFERENCES);
+    expect(launch(null)).toBe(DEFAULT_PREFERENCES);
+    expect(launch("{")).toBe(DEFAULT_PREFERENCES);
+    expect(launch("[]")).toBe(DEFAULT_PREFERENCES);
     expect(
-      parsePreferences(
-        JSON.stringify({ haptics: false, sendMode: "later", lastMachine: "x", extra: 1 }),
-      ),
+      launch(JSON.stringify({ haptics: false, sendMode: "later", lastMachine: "x", extra: 1 })),
     ).toEqual({
       haptics: false,
       sendMode: "steer",
@@ -94,7 +101,7 @@ describe("the preferences", () => {
       faceIdUnlockNotice: null,
       notifications: false,
     });
-    expect(parsePreferences(JSON.stringify({ lastMachine: LAPTOP }))).toEqual({
+    expect(launch(JSON.stringify({ lastMachine: LAPTOP }))).toEqual({
       haptics: true,
       sendMode: "steer",
       lastMachine: LAPTOP,
@@ -131,7 +138,7 @@ describe("the switch Notifications in the preferences", () => {
     preferences.setNotifications(true);
     await preferences.settled();
     expect(createPreferences({ storage }).store.get().notifications).toBe(true);
-    expect(parsePreferences(JSON.stringify({ notifications: "on" })).notifications).toBe(false);
+    expect(launch(JSON.stringify({ notifications: "on" })).notifications).toBe(false);
   });
 });
 
@@ -156,7 +163,7 @@ describe("the Face ID unlock in the preferences", () => {
 
   it("falls back to off for a bad saved value", () => {
     expect(
-      parsePreferences(JSON.stringify({ faceIdUnlock: "yes", faceIdUnlockNotice: "other" })),
+      launch(JSON.stringify({ faceIdUnlock: "yes", faceIdUnlockNotice: "other" })),
     ).toMatchObject({ faceIdUnlock: false, faceIdUnlockNotice: null });
   });
 });
