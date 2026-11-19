@@ -27,8 +27,10 @@
 //! an exchange whose URL path ends in `/responses` or `/messages` (a login, a token
 //! refresh or a model list is never written, also when a later change marks one
 //! recorded by mistake), and it writes the URL without its query and its user. The
-//! bodies hold the user's prompts, the output of tools and the answers, so the files are
-//! private and efr never sends them anywhere.
+//! bodies hold the user's prompts, the output of tools and the answers, and a request
+//! body holds the bytes (base64) of each image and PDF that goes to the model as
+//! content, so one request file can be many megabytes. The files are private and efr
+//! never sends them anywhere.
 //!
 //! [`Recorder::record`] runs on the task of the request, so it only sends to a bounded
 //! queue; a named thread writes the files.

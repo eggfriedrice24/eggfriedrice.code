@@ -32,8 +32,9 @@ const WEBP_ANIMATION: u8 = 0x02;
 /// APP2 with an ICC profile and APP14 (Adobe colour) stay, and ends at its first end
 /// mark. A PNG keeps its critical chunks and its ancillary chunks of transparency,
 /// colour and pixel size, so an animated PNG shows its default image. A WebP keeps
-/// `VP8X`, `VP8 `, `VP8L`, `ALPH` and `ICCP`, and loses the EXIF and XMP flags of `VP8X`. A GIF keeps its first image with its
-/// graphic control extension (the transparency) and loses each other block. The
+/// `VP8X`, `VP8 `, `VP8L`, `ALPH` and `ICCP`, and loses the EXIF and XMP flags of
+/// `VP8X`. A GIF keeps its first image with its graphic control extension (the
+/// transparency) and loses each other block. The
 /// orientation of an EXIF block goes too: the caller turns the pixels of an image that
 /// needs it before the strip.
 ///

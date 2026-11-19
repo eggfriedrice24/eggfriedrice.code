@@ -3,12 +3,12 @@
 ## Purpose
 
 The images and PDFs of efr's attachments (ADR 0026), as pure functions of their bytes.
-efrd calls it from the intake of an attachment (`crates/efr-daemon/src/attachments/intake.rs`),
-which decides what goes to a model.
+efrd calls it from the intake of an attachment
+(`crates/efr-daemon/src/attachments/intake.rs`), which decides what goes to a model.
 
 - `probe`: `Probe`, the type and the size of a PNG, JPEG, GIF or WebP image from its
-  header, with no decode. `MAX_PIXELS` (50 megapixels) is the largest image that efrd decodes: a 48 MP
-  photo of a phone still fits.
+  header, with no decode. `MAX_PIXELS` (50 megapixels) is the largest image that efrd
+  decodes: a 48 MP photo of a phone still fits.
 - `strip`: the metadata strip of a PNG, JPEG, GIF or WebP. It walks the JPEG segments,
   the PNG chunks, the GIF blocks or the RIFF chunks and keeps only the parts that show
   the first image, with the pixel data as it is. It is an allow list: a JPEG keeps
