@@ -121,9 +121,9 @@ export interface AppServicesDeps {
   readonly random: () => number;
   /** Runs a callback on the next display frame. */
   readonly schedule: FrameScheduler;
-  /** The clock of the outbox drains. */
+  /** The clock of the outbox drains and of the limit of a recording. */
   readonly clock: Clock;
-  /** The time now, ms since the epoch, for the order of the outbox. */
+  /** The time now, ms since the epoch, for the order of the outbox and the recording time. */
   readonly now: () => number;
   /** A new command id. */
   readonly newId: () => string;
@@ -374,6 +374,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
       speech: speech.speech,
       drafts,
       clock: deps.clock,
+      now: deps.now,
       haptic: speech.haptic,
       onError,
     });

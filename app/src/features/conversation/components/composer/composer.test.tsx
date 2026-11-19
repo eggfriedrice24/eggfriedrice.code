@@ -40,6 +40,11 @@ jest.mock("react-native-keyboard-controller", () =>
   jest.requireActual("react-native-keyboard-controller/jest"),
 );
 
+/** The wall clock of the tests, in ms since the epoch: the time of a recording stands still. */
+const mockNow = Date.UTC(2026, 10, 18, 14, 0);
+
+jest.mock("../use-now", () => ({ useNow: () => mockNow }));
+
 // @tanstack/pacer ships only ES modules, which jest-expo does not transform. The drafts
 // test in Vitest covers the real debounce; here a save runs at once.
 jest.mock("@tanstack/pacer", () => ({
@@ -195,8 +200,8 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       : createVoice({
           speech,
           drafts,
-          // The time of a recording counts from the wall clock, as `useNow` reads it.
-          clock: new FakeClock(Date.now()),
+          clock: new FakeClock(),
+          now: () => mockNow,
           haptic: () => undefined,
           onError: () => undefined,
         });
@@ -1183,7 +1188,7 @@ describe("voice input (S-Voice)", () => {
     open.mockRestore();
   });
 
-  it("names a call that stopped the recording, and keeps the text so far", async () => {
+  it("says that iOS stopped the recording, and keeps the text so far", async () => {
     const harness = await renderComposer({ voice: true });
     const speech = speechOf(harness);
     await fireEvent.press(screen.getByRole("button", { name: "Record a voice message" }));

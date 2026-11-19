@@ -17,6 +17,9 @@ import { FakeSpeech } from "./voice-testing";
 
 const KEY = draftKey(DESKTOP, CONVERSATION_A);
 
+/** The wall clock of the tests, in ms since the epoch. */
+const NOW = Date.UTC(2026, 10, 18, 14, 0);
+
 async function setup(text = ""): Promise<{
   readonly voice: Voice;
   readonly speech: FakeSpeech;
@@ -35,6 +38,7 @@ async function setup(text = ""): Promise<{
     speech,
     drafts,
     clock,
+    now: () => NOW,
     haptic: () => {
       haptics.count += 1;
     },
@@ -52,6 +56,7 @@ describe("the voice controller", () => {
       speech,
       drafts: createDrafts({ storage: new MemoryKeyValue() }),
       clock: new FakeClock(),
+      now: () => NOW,
       haptic: () => undefined,
       onError: () => undefined,
     });
@@ -62,11 +67,11 @@ describe("the voice controller", () => {
   });
 
   it("puts the words at the cursor, after the text that was there, and sends nothing", async () => {
-    const { voice, speech, clock, drafts, haptics } = await setup("Look at the header. ");
+    const { voice, speech, drafts, haptics } = await setup("Look at the header. ");
     voice.start(KEY, "Look at the header.".length);
     expect(voice.store.get()).toEqual({ kind: "preparing", key: KEY, model: false });
     speech.phase("recording");
-    expect(voice.store.get()).toEqual({ kind: "recording", key: KEY, startedAt: clock.now() });
+    expect(voice.store.get()).toEqual({ kind: "recording", key: KEY, startedAt: NOW });
     expect(haptics.count).toBe(1);
     speech.transcript("It is cut");
     expect(drafts.text(KEY)).toBe("Look at the header. It is cut ");
@@ -125,7 +130,7 @@ describe("the voice controller", () => {
     expect(drafts.text(KEY)).toBe("A long talk");
   });
 
-  it("names a call, a silent recording, a denied microphone and an error, until the next tap", async () => {
+  it("names an interruption, a silent recording, a denied microphone and an error, until the next tap", async () => {
     const { voice, speech, errors } = await setup();
     voice.start(KEY, 0);
     speech.phase("recording");
@@ -155,13 +160,16 @@ describe("the voice controller", () => {
     expect(voice.store.get()).toEqual({ kind: "idle", problem: undefined });
   });
 
-  it("stops the module when the user stopped before the microphone ran", async () => {
-    const { voice, speech } = await setup();
+  it("stops the module when the user stopped before the microphone ran, with no line", async () => {
+    const { voice, speech, haptics } = await setup();
     voice.start(KEY, 0);
     voice.stop();
     speech.phase("recording");
     expect(voice.store.get().kind).toBe("transcribing");
     expect(speech.calls).toEqual(["start", "stop", "stop"]);
+    speech.end("stopped");
+    expect(voice.store.get()).toEqual({ kind: "idle", problem: undefined });
+    expect(haptics.count).toBe(0);
   });
 
   it("shows the recording only in the composer of its draft", async () => {

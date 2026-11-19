@@ -16,9 +16,12 @@ module sends nothing, writes no audio file, and no audio leaves the phone.
   format of the analyzer and gives them to it live.
 - Each result sends the event `transcript` with the whole text so far: the final parts,
   then the newest part, which a later result can still change.
-- `stop()` ends the input, and the analyzer finalizes the last part. A phone call or Siri
-  stops the recording too (an interruption of the audio session). Then the last
-  `transcript` comes, and `end` with the reason: `stopped`, `interrupted` or `failed`.
+- `stop()` ends the input, and the analyzer finalizes the last part. The app calls it at
+  the stop button and when the user leaves the screen. Two causes stop the recording
+  with the reason `interrupted`: a phone call or Siri (an interruption of the audio
+  session), and a new audio input such as AirPods or CarPlay (a change of the
+  configuration of the audio engine, which stops the engine). Then the last `transcript`
+  comes, and `end` with the reason: `stopped`, `interrupted` or `failed`.
 - The app limits a recording to 5 minutes. The module has no limit of its own.
 
 The module does not ask for speech recognition. SpeechAnalyzer runs on the iPhone. The

@@ -9,8 +9,9 @@
 //   `recording`).
 // - Each result gives the event `transcript` with the whole text so far: the final parts,
 //   then the newest volatile part, which a later result can still change.
-// - `stop` ends the input, and the analyzer finalizes the last part. A phone call or Siri
-//   stops the recording too. Either way the last `transcript` comes, then `end`.
+// - `stop` ends the input, and the analyzer finalizes the last part. A phone call, Siri or
+//   a new audio input (AirPods, CarPlay) stops the recording too, with the reason
+//   `interrupted`. Either way the last `transcript` comes, then `end`.
 //
 // This module shares no code with the other modules of the app. If it does not compile,
 // one line in app/package.json (`expo.autolinking.exclude`) takes it out of the build, and

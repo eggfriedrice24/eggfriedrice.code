@@ -260,12 +260,13 @@ record: the first time, iOS asks for the microphone, and for a new language the 
 "Getting the speech model" shows while iOS gets it. While it records, the microphone is
 a stop button with the time next to it, and the words go into the draft at the cursor,
 after the text that was there. Voice never sends: Send is off while it records, and you
-send when you want. A recording stops at the stop button, after 5 minutes, or when a
-phone call or Siri takes the microphone; the text so far stays. The iPhone does the
+send when you want. A recording stops at the stop button, after 5 minutes, when you
+leave the screen, when a phone call or Siri takes the microphone, or when the audio
+input changes (AirPods or CarPlay connect); the text so far stays. The iPhone does the
 work: no audio file is written, and no audio leaves the iPhone.
 
 A line above the status line tells when something went wrong, such as "efr heard
-nothing" or "A call stopped the recording". When the microphone is off for efr, a tap on
+nothing" or "iOS stopped the recording". When the microphone is off for efr, a tap on
 the line opens the iOS settings of efr. The line goes at the next tap of the microphone
 or at Send.
 

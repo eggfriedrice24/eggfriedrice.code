@@ -1,4 +1,4 @@
-// Voice input of the composer (spec 7.3, board S-Voice): speech becomes text in the draft
+// Voice input of the composer (board S-Voice): speech becomes text in the draft
 // on the iPhone, with efr-speech (SpeechAnalyzer of iOS 26). Voice edits the draft and
 // never sends a prompt.
 //
@@ -10,13 +10,14 @@
 // - The text goes in at the cursor, after the text that was there, and each result
 //   changes only the words of this recording. When the user changed those words while it
 //   records, the next words go at the end of the draft.
-// - A recording stops after MAX_RECORDING_MS, at the stop button, or when a phone call or
-//   Siri takes the microphone; the text so far stays. A haptic marks the start and the
-//   stop.
-// - A line tells what went wrong: the microphone is off for efr, nothing was heard, a
-//   call stopped it, or iOS failed. It goes at the next tap of the microphone or at Send.
+// - A recording stops after MAX_RECORDING_MS, at the stop button, when the user leaves the
+//   screen, or when iOS stops it (a phone call, Siri, or a new audio input such as
+//   AirPods); the text so far stays. A haptic marks the start and the stop.
+// - A line tells what went wrong: the microphone is off for efr, nothing was heard, iOS
+//   stopped the recording, or iOS failed. It goes at the next tap of the microphone or at
+//   Send. A stop before the microphone ran has no line.
 //
-// Pure TypeScript on TanStack Store. The module, the drafts, the clock and the haptic
+// Pure TypeScript on TanStack Store. The module, the drafts, the clocks and the haptic
 // come in.
 
 import { createStore, type Readable } from "@tanstack/store";
@@ -26,7 +27,7 @@ import type { EfrSpeechNative } from "../../../../modules/efr-speech";
 import type { ComposerTrailing } from "./composer-state";
 import type { DraftKey, Drafts } from "./drafts";
 
-/** The longest recording (spec 7.3). */
+/** The longest recording. */
 export const MAX_RECORDING_MS = 5 * 60 * 1000;
 
 /** The code of the error of `start` when iOS denies the microphone (efr-speech). */
@@ -42,7 +43,7 @@ export type VoiceState =
   | { readonly kind: "idle"; readonly problem: VoiceProblem | undefined }
   /** `model` while iOS gets the speech model of the language. */
   | { readonly kind: "preparing"; readonly key: DraftKey; readonly model: boolean }
-  /** `startedAt` is wall-clock time in ms, as the composer reads the time with `useNow`. */
+  /** `startedAt` is in ms since the epoch, as the composer reads the time with `useNow`. */
   | { readonly kind: "recording"; readonly key: DraftKey; readonly startedAt: number }
   | { readonly kind: "transcribing"; readonly key: DraftKey };
 
@@ -50,7 +51,10 @@ export type VoiceState =
 export interface VoiceDeps {
   readonly speech: EfrSpeechNative;
   readonly drafts: Pick<Drafts, "text" | "set">;
+  /** The timer of the limit of a recording. */
   readonly clock: Clock;
+  /** The time in ms since the epoch, for the start of a recording. */
+  readonly now: () => number;
   /** The native haptic at the start and the stop. */
   readonly haptic: () => void;
   readonly onError: (error: unknown) => void;
@@ -73,7 +77,7 @@ export interface Voice {
 export const VOICE_LINES: Readonly<Record<VoiceProblem, string>> = {
   denied: "The microphone is off for efr. Tap to open Settings.",
   silent: "efr heard nothing. Nothing was added.",
-  interrupted: "A call stopped the recording. The text so far is in the message.",
+  interrupted: "iOS stopped the recording. The text so far is in the message.",
   failed: "The recording stopped with an error. The text so far is in the message.",
 };
 
@@ -138,6 +142,8 @@ export function createVoice(deps: VoiceDeps): Voice {
   let skip = 0;
   let last = "";
   let heard = false;
+  // False until the microphone runs: a stop before it ran heard nothing, but missed nothing.
+  let recorded = false;
 
   const set = (next: VoiceState): void => {
     store.setState(() => next);
@@ -199,7 +205,8 @@ export function createVoice(deps: VoiceDeps): Voice {
         return;
       }
       deps.haptic();
-      set({ kind: "recording", key: state.key, startedAt: clock.now() });
+      recorded = true;
+      set({ kind: "recording", key: state.key, startedAt: deps.now() });
       limit = clock.setTimer(MAX_RECORDING_MS, () => stop());
     }),
     speech.addListener("transcript", (event) => write(event.text)),
@@ -213,7 +220,7 @@ export function createVoice(deps: VoiceDeps): Voice {
         deps.onError(new Error(event.message ?? "the recording failed"));
         end("failed");
       } else {
-        end(heard ? undefined : "silent");
+        end(heard || !recorded ? undefined : "silent");
       }
     }),
   ];
@@ -248,6 +255,7 @@ export function createVoice(deps: VoiceDeps): Voice {
       skip = 0;
       last = "";
       heard = false;
+      recorded = false;
       set({ kind: "preparing", key, model: false });
       speech.start().catch((error: unknown) => {
         const state = store.state.kind;

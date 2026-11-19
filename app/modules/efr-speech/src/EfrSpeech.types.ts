@@ -7,7 +7,10 @@ import type { EventSubscription } from "expo";
 /** `model` while iOS gets the speech model of the language, then `recording`. */
 export type SpeechPhase = "model" | "recording";
 
-/** Why a recording ended: `stop`, a phone call or Siri, or an error. */
+/**
+ * Why a recording ended: `stop`; a phone call, Siri or a new audio input
+ * (`interrupted`); or an error.
+ */
 export type SpeechEndReason = "stopped" | "interrupted" | "failed";
 
 /** The events of the module. */
