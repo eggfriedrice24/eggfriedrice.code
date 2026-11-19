@@ -46,13 +46,16 @@ const mockNotifications = {
 jest.mock("expo-notifications", () => mockNotifications);
 
 /** A delivered notice of expo-notifications. */
-function notice(id: string, data: unknown) {
-  return { request: { identifier: id, content: { data } } };
+function notice(id: string, data: unknown, date = NOTICE_DATE) {
+  return { date, request: { identifier: id, content: { data } } };
 }
 
-/** The response of expo-notifications to a tap with `action` on a notice. */
-function response(id: string, data: unknown, action = DEFAULT_ACTION) {
-  return { actionIdentifier: action, notification: notice(id, data) };
+/** The date of a notice of the tests, in milliseconds. */
+const NOTICE_DATE = 1_763_500_000_000;
+
+/** The response of expo-notifications to a tap with `action` on a notice of `date`. */
+function response(id: string, data: unknown, action = DEFAULT_ACTION, date = NOTICE_DATE) {
+  return { actionIdentifier: action, notification: notice(id, data, date) };
 }
 
 function adapter() {
@@ -111,11 +114,25 @@ describe("nativePush", () => {
     mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
       response("n1", { d: DESKTOP, c: CONVERSATION }),
     );
-    expect(adapter().launch()).toEqual({ id: "n1", data: { d: DESKTOP, c: CONVERSATION } });
+    const id = `n1@${NOTICE_DATE}`;
+    expect(adapter().launch()).toEqual({ id, data: { d: DESKTOP, c: CONVERSATION } });
     mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
       response("n2", { d: DESKTOP, c: CONVERSATION }, "reply"),
     );
     expect(adapter().launch()).toBeUndefined();
+  });
+
+  it("gives two notices of one conversation, which share their id, two tap ids", () => {
+    const data = { d: DESKTOP, c: CONVERSATION };
+    mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
+      response(CONVERSATION, data, DEFAULT_ACTION, NOTICE_DATE),
+    );
+    const first = adapter().launch();
+    mockNotifications.getLastNotificationResponse.mockReturnValueOnce(
+      response(CONVERSATION, data, DEFAULT_ACTION, NOTICE_DATE + 60_000),
+    );
+    const second = adapter().launch();
+    expect(first?.id).not.toEqual(second?.id);
   });
 
   it("removes the delivered notices of one conversation only", async () => {

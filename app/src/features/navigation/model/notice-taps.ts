@@ -15,7 +15,10 @@ import type { ConversationRef, MachineId } from "@/features/machines/model/machi
 import { noticeDataSchema } from "./route-schemas";
 import { conversationPath } from "./routes";
 
-/** One tap on a notice: the id of the notice and its data. */
+/**
+ * One tap on a notice: the id of that one notice (the native adapter adds its date,
+ * because the notices of one conversation share their id) and its data.
+ */
 export interface NoticeTap {
   readonly id: string;
   readonly data: unknown;

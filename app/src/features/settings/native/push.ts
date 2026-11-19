@@ -48,7 +48,11 @@ function tapOf(
     return undefined;
   }
   const request = response.notification.request;
-  return { id: request.identifier, data: request.content.data };
+  // NOTE: efrd gives each notice of a conversation the same id (its collapse id), so
+  // only the id with the date names one notice: the launch tap and its copy from the
+  // listener are equal, and a later notice of the conversation is not.
+  const id = `${request.identifier}@${response.notification.date}`;
+  return { id, data: request.content.data };
 }
 
 /** The push effects of the app, or null in a build without expo-notifications. */
