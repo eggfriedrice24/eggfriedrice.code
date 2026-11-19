@@ -9,6 +9,13 @@
 //! of a request, the receipts and the waits of the push test end only when the clock
 //! moves, so a test waits until the daemon starts each sleep and then moves the clock
 //! to its end ([`pass`]).
+//!
+//! A move must never come while a request is on its way: the move would end the
+//! timeout of its try, on the same clock. So you leave the terminal by idle time
+//! ([`AWAY_AFTER`], [`LOOKS_UNTIL_AWAY`]), not with `presence.set`: a hand-over of the
+//! notices follower or of a look can reach the push task late, and only the clock
+//! decides then whether it finds you away. After a send, a test waits for its end
+//! ([`sent_and_done`]) before it moves the clock again.
 
 use std::time::Duration;
 
@@ -18,13 +25,13 @@ use efr_protocol::{
     AdminPushTest, AdminPushTestResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     CallId, ConversationId, ConversationSubscribe, ConversationSubscribeItem, DeviceId, DeviceList,
     DeviceListResult, DevicePushSet, DevicePushSetResult, DeviceRevoke, DeviceRevokeResult,
-    ErrorCode, Event, LeaseReport, LeaseReportResult, Method, Presence, PresenceSet,
-    PresenceSetResult, PromptSendResult, PushTestResult, PushTestRow, SecretText,
+    ErrorCode, Event, LeaseReport, LeaseReportResult, Method, PromptSendResult, PushTestResult,
+    PushTestRow, SecretText,
 };
 use efr_stdx::text::notice_place;
 use efr_test_daemon::{
-    Client, ClientError, FakePhone, ItemStream, PairedPhone, TTY, TestDaemon, TestDaemonError,
-    command_id, events_until,
+    Client, ClientError, FakePhone, ItemStream, PairedPhone, TTY, TestDaemon, TestDaemonBuilder,
+    TestDaemonError, command_id, events_until,
 };
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -34,6 +41,12 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use crate::sandbox::{REVIEWER_ALLOWS, ScriptedModel};
 use crate::support;
+
+/// How long after your last input you are away: `presence.away_after_minutes = 1`.
+const AWAY_AFTER: Duration = Duration::from_secs(60);
+
+/// How long a ticket waits for its receipt.
+const RECEIPT_DELAY: Duration = Duration::from_secs(15 * 60);
 
 /// The Expo push token of phone `n`.
 fn token(n: usize) -> String {
@@ -141,6 +154,38 @@ async fn pass(daemon: &TestDaemon, after: usize, of: impl Fn(Duration) -> bool) 
     index + 1
 }
 
+/// A look of a waiting turn.
+fn look(wait: Duration) -> bool {
+    wait == PRESENCE_CHECK
+}
+
+/// Passes `count` looks of the waiting question; returns how many sleeps the clock had
+/// then.
+async fn pass_looks(daemon: &TestDaemon, mut after: usize, count: u64) -> usize {
+    for _ in 0..count {
+        after = pass(daemon, after, look).await;
+    }
+    after
+}
+
+/// The looks of a question that parked with your prompt at the start of the clock,
+/// until the last one finds you away, [`AWAY_AFTER`] later. Before that move each
+/// hand-over finds you at the terminal, however late the push task takes it, so no
+/// send can be on its way when the clock moves.
+const LOOKS_UNTIL_AWAY: u64 = AWAY_AFTER.as_secs() / PRESENCE_CHECK.as_secs();
+
+/// Waits until the send that went out after the first `after` sleeps of the clock of
+/// `daemon` has ended: its ticket starts the timer of the receipts, [`RECEIPT_DELAY`]
+/// long when the clock has not moved since. A move before would end the timeout of the
+/// request.
+async fn sent_and_done(daemon: &TestDaemon, after: usize) {
+    let clock = daemon.clock();
+    Wait::new("the timer of the receipts")
+        .until_some(|| clock.requested_sleeps()[after..].contains(&RECEIPT_DELAY).then_some(()))
+        .await
+        .unwrap();
+}
+
 /// The answer of `admin.push_test` from `terminal`, while the clock of `daemon` passes
 /// one sleep of each of `waits`, in order.
 async fn push_test(
@@ -182,14 +227,20 @@ async fn start(expo: &MockServer, writes: usize) -> TestDaemon {
     let calls = (0..writes)
         .map(|n| ("write_file", json!({"path": format!("note{n}.md"), "content": "x"})))
         .collect();
-    TestDaemon::builder()
-        .remote()
-        .expo_push(expo.uri())
+    pushing(TestDaemon::builder(), expo)
         .custom_provider(ScriptedModel::reviewed(calls, REVIEWER_ALLOWS))
-        .config(|config| config.notify.after_secs = 0)
         .start()
         .await
         .unwrap()
+}
+
+/// `builder` with the remote listener on, its pushes to `expo`, the end of a turn of a
+/// phone pushed after 0 seconds, and you away [`AWAY_AFTER`] after your last input.
+fn pushing(builder: TestDaemonBuilder, expo: &MockServer) -> TestDaemonBuilder {
+    builder.remote().expo_push(expo.uri()).config(|config| {
+        config.notify.after_secs = 0;
+        config.presence.away_after_minutes = 1;
+    })
 }
 
 /// Pairs `count` phones, each with its push token on.
@@ -239,6 +290,16 @@ async fn prompt(
     (sent.conversation_id, events)
 }
 
+/// `phone` sends a prompt into `conversation_id`; the end of its turn pushes.
+async fn from_phone(daemon: &TestDaemon, phone: &mut PairedPhone, conversation_id: ConversationId) {
+    let Method::PromptSend(mut params) = daemon.prompt(2, "and from the phone", TTY) else {
+        unreachable!("a prompt is a prompt.send")
+    };
+    params.conversation_id = Some(conversation_id);
+    params.context = None;
+    let _: PromptSendResult = phone.phone.call(Method::PromptSend(params)).await.unwrap();
+}
+
 /// Reads `events` until the next event that `stop` takes, and returns it.
 async fn next(
     events: &mut ItemStream<ConversationSubscribeItem>,
@@ -260,16 +321,6 @@ fn allow(n: u128, conversation_id: ConversationId, call_id: CallId) -> Method {
     let decision = ApprovalDecision::Allow;
     let command_id = command_id(n);
     Method::ApprovalRespond(ApprovalRespond { command_id, conversation_id, call_id, decision })
-}
-
-/// The terminal says that you are away from `conversation_id`.
-async fn away(terminal: &Client, n: u128, conversation_id: ConversationId) {
-    let set = PresenceSet {
-        command_id: command_id(n),
-        conversation_id: Some(conversation_id),
-        presence: Presence::Away,
-    };
-    let _: PresenceSetResult = terminal.call(Method::PresenceSet(set)).await.unwrap();
 }
 
 fn refusal<T: std::fmt::Debug>(result: Result<T, ClientError>) -> ErrorCode {
@@ -345,8 +396,7 @@ async fn an_approval_pushes_once_to_both_phones_when_you_turn_away() {
     let before = sleeps(&daemon);
     let (conversation_id, mut events) = prompt(&daemon, &terminal, "write the note").await;
     let call_id = next_approval(&mut events).await;
-    away(&terminal, 2, conversation_id).await;
-    let looked = pass(&daemon, before, |wait| wait == PRESENCE_CHECK).await;
+    let looked = pass_looks(&daemon, before, LOOKS_UNTIL_AWAY).await;
 
     let sent = sends_until(&server, 1).await;
     let place = notice_place(None, Some(daemon.cwd()));
@@ -372,7 +422,8 @@ async fn an_approval_pushes_once_to_both_phones_when_you_turn_away() {
     assert!(request.headers.get("accept-encoding").is_none());
 
     // NOTE: the next look of the turn finds you away again; the question pushed once.
-    pass(&daemon, looked, |wait| wait == PRESENCE_CHECK).await;
+    sent_and_done(&daemon, looked).await;
+    pass(&daemon, looked, look).await;
     let _: ApprovalRespondResult = terminal.call(allow(3, conversation_id, call_id)).await.unwrap();
     next(&mut events, |event| matches!(event, Event::TurnCompleted { .. })).await;
     assert_eq!(sends(&server).await.len(), 1);
@@ -392,9 +443,7 @@ async fn a_question_refused_at_its_first_look_pushes_when_you_turn_away_later() 
         "question": "Which database?",
         "options": [{ "label": "Postgres" }, { "label": "SQLite" }],
     });
-    let daemon = TestDaemon::builder()
-        .remote()
-        .expo_push(server.uri())
+    let daemon = pushing(TestDaemon::builder(), &server)
         .custom_provider(ScriptedModel::reviewed(vec![("ask_user", ask)], REVIEWER_ALLOWS))
         .start()
         .await
@@ -403,14 +452,11 @@ async fn a_question_refused_at_its_first_look_pushes_when_you_turn_away_later() 
     let phones = phones(&daemon, 1).await;
 
     let before = sleeps(&daemon);
-    let sent: PromptSendResult =
-        terminal.call(daemon.prompt(1, "pick a store", TTY)).await.unwrap();
-    let looked = pass(&daemon, before, |wait| wait == PRESENCE_CHECK).await;
-    let looked = pass(&daemon, looked, |wait| wait == PRESENCE_CHECK).await;
+    let _: PromptSendResult = terminal.call(daemon.prompt(1, "pick a store", TTY)).await.unwrap();
+    let looked = pass_looks(&daemon, before, LOOKS_UNTIL_AWAY - 1).await;
     assert!(sends(&server).await.is_empty(), "you are at the terminal");
 
-    away(&terminal, 2, sent.conversation_id).await;
-    pass(&daemon, looked, |wait| wait == PRESENCE_CHECK).await;
+    pass_looks(&daemon, looked, 1).await;
     let sent = sends_until(&server, 1).await;
     assert_eq!(tokens_of(&sent[0]), [token(1)]);
     drop((phones, terminal));
@@ -432,10 +478,11 @@ async fn a_visible_lease_holds_the_push_and_a_revoked_phone_gets_none() {
         let conversations = vec![conversation_id];
         Method::LeaseReport(LeaseReport { conversations, ptys: Vec::new(), visible })
     };
-    let _: LeaseReportResult = phones[0].phone.call(lease(true)).await.unwrap();
     let first = next_approval(&mut events).await;
-    away(&terminal, 2, conversation_id).await;
-    pass(&daemon, before, |wait| wait == PRESENCE_CHECK).await;
+    let looked = pass_looks(&daemon, before, LOOKS_UNTIL_AWAY - 1).await;
+    // NOTE: a lease lasts a minute, so phone 1 reports it just before you are away.
+    let _: LeaseReportResult = phones[0].phone.call(lease(true)).await.unwrap();
+    pass_looks(&daemon, looked, 1).await;
     let sent = sends_until(&server, 1).await;
     assert_eq!(tokens_of(&sent[0]), [token(2)], "phone 1 is in front");
 
@@ -465,13 +512,8 @@ async fn a_dead_token_in_a_ticket_or_a_receipt_turns_push_off() {
     let (conversation_id, mut events) = prompt(&daemon, &terminal, "hello").await;
     next(&mut events, |event| matches!(event, Event::TurnCompleted { .. })).await;
 
-    let Method::PromptSend(mut params) = daemon.prompt(2, "and from the phone", TTY) else {
-        unreachable!("a prompt is a prompt.send")
-    };
-    params.conversation_id = Some(conversation_id);
-    params.context = None;
     let before = sleeps(&daemon);
-    let _: PromptSendResult = phones[0].phone.call(Method::PromptSend(params)).await.unwrap();
+    from_phone(&daemon, &mut phones[0], conversation_id).await;
 
     let sent = sends_until(&server, 1).await;
     let place = notice_place(None, Some(daemon.cwd()));
@@ -486,7 +528,7 @@ async fn a_dead_token_in_a_ticket_or_a_receipt_turns_push_off() {
         .unwrap();
     set_token(&mut phones[0], Some(&token(1))).await.unwrap();
 
-    pass(&daemon, before, |wait| wait == Duration::from_secs(15 * 60)).await;
+    pass(&daemon, before, |wait| wait == RECEIPT_DELAY).await;
     Wait::new("the dead token of the receipt to go")
         .until_some_async(async || {
             (push_on(&terminal).await == [(one, true), (two, false)]).then_some(())
@@ -498,7 +540,9 @@ async fn a_dead_token_in_a_ticket_or_a_receipt_turns_push_off() {
 }
 
 /// A 429 and a 503 are sent again after the waits of the policy; a 400 is not. A send
-/// with tokens of two Expo projects goes again as one request for each message.
+/// with tokens of two Expo projects goes again as one request for each message. The
+/// push is the end of a turn of the phone: it has one source, so no hand-over can start
+/// a try before the clock moves past a look.
 #[tokio::test]
 async fn a_429_and_a_503_are_sent_again_and_two_projects_go_one_by_one() {
     let server = MockServer::start().await;
@@ -517,17 +561,16 @@ async fn a_429_and_a_503_are_sent_again_and_two_projects_go_one_by_one() {
         .mount(&server)
         .await;
     Mock::given(path(ExpoPush::SEND_PATH)).respond_with(tickets(&[])).mount(&server).await;
-    let daemon = start(&server, 1).await;
+    let daemon = start(&server, 0).await;
     let terminal = daemon.client_for_tty(TTY).await.unwrap();
-    let phones = phones(&daemon, 2).await;
+    let mut phones = phones(&daemon, 2).await;
+    let (conversation_id, mut events) = prompt(&daemon, &terminal, "hello").await;
+    next(&mut events, |event| matches!(event, Event::TurnCompleted { .. })).await;
 
     let before = sleeps(&daemon);
-    let (conversation_id, mut events) = prompt(&daemon, &terminal, "write the note").await;
-    next_approval(&mut events).await;
-    away(&terminal, 2, conversation_id).await;
-    let looked = pass(&daemon, before, |wait| wait == PRESENCE_CHECK).await;
+    from_phone(&daemon, &mut phones[0], conversation_id).await;
     sends_until(&server, 1).await;
-    let waited = pass(&daemon, looked, try_wait(2)).await;
+    let waited = pass(&daemon, before, try_wait(2)).await;
     sends_until(&server, 2).await;
     pass(&daemon, waited, try_wait(4)).await;
 
