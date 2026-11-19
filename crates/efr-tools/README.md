@@ -181,7 +181,10 @@ The tools:
   `-s` or `cp -l`), `reads.rs` does the same for `git rm`, `git mv` and
   `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
   `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows
-  `cd` within the line (past 1024 directories that the rest of the line may run in, a
+  `cd` within the line (after `cd DIR &&` with one absolute or home `DIR`, the commands
+  up to the first operator other than `&&` and `|` run in `DIR` alone, as the `Joint`
+  of each command of `words.rs` tells; past 1024
+  directories that the rest of the line may run in, a
   relative path counts as anywhere below `/`, as after `cd -`), counts a path at or below what an earlier `cp`, `ln` or `mv`
   of the line wrote as anywhere below `/` too (it may be a link by then), turns a glob into everything below its fixed directory and an
   output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is

@@ -40,6 +40,25 @@ pub(super) struct Command {
     pub(super) inputs: Vec<Word>,
     /// The files that `>`, `>>`, `&>` and their forms write, without `/dev/null`.
     pub(super) outputs: Vec<Word>,
+    /// How the command joins the one before it.
+    pub(super) joint: Joint,
+}
+
+/// How a simple command joins the one before it, so a `cd` before `&&` can tell where
+/// the next command runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum Joint {
+    /// It starts a list of the shell: at the start of the line, after `;`, a newline
+    /// or a background `&`, or as the first command of a subshell or a substitution.
+    #[default]
+    Start,
+    /// After `&&`: it runs only when the command before it succeeded.
+    And,
+    /// After `|` or `|&`: it runs in the same pipeline as the command before it.
+    Pipe,
+    /// After anything else, such as `||`, the end of a group or a word that the split
+    /// cannot place.
+    Other,
 }
 
 impl Command {
@@ -88,6 +107,7 @@ pub(super) fn split(line: &str) -> Line {
         word: None,
         slot: Slot::Word,
         condition: false,
+        joint: Joint::Start,
     };
     splitter.run();
     splitter.line
@@ -117,6 +137,8 @@ struct Splitter {
     slot: Slot,
     /// True inside a `[[ ... ]]` condition, also past its `&&` and `||`.
     condition: bool,
+    /// How the command being read joins the one before it.
+    joint: Joint,
 }
 
 impl Splitter {
@@ -153,12 +175,26 @@ impl Splitter {
                     {
                         // NOTE: an arithmetic command, such as `(( p > 90 ))` or the
                         // head of `for (( i = 0; i < 3; i++ ))`, names no path.
-                        self.end_command();
+                        self.end_command(Joint::Other);
                         self.at = end + 1;
                         continue;
                     }
-                    self.end_command();
-                    self.at += 1;
+                    let subshell = c == '(' && self.word.is_none() && self.command.words.is_empty();
+                    let (joint, length) = match (c, self.peek_at(1)) {
+                        ('&', Some('&')) => (Joint::And, 2),
+                        ('&', Some('|' | '!')) => (Joint::Start, 2),
+                        ('|', Some('|')) | (';', Some(';' | '&' | '|')) => (Joint::Other, 2),
+                        ('|', Some('&')) => (Joint::Pipe, 2),
+                        ('|', _) => (Joint::Pipe, 1),
+                        (';' | '&' | '\n', _) => (Joint::Start, 1),
+                        _ => (Joint::Other, 1),
+                    };
+                    if subshell {
+                        self.start_list();
+                    } else {
+                        self.end_command(joint);
+                    }
+                    self.at += length;
                 }
                 '<' | '>' if self.condition && self.peek_at(1) != Some('(') => {
                     // NOTE: in `[[ a > b ]]` the operator compares two strings.
@@ -222,7 +258,7 @@ impl Splitter {
                 }
             }
         }
-        self.end_command();
+        self.end_command(Joint::Start);
     }
 
     /// The word being read, started when there is none.
@@ -266,13 +302,31 @@ impl Splitter {
         starts.then(|| arithmetic_end(&self.chars, self.at)).flatten()
     }
 
-    fn end_command(&mut self) {
+    /// Ends the command being read; the next one joins it as `next` says.
+    fn end_command(&mut self, next: Joint) {
         self.end_word();
         self.slot = Slot::Word;
-        let command = std::mem::take(&mut self.command);
-        if !command.is_empty() {
-            self.line.commands.push(command);
+        let mut command = std::mem::take(&mut self.command);
+        if command.is_empty() {
+            // NOTE: no command between two operators, as in `a &&` and a newline
+            // before `b`: a blank keeps the operator before it, and any other pair
+            // reads as `Other`, so `(cd /x) && b` does not count as after the `cd`.
+            self.joint = match (self.joint, next) {
+                (Joint::Start, next) => next,
+                (joint, Joint::Start) => joint,
+                _ => Joint::Other,
+            };
+            return;
         }
+        command.joint = std::mem::replace(&mut self.joint, next);
+        self.line.commands.push(command);
+    }
+
+    /// Ends the command being read at the start of a subshell or a substitution, whose
+    /// first command starts a list of its own.
+    fn start_list(&mut self) {
+        self.end_command(Joint::Other);
+        self.joint = Joint::Start;
     }
 
     /// A redirection operator that starts with `c` at the cursor.
@@ -283,7 +337,7 @@ impl Splitter {
                 // `<(...)` and `>(...)`: a command of its own.
                 self.line.opaque = true;
                 self.condition = false;
-                self.end_command();
+                self.start_list();
                 self.at += 1;
             }
             ('<', Some('<')) => {
@@ -342,7 +396,7 @@ impl Splitter {
             Some('(') => {
                 self.line.opaque = true;
                 self.condition = false;
-                self.end_command();
+                self.start_list();
                 self.at += 2;
             }
             Some('{') => {
@@ -451,7 +505,11 @@ impl Splitter {
                         self.word = None;
                     }
                     self.condition = false;
-                    self.end_command();
+                    if c == '$' {
+                        self.start_list();
+                    } else {
+                        self.end_command(Joint::Other);
+                    }
                     self.at += if c == '$' { 2 } else { 1 };
                     return;
                 }

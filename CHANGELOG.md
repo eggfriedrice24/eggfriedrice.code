@@ -26,6 +26,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, a `>` or `<` in arithmetic, such as `(( p > 90 ))` or `$(( i > 1 ))`, or
   in a `[[ a > b ]]` condition, is no longer read as a write to a file. Before, efr
   asked for a write of `./90`, and a yes made an empty file `90`.
+- After `cd DIR &&` with one absolute or home directory, efr now reads the paths of the
+  commands that follow in `DIR` alone. Before, `cd ~/p/app && chmod +x run.sh` also
+  asked for a write of `run.sh` in the directory where the hidden shell stood before,
+  such as `/sys/class/hwmon/hwmon5`.
 - In `auto`, the value of an option of `ping`, `traceroute`, `tracepath` or `mtr`, such
   as the interval of `ping -i 0.2`, is no longer read as the host that the command
   reaches.

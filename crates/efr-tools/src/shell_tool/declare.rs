@@ -4,7 +4,11 @@
 //! A relative path runs against the hidden shell's directory, which the call context
 //! names, not against the user's. A `cd` inside the line adds its target as one more
 //! directory the rest of the line may run in, because a `cd` in a pipeline or after
-//! `||` may or may not take effect; a `cd` whose target the text does not show (`cd -`,
+//! `||` may or may not take effect. Only the commands that `&&` joins to a `cd` of one
+//! absolute or home directory, such as `chmod` in `cd /p && chmod +x f`, run in its
+//! target alone: they run only when the `cd` succeeded, and the hidden shell's own
+//! directory is then no longer where they run. A `|` keeps them there, and the first
+//! other operator ends it. A `cd` whose target the text does not show (`cd -`,
 //! `popd`, `cd $DIR`) leaves the directory unknown, and a relative path then counts as
 //! anything below `/`. Each relative `cd` adds its target below every directory so far,
 //! so a chain of them doubles the count: past [`MAX_BASES`] directories the directory
@@ -20,7 +24,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use super::reads::{self, Depth, Named};
-use super::words::{Line, Word};
+use super::words::{Joint, Line, Word};
 use crate::paths::normalize;
 
 /// The most directories that the rest of a line may run in. Past it, a relative path
@@ -44,13 +48,17 @@ pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
     let start = normalize(start);
     let mut walk = Walk {
         bases: vec![start.clone()],
+        scope: None,
         lost: false,
         relinked: Vec::new(),
         home,
         out: Declared::default(),
         seen: Seen { bases: HashSet::from([start.clone().into_os_string()]), ..Seen::default() },
     };
-    for command in &line.commands {
+    for (index, command) in line.commands.iter().enumerate() {
+        if !matches!(command.joint, Joint::And | Joint::Pipe) {
+            walk.scope = None;
+        }
         for input in &command.inputs {
             walk.declare(&named(input, Depth::One), Access::Read);
         }
@@ -62,7 +70,15 @@ pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
             continue;
         };
         match program.text.rsplit('/').next().unwrap_or(&program.text) {
-            "cd" | "pushd" => walk.change_directory(&words[1..]),
+            name @ ("cd" | "pushd") => {
+                // NOTE: `pushd` alone goes to the top of the stack, and a `cd` in a
+                // pipeline or after `||` may not run, so only this form narrows.
+                let next = line.commands.get(index + 1).map(|next| next.joint);
+                let narrows = name == "cd"
+                    && matches!(command.joint, Joint::Start | Joint::And)
+                    && next == Some(Joint::And);
+                walk.change_directory(&words[1..], narrows);
+            }
             "popd" => walk.lost = true,
             _ => {
                 let reads = reads::reads(words);
@@ -95,8 +111,11 @@ enum Access {
 }
 
 struct Walk<'a> {
-    /// The directories the next command may run in, each one normal.
+    /// The directories the rest of the line may run in, each one normal.
     bases: Vec<PathBuf>,
+    /// The directories the next command runs in when they are fewer than `bases`: the
+    /// target of a `cd` that `&&` joins to it, each one normal.
+    scope: Option<Vec<PathBuf>>,
     /// True once a `cd` went somewhere the text does not show.
     lost: bool,
     /// The paths that an earlier `cp`, `ln` or `mv` of the line writes, which may be
@@ -119,10 +138,15 @@ struct Seen {
 }
 
 impl Walk<'_> {
-    fn change_directory(&mut self, args: &[Word]) {
-        let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
-        match target {
-            None => self.add_base(normalize(self.home)),
+    /// Follows a `cd` or `pushd` with `args`. When it `narrows`, the next commands run in
+    /// its target alone, if the target is one absolute or home directory.
+    fn change_directory(&mut self, args: &[Word], narrows: bool) {
+        let mut operands =
+            args.iter().filter(|word| word.text == "-" || !word.text.starts_with('-'));
+        let target = operands.next();
+        let one = operands.next().is_none();
+        let moved = match target {
+            None => vec![normalize(self.home)],
             Some(word)
                 if word.text == "-"
                     || word.text.starts_with('+')
@@ -130,6 +154,7 @@ impl Walk<'_> {
                     || word.pattern.is_some() =>
             {
                 self.lost = true;
+                return;
             }
             Some(word) => {
                 let target = named(word, Depth::One);
@@ -145,9 +170,25 @@ impl Walk<'_> {
                 } else {
                     Some(declared)
                 };
-                for base in moved.into_iter().flatten() {
-                    self.add_base(base);
-                }
+                moved.unwrap_or_default()
+            }
+        };
+        for base in &moved {
+            self.add_base(base.clone());
+        }
+        // NOTE: a relative target may go elsewhere by `CDPATH`, and two operands are
+        // zsh's replace form, so only one absolute or home directory narrows.
+        let fixed = target.is_none_or(|word| word.tilde || word.text.starts_with('/'));
+        if narrows && fixed && one && !self.lost {
+            self.scope = Some(moved);
+        } else if let Some(scope) = &mut self.scope {
+            // NOTE: a `cd` that does not narrow adds its targets to the scope; past
+            // [`MAX_BASES`] the next command may run in any of `bases`, as without a
+            // scope. A dir twice costs one more lookup, and `push` keeps each path once.
+            if scope.len() + moved.len() > MAX_BASES {
+                self.scope = None;
+            } else {
+                scope.extend(moved);
             }
         }
     }
@@ -212,8 +253,10 @@ impl Walk<'_> {
     }
 
     /// The absolute forms of `text`: under the home directory for `~`, itself when
-    /// absolute, under every base otherwise; `None` when the base is unknown.
+    /// absolute, under every base of the scope, or else of the line, otherwise; `None`
+    /// when the base is unknown.
     fn resolve(&self, text: &str, tilde: bool) -> Option<Vec<PathBuf>> {
+        let bases = self.scope.as_deref().unwrap_or(&self.bases);
         let paths = if tilde {
             let below = text.strip_prefix('~').unwrap_or(text).trim_start_matches('/');
             vec![self.home.join(below)]
@@ -224,9 +267,9 @@ impl Walk<'_> {
         } else if plain(text) {
             // NOTE: a normal base joined with plain names is normal, so this skips the
             // normalize of each path: a line can run in up to 1024 bases.
-            return Some(self.bases.iter().map(|base| base.join(text)).collect());
+            return Some(bases.iter().map(|base| base.join(text)).collect());
         } else {
-            self.bases.iter().map(|base| base.join(text)).collect()
+            bases.iter().map(|base| base.join(text)).collect()
         };
         Some(paths.iter().map(|path| normalize(path)).collect())
     }

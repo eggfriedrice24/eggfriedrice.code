@@ -68,6 +68,13 @@ fn declare(line: &str) -> Declared {
 )]
 #[case::through_a_copy("cp -r a b && cat b/x", &["/home/u/p/app/b/x"], &["/home/u/p/app/a", "/"], &["/home/u/p/app/b"])]
 #[case::mkdir_makes_no_link("mkdir -p out && cp a out/", &[], &["/home/u/p/app/a"], &["/home/u/p/app/out"])]
+// The hidden shell stood in another dir; after `cd DIR &&` the write is in DIR alone.
+#[case::write_after_cd_and(
+    "cd /home/u/p/x && chmod +x run.sh",
+    &["/home/u/p/x"],
+    &[],
+    &["/home/u/p/x/+x", "/home/u/p/x/run.sh"]
+)]
 #[case::echo_names_nothing("echo ~/.ssh/id_rsa", &[], &[], &[])]
 #[case::home_variable("cat $HOME/.ssh/id_rsa", &["/home/u/.ssh/id_rsa"], &[], &[])]
 fn declares(
@@ -87,10 +94,10 @@ fn declares(
     &["/home/u/p", "/home/u/p/app/id_ed25519", "/home/u/p/id_ed25519"],
     &[]
 )]
-#[case::cd_into_secrets("cd ~/.ssh && cat id_ed25519", &["/home/u/.ssh", "/home/u/p/app/id_ed25519", "/home/u/.ssh/id_ed25519"], &[])]
-#[case::cd_home("cd && ls", &["/home/u/p/app", "/home/u"], &[])]
+#[case::cd_into_secrets("cd ~/.ssh; cat id_ed25519", &["/home/u/.ssh", "/home/u/p/app/id_ed25519", "/home/u/.ssh/id_ed25519"], &[])]
+#[case::cd_home("cd; ls", &["/home/u/p/app", "/home/u"], &[])]
 #[case::two_steps(
-    "cd ~ && cd .ssh && cat x",
+    "cd ~; cd .ssh; cat x",
     &[
         "/home/u",
         "/home/u/p/app/.ssh",
@@ -102,6 +109,33 @@ fn declares(
     ],
     &[]
 )]
+// After `&&`, a command runs only when the `cd` before it succeeded: in its target alone
+// when that is one absolute or home directory.
+#[case::and_into_secrets("cd ~/.ssh && cat id_ed25519", &["/home/u/.ssh", "/home/u/.ssh/id_ed25519"], &[])]
+#[case::and_home("cd && ls", &["/home/u"], &[])]
+#[case::and_two_steps(
+    "cd ~ && cd .ssh && cat x",
+    &["/home/u", "/home/u/.ssh", "/home/u/x", "/home/u/.ssh/x"],
+    &[]
+)]
+#[case::and_pipe("cd /srv && cat a | wc -l && cat b", &["/srv", "/srv/a", "/srv/b"], &[])]
+#[case::and_in_a_subshell("(cd /srv && cat a); cat b", &["/srv", "/srv/a", "/home/u/p/app/b", "/srv/b"], &[])]
+#[case::and_in_a_substitution("echo $(cd /srv && cat a)", &["/srv", "/srv/a"], &[])]
+#[case::and_then_newline("cd /srv &&\ncat a", &["/srv", "/srv/a"], &[])]
+// Where the `cd` may not run or may fail first, the start stays.
+#[case::semicolon("cd /srv; cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::or("cd /srv || cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::after_or("true || cd /srv && cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::after_pipe("ls | cd /srv && cat a", &["/home/u/p/app", "/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::in_a_pipe("cd /srv | cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::in_a_closed_subshell("(cd /srv) && cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::in_a_closed_group("{ cd /srv; } && cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::background("cd /srv & cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::or_after_the_and("cd /srv && cat a || cat b", &["/srv", "/srv/a", "/home/u/p/app/b", "/srv/b"], &[])]
+#[case::relative("cd sub && cat a", &["/home/u/p/app/sub", "/home/u/p/app/a", "/home/u/p/app/sub/a"], &[])]
+#[case::pushd("pushd /srv && cat a", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
+#[case::replace_form("cd /a /b && cat x", &["/a", "/home/u/p/app/x", "/a/x"], &[])]
+#[case::behind_a_word("x(cd /srv && cat a)", &["/srv", "/home/u/p/app/a", "/srv/a"], &[])]
 // A cd the text cannot follow makes every relative path anything below /.
 #[case::cd_back("cd - && cat id_ed25519", &[], &["/"])]
 #[case::cd_variable("cd $DIR && ls", &[], &["/"])]
@@ -127,8 +161,9 @@ fn downward_cds(count: usize) -> String {
 }
 
 /// `count` `cd`s to absolute directories, each one more directory the line may run in.
+/// `;` joins them, because the command after `cd /x &&` runs in `/x` alone.
 fn absolute_cds(count: usize) -> String {
-    (1..=count).map(|n| format!("cd /a{n} && ")).collect()
+    (1..=count).map(|n| format!("cd /a{n}; ")).collect()
 }
 
 #[test]
@@ -153,8 +188,8 @@ fn past_the_cap_of_directories_a_relative_path_is_anything_below_root() {
 #[case::absolute_at_the_cap(absolute_cds(MAX_BASES - 1), Some(MAX_BASES))]
 #[case::absolute_past_the_cap(absolute_cds(MAX_BASES), None)]
 // A bare cd adds the home directory, and the cap counts it too.
-#[case::home_at_the_cap(format!("{}cd && ", absolute_cds(MAX_BASES - 2)), Some(MAX_BASES))]
-#[case::home_past_the_cap(format!("{}cd && ", absolute_cds(MAX_BASES - 1)), None)]
+#[case::home_at_the_cap(format!("{}cd; ", absolute_cds(MAX_BASES - 2)), Some(MAX_BASES))]
+#[case::home_past_the_cap(format!("{}cd; ", absolute_cds(MAX_BASES - 1)), None)]
 fn the_cap_counts_every_directory_the_line_may_run_in(
     #[case] cds: String,
     #[case] bases: Option<usize>,
