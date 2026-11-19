@@ -39,9 +39,7 @@ impl Probe {
 /// [`MediaError::WrongType`] for each other file, [`MediaError::Broken`] when the header
 /// is cut or names a size of 0.
 pub fn probe(bytes: &[u8]) -> Result<Probe, MediaError> {
-    let media = sniff(bytes)
-        .filter(|media| media.is_image())
-        .ok_or(MediaError::WrongType { expected: "PNG, JPEG, GIF or WebP image" })?;
+    let media = image_type(bytes)?;
     let size = match media {
         MediaType::Png => png(bytes),
         MediaType::Jpeg => jpeg(bytes),
@@ -54,6 +52,24 @@ pub fn probe(bytes: &[u8]) -> Result<Probe, MediaError> {
         _ => Err(MediaError::broken(media, 0)),
     }
 }
+
+/// The type of the image `bytes`: PNG, JPEG, GIF or WebP.
+///
+/// # Errors
+///
+/// [`MediaError::WrongType`] for each other file.
+pub(crate) fn image_type(bytes: &[u8]) -> Result<MediaType, MediaError> {
+    sniff(bytes)
+        .filter(|media| media.is_image())
+        .ok_or(MediaError::WrongType { expected: "PNG, JPEG, GIF or WebP image" })
+}
+
+/// The type of the first chunk of a WebP file, after the RIFF header.
+pub(crate) const WEBP_FIRST_CHUNK: std::ops::Range<usize> = 12..16;
+
+/// The start of the data of the first chunk of a WebP file; the flags of `VP8X` are its
+/// first byte.
+pub(crate) const WEBP_FIRST_DATA: usize = 20;
 
 /// The size in the `IHDR` chunk, the first chunk after the signature.
 fn png(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -78,8 +94,8 @@ fn gif(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// The size in the first chunk: the canvas of `VP8X`, or the frame of `VP8 ` or `VP8L`.
 fn webp(bytes: &[u8]) -> Option<(u32, u32)> {
-    let data = 20;
-    match bytes.get(12..16)? {
+    let data = WEBP_FIRST_DATA;
+    match bytes.get(WEBP_FIRST_CHUNK)? {
         b"VP8X" => Some((le24(bytes, data + 4)? + 1, le24(bytes, data + 7)? + 1)),
         b"VP8 " => {
             // NOTE: a frame tag of 3 bytes, the start code 9d 01 2a, then the two sizes

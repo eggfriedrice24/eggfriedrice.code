@@ -5,9 +5,9 @@
 //! The walk is also the check of a GIF or WebP file, which efrd cannot decode: each part
 //! must have a size that fits in the file. The pixel data stays as it is.
 
-use efr_stdx::media::{MediaType, sniff};
+use efr_stdx::media::MediaType;
 
-use crate::probe::{be32, le32};
+use crate::probe::{WEBP_FIRST_CHUNK, WEBP_FIRST_DATA, be32, image_type, le32};
 use crate::{MediaError, jpeg};
 
 /// The ancillary PNG chunks that the strip keeps: transparency, colour and pixel size.
@@ -24,6 +24,25 @@ const WEBP_KEPT: [&[u8; 4]; 5] = [b"VP8X", b"VP8 ", b"VP8L", b"ALPH", b"ICCP"];
 /// The flag of `VP8X` for an animation.
 const WEBP_ANIMATION: u8 = 0x02;
 
+/// The JPEG markers of APP0 (JFIF), APP2 (an ICC profile among others), APP14 (the
+/// colour transform of Adobe), and the range of every APP segment.
+const APP0: u8 = 0xe0;
+const APP2: u8 = 0xe2;
+const APP14: u8 = 0xee;
+const APP_ALL: std::ops::RangeInclusive<u8> = 0xe0..=0xef;
+
+/// The JPEG marker of a comment.
+const COM: u8 = 0xfe;
+
+/// The first bytes of the GIF blocks: an extension, an image and the trailer.
+const GIF_EXTENSION: u8 = 0x21;
+const GIF_IMAGE: u8 = 0x2c;
+const GIF_TRAILER: u8 = 0x3b;
+
+/// The label of the GIF graphic control extension, which holds the transparent colour
+/// of the next image.
+const GIF_GRAPHIC_CONTROL: u8 = 0xf9;
+
 /// `bytes` with only the parts that show its first image, for a PNG, JPEG, GIF or WebP
 /// image: no EXIF (and so no GPS tag), XMP, IPTC, C2PA, comment or text metadata, and
 /// no data after the image.
@@ -34,9 +53,8 @@ const WEBP_ANIMATION: u8 = 0x02;
 /// colour and pixel size, so an animated PNG shows its default image. A WebP keeps
 /// `VP8X`, `VP8 `, `VP8L`, `ALPH` and `ICCP`, and loses the EXIF and XMP flags of
 /// `VP8X`. A GIF keeps its first image with its graphic control extension (the
-/// transparency) and loses each other block. The
-/// orientation of an EXIF block goes too: the caller turns the pixels of an image that
-/// needs it before the strip.
+/// transparency) and loses each other block. The orientation of an EXIF block goes
+/// too: the caller turns the pixels of an image that needs it before the strip.
 ///
 /// # Errors
 ///
@@ -45,12 +63,10 @@ const WEBP_ANIMATION: u8 = 0x02;
 /// [`MediaError::Broken`] when a part does not fit in the file or the file ends before
 /// its end mark.
 pub fn strip(bytes: &[u8]) -> Result<Vec<u8>, MediaError> {
-    let media = sniff(bytes)
-        .filter(|media| media.is_image())
-        .ok_or(MediaError::WrongType { expected: "PNG, JPEG, GIF or WebP image" })?;
+    let media = image_type(bytes)?;
     if media == MediaType::Webp
-        && bytes.get(12..16) == Some(b"VP8X")
-        && bytes.get(20).is_some_and(|flags| flags & WEBP_ANIMATION != 0)
+        && bytes.get(WEBP_FIRST_CHUNK) == Some(b"VP8X")
+        && bytes.get(WEBP_FIRST_DATA).is_some_and(|flags| flags & WEBP_ANIMATION != 0)
     {
         return Err(MediaError::Animated);
     }
@@ -97,10 +113,10 @@ fn jpeg(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
         let segment = segment?;
         let part = &bytes[segment.start..segment.end];
         let kept = match segment.marker {
-            // NOTE: APP0 is JFIF, APP14 the colour transform of Adobe.
-            0xe0 | 0xee => true,
-            0xe2 => part.get(4..).is_some_and(|data| data.starts_with(b"ICC_PROFILE\0")),
-            0xe1..=0xef | 0xfe => false,
+            APP0 | APP14 => true,
+            APP2 => part.get(4..).is_some_and(|data| data.starts_with(b"ICC_PROFILE\0")),
+            COM => false,
+            marker if APP_ALL.contains(&marker) => false,
             _ => true,
         };
         if kept {
@@ -125,29 +141,27 @@ fn gif(bytes: &[u8], out: &mut Vec<u8>) -> Result<(), usize> {
     loop {
         let start = at;
         match *bytes.get(at).ok_or(at)? {
-            0x3b => {
-                out.push(0x3b);
+            GIF_TRAILER => {
+                out.push(GIF_TRAILER);
                 return Ok(());
             }
-            0x21 => {
-                // NOTE: the graphic control extension holds the transparent colour of the
-                // next image; comments, text and application data go.
-                const GRAPHIC_CONTROL: u8 = 0xf9;
+            GIF_EXTENSION => {
+                // NOTE: comments, text and application data go.
                 let label = *bytes.get(at + 1).ok_or(at)?;
                 let end = sub_blocks(bytes, at + 2).ok_or(start)?;
-                if label == GRAPHIC_CONTROL {
+                if label == GIF_GRAPHIC_CONTROL {
                     out.extend_from_slice(&bytes[start..end]);
                 }
                 at = end;
             }
-            0x2c => {
+            GIF_IMAGE => {
                 // NOTE: the descriptor of 10 bytes, a local colour table, the minimum code
                 // size, then the data as sub-blocks. A model sees only the first image,
                 // so each later frame goes.
                 let flags = *bytes.get(at + 9).ok_or(at)?;
                 let end = sub_blocks(bytes, at + 10 + colour_table(flags) + 1).ok_or(start)?;
                 out.extend_from_slice(&bytes[start..end]);
-                out.push(0x3b);
+                out.push(GIF_TRAILER);
                 return Ok(());
             }
             _ => return Err(at),
