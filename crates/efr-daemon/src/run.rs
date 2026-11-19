@@ -836,7 +836,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // follows the turns from here on, before any actor can start one.
     let (idle_trims, idle_trims_watch) = watch::channel(0);
     let heap_committed = writer.subscribe();
-    let (attachments, uploads) = crate::attachments::store(
+    let (attachments, uploads, attachment_cache) = crate::attachments::store(
         &dirs,
         settings_receiver.clone(),
         Arc::clone(&clock),
@@ -918,6 +918,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         pairings,
         deletes,
         uploads,
+        attachment_cache,
         push,
     });
     // NOTE: before the socket opens, so no upload of this efrd is open yet.

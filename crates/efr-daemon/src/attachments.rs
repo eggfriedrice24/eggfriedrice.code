@@ -28,7 +28,8 @@ use efr_stdx::time::Clock;
 use efr_store::Readers;
 use tokio::sync::{Semaphore, watch};
 
-use self::cache::{CACHE_BYTES, Cache};
+use self::cache::CACHE_BYTES;
+pub(crate) use self::cache::Cache;
 use self::intake::check;
 use self::store::Blobs;
 use self::uploads::{Finished, Uploads};
@@ -42,18 +43,20 @@ pub(crate) mod uploads;
 pub(crate) use self::store::ATTACHMENTS_DIR;
 
 /// The store of the attachments that the conversations use, in the data dir of `dirs`,
-/// with the limits of the latest `settings`, and the open uploads in its state dir that
-/// the prompts take. Both share one decode at a time.
+/// with the limits of the latest `settings`, the open uploads in its state dir that the
+/// prompts take, and its cache, which the delete of a conversation empties. The store
+/// and the uploads share one decode at a time.
 pub(crate) fn store(
     dirs: &Dirs,
     settings: watch::Receiver<Arc<Settings>>,
     clock: Arc<dyn Clock>,
     readers: Readers,
-) -> (Arc<dyn Attachments>, Uploads) {
+) -> (Arc<dyn Attachments>, Uploads, Arc<Cache>) {
     let decode = Arc::new(Semaphore::new(1));
     let uploads = Uploads::new(dirs.state(), clock, Arc::clone(&decode));
     let store = DaemonAttachments::new(dirs.data(), settings, uploads.clone(), readers, decode);
-    (Arc::new(store), uploads)
+    let cache = Arc::clone(&store.cache);
+    (Arc::new(store), uploads, cache)
 }
 
 /// The limits of the capability `attachments` under `settings`, or `None` when this
@@ -72,7 +75,7 @@ pub(crate) fn limits(settings: &Settings) -> Option<AttachmentLimits> {
 #[derive(Debug)]
 pub(crate) struct DaemonAttachments {
     blobs: Blobs,
-    cache: Cache,
+    cache: Arc<Cache>,
     /// One decode at a time: a decoded image holds up to `efr_media::MAX_DECODE_BYTES`
     /// (200 MB), and its downscale up to 128 MB more at the default edge.
     decode: Arc<Semaphore>,
@@ -93,7 +96,7 @@ impl DaemonAttachments {
     ) -> Self {
         DaemonAttachments {
             blobs: Blobs::new(data),
-            cache: Cache::new(CACHE_BYTES),
+            cache: Arc::new(Cache::new(CACHE_BYTES)),
             decode,
             settings,
             uploads,
@@ -204,11 +207,17 @@ impl Attachments for DaemonAttachments {
             tracing::warn!(%conversation_id, error = %error, "the rows of the blobs could not be read; the blobs stay");
             Vec::new()
         });
-        let blobs: Vec<PathBuf> =
-            unnamed.iter().map(|sha256| self.blobs.dir(conversation_id).join(sha256)).collect();
+        for sha256 in &unnamed {
+            self.cache.remove(conversation_id, sha256);
+        }
         let copies: Vec<PathBuf> =
             attachments.iter().filter_map(|attachment| attachment.copy.clone()).collect();
-        let removed = tokio::task::spawn_blocking(move || remove_bound(&copies, &blobs)).await;
+        let blobs = self.blobs.clone();
+        let removed = tokio::task::spawn_blocking(move || {
+            remove_bound(&copies)?;
+            unnamed.iter().try_for_each(|sha256| blobs.remove(conversation_id, sha256))
+        })
+        .await;
         if let Ok(Err(error)) = removed {
             tracing::warn!(%conversation_id, error = %error, "the files of a withdrawn prompt could not be removed");
         }
@@ -331,10 +340,10 @@ fn write_bound(
     Ok(scratch.join(ATTACH_DIR).join(copy_name))
 }
 
-/// Removes the scratch `copies` of a withdrawn prompt and the `blobs` that no row
-/// names any more. Each copy goes through the descriptor of its dir, so a link there
-/// is removed itself and never followed. It blocks.
-fn remove_bound(copies: &[PathBuf], blobs: &[PathBuf]) -> io::Result<()> {
+/// Removes the scratch `copies` of a withdrawn prompt. Each copy goes through the
+/// descriptor of its dir, so a link there is removed itself and never followed. It
+/// blocks.
+fn remove_bound(copies: &[PathBuf]) -> io::Result<()> {
     for copy in copies {
         let (Some(name), Some(scratch)) = (copy.file_name(), copy.parent().and_then(Path::parent))
         else {
@@ -342,12 +351,6 @@ fn remove_bound(copies: &[PathBuf], blobs: &[PathBuf]) -> io::Result<()> {
         };
         let dir = owned_dir::open(scratch, ATTACH_DIR)?;
         owned_dir::remove(&dir, &name.to_string_lossy())?;
-    }
-    for blob in blobs {
-        match std::fs::remove_file(blob) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
-        }
     }
     Ok(())
 }

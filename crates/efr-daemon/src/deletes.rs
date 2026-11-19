@@ -64,6 +64,7 @@ async fn finish(state: &State, conversation_id: ConversationId) {
     for pty in &tombstone.ptys {
         state.recording.forget(*pty).await;
     }
+    state.attachment_cache.remove_conversation(conversation_id);
     let rows = remove_rows(state, conversation_id).await;
     let snapshots = state.snapshots.forget_conversation(conversation_id).await;
     let undos: Vec<UndoId> = tombstone

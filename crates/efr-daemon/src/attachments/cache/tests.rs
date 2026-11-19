@@ -40,3 +40,27 @@ fn the_cache_never_keeps_an_entry_larger_than_itself() {
     assert_eq!(cache.get(conversation(1), "huge"), None);
     assert!(cache.get(conversation(1), "small").is_some(), "nothing went for it");
 }
+
+#[test]
+fn a_removed_entry_gives_its_room_back() {
+    let cache = Cache::new(100);
+    cache.insert(conversation(1), "a1", text(60));
+    cache.insert(conversation(2), "a2", text(30));
+    cache.remove(conversation(1), "a1");
+    assert_eq!(cache.get(conversation(1), "a1"), None);
+    cache.insert(conversation(1), "a3", text(70));
+    assert!(cache.get(conversation(2), "a2").is_some(), "the room of a1 was free");
+    assert!(cache.get(conversation(1), "a3").is_some());
+}
+
+#[test]
+fn the_delete_of_a_conversation_removes_its_entries_only() {
+    let cache = Cache::new(100);
+    cache.insert(conversation(1), "a1", text(30));
+    cache.insert(conversation(1), "a2", text(30));
+    cache.insert(conversation(2), "b1", text(30));
+    cache.remove_conversation(conversation(1));
+    assert_eq!((cache.get(conversation(1), "a1"), cache.get(conversation(1), "a2")), (None, None));
+    cache.insert(conversation(2), "b2", text(70));
+    assert!(cache.get(conversation(2), "b1").is_some(), "the room of conversation 1 was free");
+}

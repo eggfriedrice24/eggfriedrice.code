@@ -124,6 +124,17 @@ describe("the tiles of a prompt on its way", () => {
       ),
     ).toBe(false);
   });
+
+  it("sees a change of the kind and of the limit of a file over the limit", () => {
+    const over = draftTiles([draftFile({ bytes: 30_000_000 })], LIMITS);
+    const lower = draftTiles([draftFile({ bytes: 30_000_000 })], {
+      ...LIMITS,
+      max_file_bytes: 10_000_000,
+    });
+    expect(sameTiles(over, lower)).toBe(false);
+    const pdf = draftTiles([draftFile({ kind: "pdf" })], LIMITS);
+    expect(sameTiles(draftTiles([draftFile({})], LIMITS), pdf)).toBe(false);
+  });
 });
 
 const shot: Attachment = {

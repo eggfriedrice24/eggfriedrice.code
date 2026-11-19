@@ -3,7 +3,10 @@
 //!
 //! A turn fills the bytes of each attachment once, and each request of the turn shares
 //! them, so the cache serves the next turns. The oldest entry goes first when a new one
-//! does not fit; an entry larger than the whole cache is never kept.
+//! does not fit; an entry larger than the whole cache is never kept. A hit does not
+//! make an entry younger: each turn loads the attachments of its conversation in the
+//! same order, and when they do not fit, a refresh would not keep more of them. The
+//! delete of a conversation and the forget of a withdrawn prompt remove their entries.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, PoisonError};
@@ -72,6 +75,28 @@ impl Cache {
         inner.bytes += data.len();
         inner.order.push_back((conversation_id, sha256.to_owned()));
         inner.entries.entry(conversation_id).or_default().insert(sha256.to_owned(), data);
+    }
+
+    /// Lets the text of the blob `sha256` of `conversation_id` go.
+    pub(crate) fn remove(&self, conversation_id: ConversationId, sha256: &str) {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let inner = &mut *guard;
+        let Some(blobs) = inner.entries.get_mut(&conversation_id) else { return };
+        let Some(text) = blobs.remove(sha256) else { return };
+        if blobs.is_empty() {
+            inner.entries.remove(&conversation_id);
+        }
+        inner.bytes -= text.len();
+        inner.order.retain(|(conversation, sha)| *conversation != conversation_id || sha != sha256);
+    }
+
+    /// Lets the text of every blob of `conversation_id` go.
+    pub(crate) fn remove_conversation(&self, conversation_id: ConversationId) {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let inner = &mut *guard;
+        let Some(blobs) = inner.entries.remove(&conversation_id) else { return };
+        inner.bytes -= blobs.values().map(|text| text.len()).sum::<usize>();
+        inner.order.retain(|(conversation, _)| *conversation != conversation_id);
     }
 }
 

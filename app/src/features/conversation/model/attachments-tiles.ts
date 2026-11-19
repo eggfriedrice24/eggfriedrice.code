@@ -126,9 +126,14 @@ export function promptTiles(
   withheld: ReadonlySet<string>,
   preview: (index: number) => string | undefined,
 ): TileView[] {
-  const unread = new Set(prompt.unread);
-  return (prompt.attachments ?? []).map((file, index) => {
-    const asPath = unread.has(file.id) || withheld.has(file.id) || noContent(file);
+  const files = prompt.attachments ?? [];
+  if (files.length === 0) {
+    return [];
+  }
+  // A prompt holds at most `max_per_message` files, so a scan of the list is cheap.
+  const unread = prompt.unread ?? [];
+  return files.map((file, index) => {
+    const asPath = unread.includes(file.id) || withheld.has(file.id) || noContent(file);
     const kind = tileKind(file);
     return {
       key: file.id,
@@ -151,6 +156,7 @@ export function sameTiles(a: readonly TileView[], b: readonly TileView[]): boole
         return (
           other !== undefined &&
           other.key === held.key &&
+          other.kind === held.kind &&
           other.name === held.name &&
           other.bytes === held.bytes &&
           other.previewUri === held.previewUri &&
@@ -169,6 +175,9 @@ function sameState(a: TileState, b: TileState): boolean {
     (b.kind === "uploading" || b.kind === "again")
   ) {
     return a.percent === b.percent;
+  }
+  if (a.kind === "over_limit" && b.kind === "over_limit") {
+    return a.limit === b.limit;
   }
   return true;
 }

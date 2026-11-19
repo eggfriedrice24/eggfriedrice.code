@@ -173,6 +173,8 @@ export interface PromptRowProps {
   readonly turnId: string;
 }
 
+const NONE_WITHHELD: ReadonlySet<string> = new Set();
+
 /** Quick Look of a photo tile with its preview. */
 function lookAt(attach: AppAttach | null | undefined, tile: TileView): void {
   if (attach === null || attach === undefined || tile.previewUri === undefined) {
@@ -187,7 +189,10 @@ function lookAt(attach: AppAttach | null | undefined, tile: TileView): void {
 export function PromptRow(props: PromptRowProps) {
   const scope = useTranscriptScope();
   const view = useSelector(scope.store, selectPrompt(props.turnId), { compare: compareShallow });
-  const withheld = useSelector(scope.store, (state) => state.withheld);
+  // Only a prompt with files reads the withheld set: the other rows do not render again at
+  // an `attachments_withheld` event.
+  const files = (view.prompt?.attachments?.length ?? 0) > 0;
+  const withheld = useSelector(scope.store, (state) => (files ? state.withheld : NONE_WITHHELD));
   const previews = useSelector(
     scope.attach?.attachments.store ?? NO_ATTACHMENTS,
     selectPreviews(view.prompt?.commandId ?? ""),

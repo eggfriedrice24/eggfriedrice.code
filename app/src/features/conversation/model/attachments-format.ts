@@ -9,6 +9,7 @@
 //
 // Pure TypeScript.
 
+import type { WithheldReason } from "@/lib/protocol/generated";
 import { utf8Length } from "@/lib/stream/utf8";
 
 import { byteSize } from "./format";
@@ -160,12 +161,20 @@ export function removeLabel(name: string): string {
   return `Remove ${name}`;
 }
 
-/** Why efrd sends attachments as a path from now on (`WithheldReason` of efr-protocol). */
-export type WithheldWhy = "budget" | "refused" | "unknown";
+/**
+ * The most names that a withheld line shows. A budget event can name dozens of older
+ * attachments; the others become a count, as in the row of the terminal.
+ */
+export const WITHHELD_NAMES = 3;
 
-/** The quiet row of an `attachments_withheld` event: "Not sent: shot.png. The provider refused it." */
-export function withheldLine(names: readonly string[], reason: WithheldWhy): string {
-  const list = `Not sent: ${names.join(", ")}.`;
+/**
+ * The quiet row of an `attachments_withheld` event: "Not sent: shot.png. The provider
+ * refused it.", or "Not sent: a.png, b.png, c.png and 43 more. ..." for a long list.
+ */
+export function withheldLine(names: readonly string[], reason: WithheldReason): string {
+  const shown = names.slice(0, WITHHELD_NAMES).join(", ");
+  const more = names.length - WITHHELD_NAMES;
+  const list = `Not sent: ${more > 0 ? `${shown} and ${more} more` : shown}.`;
   const them = names.length === 1 ? "it" : "them";
   switch (reason) {
     case "refused":

@@ -55,6 +55,15 @@ impl Blobs {
         efr_stdx::fs::write_atomic(&path, bytes).map_err(io::Error::other)
     }
 
+    /// Removes the blob `sha256` of `conversation_id`; a blob that is gone already is no
+    /// error. It blocks.
+    pub(crate) fn remove(&self, conversation_id: ConversationId, sha256: &str) -> io::Result<()> {
+        match std::fs::remove_file(self.path(conversation_id, sha256)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
     /// The bytes of the blob `sha256` of `conversation_id`. It blocks.
     pub(crate) fn read(
         &self,

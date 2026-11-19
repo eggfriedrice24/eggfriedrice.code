@@ -1995,8 +1995,9 @@ capability `attachments` while `attachments.enabled` is on.
   conversation delete removes the dir, and `forget` removes each blob of a withdrawn
   prompt that no row names (`efr_store::attachments::names_blob`).
 - **The cache** (`attachments/cache.rs`): the base64 text of the blobs, at most
-  `CACHE_BYTES` (32 MiB), oldest out first. An entry larger than the cache is never
-  cached.
+  `CACHE_BYTES` (32 MiB), oldest out first; a hit does not make an entry younger. An
+  entry larger than the cache is never cached. The conversation delete
+  (`State::attachment_cache`) and `forget` remove their entries.
 - **The copies** (`owned_dir.rs`): `make`, `open`, `write_new` and `remove` of the dirs
   that efrd owns in `$SCRATCH`, with their markers `.efr-jobs` and `.efr-attachments`.
   `jobs/output.rs` and the attachments both use it. Each open goes through `openat2`

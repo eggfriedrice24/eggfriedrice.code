@@ -125,6 +125,9 @@ pub(crate) struct State {
     pub(crate) deletes: crate::deletes::Queue,
     /// The open uploads of `attachment.put` (`attachments/uploads.rs`).
     pub(crate) uploads: crate::attachments::uploads::Uploads,
+    /// The base64 text of the blobs, which the delete of a conversation empties
+    /// (`attachments/cache.rs`).
+    pub(crate) attachment_cache: Arc<crate::attachments::Cache>,
     /// The pushes to the paired phones (`push.rs`).
     pub(crate) push: crate::push::Push,
 }

@@ -9,6 +9,7 @@ import {
   overLimitLine,
   tileLabel,
   uploadPercent,
+  WITHHELD_NAMES,
   withheldLine,
   type TileText,
 } from "./attachments-format";
@@ -118,5 +119,15 @@ describe("the lines of the limits and of a withheld attachment", () => {
       "Not sent: a.png, b.pdf. The request had no room for them.",
     );
     expect(withheldLine(["a.png"], "unknown")).toBe("Not sent: a.png.");
+  });
+
+  it("counts the names after the first WITHHELD_NAMES", () => {
+    const names = Array.from({ length: 46 }, (_, i) => `IMG_${i}.jpg`);
+    expect(withheldLine(names, "budget")).toBe(
+      `Not sent: IMG_0.jpg, IMG_1.jpg, IMG_2.jpg and ${46 - WITHHELD_NAMES} more. The request had no room for them.`,
+    );
+    expect(withheldLine(names.slice(0, WITHHELD_NAMES), "unknown")).toBe(
+      "Not sent: IMG_0.jpg, IMG_1.jpg, IMG_2.jpg.",
+    );
   });
 });
