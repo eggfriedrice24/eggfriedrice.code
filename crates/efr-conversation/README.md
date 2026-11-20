@@ -391,7 +391,7 @@ turns.
   turn), and both `jobs.max_wakes_per_hour` (`ConversationConfig::max_wakes_per_hour`,
   counted over the stored starts of the last hour, so a restart keeps it) and the
   daemon-wide limit
-  (`Toolbox::wake_allowed`) allow one more. The depth rule (v0.0.13.1): a job of a
+  (`Toolbox::wake_allowed`) allow one more. The depth rule (v0.0.14): a job of a
   prompt's turn wakes with depth 1, a job of that wake turn wakes once more with depth
   2 so that the model can report its end, and a job of a wake turn of depth 2 never
   wakes (`job_notice_held` with `wake_turn_job`), so a chain of wake turns always ends.

@@ -84,7 +84,7 @@ fn wake_turn_preamble_names_no_prompt() {
     assert_snapshot!(text);
 }
 
-/// The last wake turn of a chain (v0.0.13.1): the block tells the model that a job it
+/// The last wake turn of a chain (v0.0.14): the block tells the model that a job it
 /// starts now reports only with the user's next prompt, so it does not promise a
 /// report that never comes. The line comes after the directory of the job's turn.
 #[test]

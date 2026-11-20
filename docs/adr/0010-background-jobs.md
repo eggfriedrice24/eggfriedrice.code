@@ -71,7 +71,7 @@ it ends, and what its output can do in the conversation.
    turns could chain for hours with nobody there. So a job that a wake turn starts
    holds its notices for the next prompt, and the wake turns of an hour are counted
    per conversation and for the daemon, over restarts.
-   Amended on 2026-11-19 (v0.0.13.1): a chain may have two wake turns, not one. Real
+   Amended on 2026-11-19 (v0.0.14): a chain may have two wake turns, not one. Real
    runs of v0.0.13 showed the cost of one: a wake turn started a job, told the user
    that it runs for 60 minutes, and the job ended after 0 s; the user never heard of
    the end. Now a job of a prompt's turn wakes with depth 1, a job of that wake turn

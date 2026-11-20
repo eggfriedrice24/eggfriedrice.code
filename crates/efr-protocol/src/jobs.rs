@@ -161,7 +161,7 @@ pub enum HeldReason {
     /// per hour.
     WakeLimit,
     /// A turn that a notice started started the job, so its notices never start a
-    /// turn. From v0.0.13.1 only the last wake turn of a chain holds them: a job of
+    /// turn. From v0.0.14 only the last wake turn of a chain holds them: a job of
     /// the first wake turn wakes once more, and a job of that second wake turn holds.
     WakeTurnJob,
     /// efrd restarted while the job ran.

@@ -54,7 +54,7 @@ directories, a store and provider traffic from one place and never from the mach
   frame 15 in 16 colours and without colour, 25 and 26 frame 22), `TM-Endings` 23 to 33
   and `TM-Commands` 7. The older frames of those boards stay as they were checked in;
   the canvas changed some of them since, so an export adds only the new frames to them.
-  `TM-Narrow` (0.0.13.1) keeps only its frames "after": a finished row does not depend
+  `TM-Narrow` (0.0.14) keeps only its frames "after": a finished row does not depend
   on the width of the window.
   `Frame::load(board,
   number)` reads a frame;
